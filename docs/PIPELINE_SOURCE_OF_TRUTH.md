@@ -330,9 +330,31 @@ A second signal modality must exist with the recommended filter chain:
 | Resampling              | none (keep 500 Hz)                                                     | `original_fs`, `target_fs`                              |
 | Normalization           | per-lead z-score, scaler fit on **train split only**                   | `scaler_type=zscore_per_lead`, `scaler_fit_split=train` |
 
-Output containers: `data/processed/signals/lead2_preprocessed.h5` and
-`data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`. Same schema as the
-raw twins. Manifest gets new rows with `modality_kind=preprocessed_*`.
+**Recipe vs. materialization — two separable artifacts.** The filter
+chain above decomposes into two things, and only the first is mandatory:
+
+1. **The preprocessing recipe (always produced).** A small, version-locked
+   config — `config/preprocessing_recipe.yaml` (filter params) plus the
+   per-lead z-score scalers fit on the **train split only**
+   (`config/scalers/lead2_zscore_train.npz` and the 12-lead twin). This is
+   a few kilobytes and is **always** produced (in Stage 3, once raw
+   signals and the train split both exist). It is the canonical definition
+   of "the preprocessed signal," and every consumer that needs preprocessed
+   samples can reproduce them deterministically by applying it to the raw
+   HDF5 on-the-fly.
+2. **The materialized preprocessed signals (optional, Stage 9).** The
+   on-disk `data/processed/signals/lead2_preprocessed.h5` and
+   `data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`
+   (same schema as the raw twins; manifest gets `modality_kind=preprocessed_*`
+   rows). This is +75 GB of redundant bytes whose only purpose is to ship
+   the preprocessed modality as a pre-baked container. Whether to
+   materialize is the open decision in §12.2; **nothing in Phase 1 depends
+   on it** because the recipe (item 1) already makes preprocessed samples
+   reproducible.
+
+Plan A/B §4.4's "raw and preprocessed as separate modalities, never
+overwrite raw" is satisfied by item 1 alone: raw stays untouched, and the
+preprocessed modality is a distinct, fully-specified, reproducible view.
 
 ### 3.4 Missing: structured features (Plan A/B §4.5)
 
@@ -348,8 +370,15 @@ columns include at minimum:
 - SQI: `sqi_high / sqi_med / sqi_low` (per-lead and aggregate)
 - Machine measurements: `machine_rr_ms, machine_qrs_onset, machine_qrs_end, machine_p_axis, machine_qrs_axis, machine_t_axis, cart_id, filtering, bandwidth`
 
-This is computed from the preprocessed signal. Heavy compute (NeuroKit2
-is ~1–3 s per ECG). Parallelize per §8.
+This is computed from the **preprocessed** signal — but via the locked
+preprocessing recipe (§3.3 item 1) applied **on-the-fly to the raw HDF5**
+at compute time, **not** by reading a materialized `lead2_preprocessed.h5`.
+The dependency is therefore on `config/preprocessing_recipe.yaml` + the
+train-fit scalers (locked in Stage 3), not on the optional Stage 9
+materialization. This is what keeps `structured_features.parquet` — a
+Plan A/B–mandated artifact — producible in Stage 7 regardless of whether
+Stage 9 ever runs. Heavy compute (NeuroKit2 is ~1–3 s per ECG).
+Parallelize per §8.
 
 ### 3.5 Missing: split ratio is wrong (Plan A/B §4.7 vs Truth doc §5.2)
 
@@ -551,11 +580,15 @@ script; "**New**" = author a new script.
 | 10  | `10_extract_ecg_signals.py` | Modify | Pattern B writer (see §7.2). Each ProcessPoolExecutor worker writes a private partial HDF5 (`data/processed/partial/lead2_worker_{wid}.h5` and `data/processed/partial/twelve_lead_worker_{wid}.h5`). Worker also returns a `signal_metadata` dict to the main process.                                                                                |
 | 10b | `10b_pack_signals.py`       | New    | Offline packer. Consumes the `data/processed/partial/*.h5` files and writes the canonical `data/processed/signals/lead2_raw.h5` plus `data/processed/signals/twelve_lead_raw_shard_{00..04}.h5` (5 shards). Builds `data/processed/signals/signals_manifest.parquet` and stamps HDF5 with §2.2 attrs. Deletes `partial/` on success.                    |
 
-### Phase 3 — preprocessed signals (NEW stage)
+### Phase 3 — preprocessing recipe + (optional) preprocessed signals
+
+The preprocessing concern splits in two (§3.3): the **recipe** (always
+produced, in Stage 3) and the **materialized signals** (optional, Stage 9).
 
 | #   | Script                     | Status | Changes                                                                                                                                                                                                                                                                                                                                                                            |
 | --- | -------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 15  | `15_preprocess_signals.py` | New    | Read raw HDF5, apply baseline-wander HP, 60 Hz notch, low-pass, per-lead z-score (scaler fit on **train split only**, persisted to `config/scalers/lead2_zscore_train.npz`). Write `data/processed/signals/lead2_preprocessed.h5` and `data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`. Pattern B; record filter params in HDF5 attrs (§3.3). |
+| 14  | `14_fit_preprocessing_recipe.py` | New | **Always runs (Stage 3 sub-step).** Stream the **train-split** rows of `lead2_raw.h5` + `twelve_lead_raw_shard_*.h5`, fit per-lead z-score scalers, and write `config/preprocessing_recipe.yaml` (filter params: 0.5 Hz baseline HP, 60 Hz notch, ~100 Hz low-pass, no resample) + `config/scalers/lead2_zscore_train.npz` and the 12-lead scaler. Exposes a pure `apply_recipe(raw_array) -> preprocessed_array` helper imported by `32_compute_structured_features.py` and (if run) `15_preprocess_signals.py`. No bulk signal bytes written. |
+| 15  | `15_preprocess_signals.py` | New (DEFERRED, Stage 9) | **Optional materializer.** Read raw HDF5, apply the **already-locked** recipe from script 14 (does not re-fit), write `data/processed/signals/lead2_preprocessed.h5` and `data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`. Pattern B; record filter params in HDF5 attrs (§3.3). Runs only if §12.2 resolves to "materialize." |
 
 ### Phase 4 — image rendering
 
@@ -1262,7 +1295,14 @@ stage.
 - QC (Stage 6) depends on raw signals **and** both image modalities
   because it joins all three to flag tri-modal completeness.
 - Rich waveform-QC and structured features (Stage 7) depend on raw
-  signals (NeuroKit2 reads `lead2_raw.h5`).
+  signals (NeuroKit2 reads `lead2_raw.h5`). Structured features
+  additionally depend on the **locked preprocessing recipe** (Stage 3
+  sub-step) — they apply it on-the-fly to raw, so they do **not** depend
+  on the optional Stage 9 materialization.
+- The preprocessing recipe + train-fit scalers (Stage 3 sub-step) depend
+  on raw signals (Stage 3 pack) **and** the patient split (Stage 2,
+  scalers are fit on the train split only). This is why the recipe is
+  locked in Stage 3, not earlier.
 - Signals-corrupted (Stage 8) depends on raw signals and the patient
   split (test split is the anchor subset).
 - Final audits (Stage 10) need every prior artifact to be in place.
@@ -1276,7 +1316,7 @@ Starting state: `data/processed/` ≈ 406 GB, D: free ≈ 195 GB.
 | 0     | Foundation (version lock, access check, ECG metadata) | 30–60 min   | +0.5 GB                 | ≈ 194 GB   |
 | 1     | EHR linkage chain + decision gate                     | 30–90 min   | +13 GB (ehr_cache)      | ≈ 181 GB   |
 | 2     | Patient split (stratified)                            | 5 min       | ≈ +0                    | ≈ 181 GB   |
-| 3     | Signal extraction + pack (BIG)                        | 6–12 h      | +75 new −204 old        | ≈ 310 GB   |
+| 3     | Signal extraction + pack (BIG) + lock recipe (3.B)    | 6–12 h      | +75 new −204 old (recipe KB) | ≈ 310 GB   |
 | 4     | Clean image rendering (both layouts)                  | 8–16 h      | +201 new −141 old       | ≈ 250 GB   |
 | 5     | Scanlike image rendering (both layouts)               | 4–8 h       | +104 new −68 old        | ≈ 214 GB   |
 | 6     | Tri-modal QC (parquet)                                | 30–60 min   | +0.05 −0.06             | ≈ 214 GB   |
@@ -1440,13 +1480,22 @@ per-study `.npy` files.
 | - | --------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1 | `10_extract_ecg_signals.py`       | Modify | Pattern B writer per §7.2. Each `ProcessPoolExecutor` worker writes its own `data/processed/partial/lead2_worker_{wid}.h5` and `partial/twelve_lead_worker_{wid}.h5`. Workers also return `signal_metadata` dicts to the main process. |
 | 2 | `10b_pack_signals.py`             | New    | **Streaming-merge** packer: for each worker partial, append its rows to the canonical HDF5 then `os.unlink` the partial. Output `signals/lead2_raw.h5` (1 file) + `signals/twelve_lead_raw_shard_{00..04}.h5` (5 shards by `study_id % 5`). Build per-row SHA256 in `signals/signals_manifest.parquet`. Stamp HDF5 attrs per §2.2. Same script materializes `data/processed/signal_metadata.parquet` from the workers' returned dicts. |
+| 3 | `14_fit_preprocessing_recipe.py`  | New    | **Sub-step 3.B (always runs).** After the pack, stream the **train-split** rows of `lead2_raw.h5` + `twelve_lead_raw_shard_*.h5`, fit per-lead z-score scalers, and write `config/preprocessing_recipe.yaml` + `config/scalers/lead2_zscore_train.npz` + the 12-lead scaler. Locks "the preprocessed signal" as a reproducible recipe (§3.3 item 1) so Stage 7's structured features never block on the optional Stage 9 materialization. No bulk signal bytes written. |
 
-**Inputs:** `data/raw/files/`, `data/processed/index/ecg_metadata.parquet`.
+**Sub-step ordering.** 3.A = extract + pack (`10`, `10b`). 3.B = fit
+recipe (`14`), which needs both the packed raw HDF5 (3.A) and the train
+split (Stage 2). 3.B is cheap (one streaming pass over train rows, no
+bulk writes) and produces only KB-scale config.
+
+**Inputs:** `data/raw/files/`, `data/processed/index/ecg_metadata.parquet`,
+`data/processed/splits_subject_level.parquet` (for the recipe scaler fit).
 
 **Outputs:** `data/processed/signals/lead2_raw.h5`,
 `data/processed/signals/twelve_lead_raw_shard_{00..04}.h5`,
 `data/processed/signals/signals_manifest.parquet`,
-`data/processed/signal_metadata.parquet`.
+`data/processed/signal_metadata.parquet`,
+`config/preprocessing_recipe.yaml`,
+`config/scalers/lead2_zscore_train.npz` (+ 12-lead scaler).
 
 **Deletes (after validation):**
 - `data/processed/signals_lead2/` (~16 GB)
@@ -1468,6 +1517,13 @@ per-study `.npy` files.
   (which still exists pre-delete).
 - `signal_metadata.parquet` row count == row count of HDF5.
 - `data/processed/partial/` directory is empty after packing.
+- **(3.B)** `config/preprocessing_recipe.yaml` exists with all §3.3 filter
+  params; `config/scalers/lead2_zscore_train.npz` (+ 12-lead scaler) exist.
+- **(3.B)** Scaler provenance check: the recipe records
+  `scaler_fit_split=train` and the scaler was fit on **train subjects only**
+  (assert zero val/test `subject_id`s contributed to the mean/std).
+- **(3.B)** Round-trip check: `apply_recipe(raw_array)` on 100 random
+  studies is deterministic (re-run byte-identical) and finite (no NaN/Inf).
 
 ---
 
@@ -1595,10 +1651,12 @@ QC + cross-source consistency, §3.2) and `structured_features.parquet`
 | # | Script                                | What it does                                                                                                                                                                                                                                                                                                                                |
 | - | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1 | `31_waveform_qc.py`                   | Pattern A. Read `lead2_raw.h5[i]` + `twelve_lead_raw_shard_*.h5` + machine measurements; compute every column in §3.2 (per-lead SQI via NeuroKit2 `ecg_quality`, HR consistency, QRS consistency, flatline, extreme amplitude, duplicate detection via SHA256 of `lead_II[::10]`); workers return dicts; main writes `waveform_qc.parquet`. |
-| 2 | `32_compute_structured_features.py`   | Pattern A with smaller `FLUSH_EVERY=10_000` (bigger rows). Read raw signal, run NeuroKit2 HRV / morphology / intervals, passthrough machine measurements; write `structured_features.parquet`.                                                                                                                                              |
+| 2 | `32_compute_structured_features.py`   | Pattern A with smaller `FLUSH_EVERY=10_000` (bigger rows). Read raw signal, **apply the locked preprocessing recipe on-the-fly** via `apply_recipe()` from `14_fit_preprocessing_recipe.py` (§3.3 item 1 / §3.4) — i.e. compute features on the *preprocessed* view without reading any materialized `lead2_preprocessed.h5`. Run NeuroKit2 HRV / morphology / intervals, passthrough machine measurements; write `structured_features.parquet`. **Does not depend on Stage 9.** |
 
 **Inputs:** `signals/lead2_raw.h5`, `signals/twelve_lead_raw_shard_*.h5`,
-`ecg_metadata.parquet`.
+`ecg_metadata.parquet`, `config/preprocessing_recipe.yaml`,
+`config/scalers/lead2_zscore_train.npz` (+ 12-lead scaler) — the recipe
+locked in Stage 3 sub-step 3.B.
 
 **Outputs:** `data/processed/waveform_qc.parquet` (~0.5 GB),
 `data/processed/structured_features.parquet` (~5–10 GB).
@@ -1614,6 +1672,9 @@ QC + cross-source consistency, §3.2) and `structured_features.parquet`
 - Duplicate-waveform groups: count and size distribution printed.
 - `structured_features.parquet` row count == row count of HDF5 rows
   with `decode_ok=True`.
+- Pre-flight: `config/preprocessing_recipe.yaml` + scalers from Stage 3
+  sub-step 3.B are present (structured features depend on them, **not** on
+  Stage 9). Halt if missing.
 
 ---
 
@@ -1646,24 +1707,32 @@ parquet. Fix the `hash()` non-determinism bug (§3.11) in the same pass.
 
 ---
 
-#### Stage 9 — Preprocessed signals (DEFERRED — see §12 open decision)
+#### Stage 9 — Preprocessed signals: materialize-or-not (DEFERRED — see §12 open decision)
 
 **Purpose.** Plan A/B §4.4 mandates "raw and preprocessed signal as
-separate modalities." Two ways to satisfy this:
+separate modalities." That mandate is **already satisfied by the recipe
+locked in Stage 3 sub-step 3.B** (`config/preprocessing_recipe.yaml` +
+train-fit scalers): raw is untouched, and the preprocessed modality is a
+fully-specified, reproducible view. Stage 9 is therefore **only** the
+question of whether to *also persist* that view as pre-baked bytes:
 
-- **9.A — Materialize:** build `signals/lead2_preprocessed.h5` +
-  `signals/twelve_lead_preprocessed_shard_{00..04}.h5` with the filter
-  chain in §3.3 (60 Hz notch per §12 res. 1, baseline-wander HP at
-  0.5 Hz, low-pass at 100 Hz, per-lead z-score with scaler fit on
-  **training split only**). Disk +75 GB.
-- **9.B — On-the-fly via locked recipe:** write only
-  `config/preprocessing_recipe.yaml` (KB) + `config/scalers/lead2_zscore_train.npz`
-  (KB). The consumer's `read_modality(study_id, "preprocessed_lead2")`
-  reads raw and applies the recipe at read time. Disk ≈ 0.
-  Either way the recipe must be saved.
+- **9.A — Materialize:** run `15_preprocess_signals.py` to build
+  `signals/lead2_preprocessed.h5` +
+  `signals/twelve_lead_preprocessed_shard_{00..04}.h5` by applying the
+  **already-locked** recipe (it does not re-fit). Adds `preprocessed_*`
+  rows to the modality manifest. Disk +75 GB. Worth it only if read
+  latency at training time matters more than 75 GB.
+- **9.B — Do not materialize:** ship nothing extra. The recipe + scalers
+  already exist from Stage 3, and `read_modality(study_id, "preprocessed_lead2")`
+  reads raw and applies the recipe at read time (~few ms). Disk ≈ 0.
 
-**This is an open decision (§12.5).** Do not run Stage 9 until the
-user picks 9.A or 9.B.
+**Note:** this is no longer "recipe vs. materialize" — the recipe exists
+either way. It is purely "spend 75 GB to pre-bake, or apply at read
+time." Nothing upstream (Stage 7 structured features included) blocks on
+this choice.
+
+**This is an open decision (§12.2).** Do not run `15_preprocess_signals.py`
+until the user picks 9.A or 9.B. Under 9.B, Stage 9 is a no-op.
 
 ---
 
@@ -1850,19 +1919,33 @@ Every finding the reviewer raises is labelled with one of:
 
 ### 12.1 Resolved
 
-1. **Powerline notch frequency:** Locked to 60 Hz (MIMIC-IV-ECG is US-recorded). Applied in Stage 9 if/when preprocessed signals are materialized.
+1. **Powerline notch frequency:** Locked to 60 Hz (MIMIC-IV-ECG is US-recorded). Baked into the preprocessing recipe locked in **Stage 3 sub-step 3.B**; used on-the-fly by Stage 7 structured features and, if run, by the Stage 9 materializer.
 2. **Image rendering layouts:** Keep BOTH Lead-II strip and 12-lead 3×4 grid + rhythm strip. 12-lead grid must use low DPI (~100) and high PNG `compress_level=9` / low JPEG quality to minimize on-disk footprint. Applied in Stages 4–5.
 3. **`signals_corrupted` anchor size:** Keep 2 000 anchors × 8 corruptions × 5 SNRs ≈ 80 000 rows. Applied in Stage 8.
 4. **Cardiologist `T_cardio` text:** Ingest from `data/raw/waveform_note_links.csv`, store as nullable `T_cardio` column in `ecg_metadata.parquet`. Do not gate any main-paper task on it. Applied in Stage 0.
 
 ### 12.2 New open question (blocks Stage 9 only)
 
-5. **Preprocessed-signal modality — materialize or on-the-fly?** Plan A/B §4.4 mandates "raw and preprocessed signal as separate modalities, never overwrite raw." Two ways to satisfy:
+5. **Preprocessed signals — also materialize, or apply the recipe at read time?**
+   Plan A/B §4.4 ("raw and preprocessed as separate modalities, never
+   overwrite raw") is **already satisfied** by the preprocessing recipe +
+   train-fit scalers locked in **Stage 3 sub-step 3.B** — that is now a
+   *resolved* part of the plan, not an open question, and structured
+   features (Stage 7) consume it on-the-fly. The only thing still open is
+   whether to *additionally* persist the preprocessed view as bytes:
 
-   - **5.A — Materialize:** build `signals/lead2_preprocessed.h5` + 5 × `twelve_lead_preprocessed_shard_*.h5` with the §3.3 filter chain. **Disk cost: +75 GB** on top of the ~204 GB Phase-1 end state.
-   - **5.B — Locked recipe + on-the-fly:** save `config/preprocessing_recipe.yaml` + `config/scalers/lead2_zscore_train.npz` (kilobytes). Consumer's `read_modality(study_id, "preprocessed_lead2")` reads raw and applies the recipe at read time. Disk cost: ~0; ~few-ms read overhead per signal. Same logical separation, same Plan A/B §4.4 compliance.
+   - **5.A — Materialize (Stage 9.A):** run `15_preprocess_signals.py` to
+     apply the already-locked recipe and write
+     `signals/lead2_preprocessed.h5` + 5 × `twelve_lead_preprocessed_shard_*.h5`.
+     **Disk cost: +75 GB** on top of the ~204 GB Phase-1 end state. Buys
+     lower read latency at training time.
+   - **5.B — Don't materialize (Stage 9.B):** ship nothing extra;
+     `read_modality(study_id, "preprocessed_lead2")` applies the recipe to
+     raw at read time (~few-ms overhead per signal). Disk cost: ~0.
 
-   Stages 0–8 do not block on this. Stage 9 does. Decide before running Stage 9.
+   Either way the recipe already exists, so this is a pure storage-vs-latency
+   trade, not a compliance question. Stages 0–8 do not block on it; only the
+   optional Stage 9 materializer does. Decide before running Stage 9.
 
 ---
 

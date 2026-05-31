@@ -1,0 +1,30 @@
+# Stage 1 EHR linkage decision gate
+frozen_at: "2026-05-31T17:54:40Z"
+chosen_path: "plan_a"
+threshold_pass:
+  clean_linkage_ge_30pct: true
+  plan_a_icd_ge_40pct: true
+  plan_a_key_lab_24h_ge_20pct: true
+  plan_a_risk_outcome_ge_1000_or_ge_1pct: true
+threshold_values:
+  total_ecgs: 800035
+  clean_linkage_count: 547827
+  clean_linkage_pct: 0.68475379
+  l3_l2_icd_count: 547671
+  l3_l2_icd_pct: 0.68455880
+  key_lab_24h_count: 608968
+  key_lab_24h_pct: 0.76117670
+  risk_positive_count: 101276
+  risk_positive_pct: 0.12658946
+linkage_distribution:
+  L3: 468176
+  L2: 79651
+  L1: 237934
+  L0: 14274
+key_labs:
+  config_path: "config/key_labs.yaml"
+  K: [50822, 50971, 52610]
+  Na: [50824, 50983, 52623]
+  creatinine: [50912, 52546]
+  troponin: [51002, 51003, 52642]
+  lactate: [50813, 52442, 53154]

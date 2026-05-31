@@ -1,0 +1,32 @@
+# Stage 1 key-lab definition used by 44_label_availability.py.
+# Item IDs are MIMIC-IV Hosp d_labitems.itemid values.
+key_labs:
+  K:
+    label: "Potassium"
+    itemids:
+      - 50822
+      - 50971
+      - 52610
+  Na:
+    label: "Sodium"
+    itemids:
+      - 50824
+      - 50983
+      - 52623
+  creatinine:
+    label: "Creatinine"
+    itemids:
+      - 50912
+      - 52546
+  troponin:
+    label: "Troponin"
+    itemids:
+      - 51002
+      - 51003
+      - 52642
+  lactate:
+    label: "Lactate"
+    itemids:
+      - 50813
+      - 52442
+      - 53154

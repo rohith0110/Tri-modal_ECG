@@ -81,3 +81,28 @@ libraries:
   wfdb: "4.3.1"
 
 dataset_version_stamp: "v2.0.0"
+
+ehr_cache:
+  generated_at: "2026-05-31T17:48:58Z"
+  source: "Stage 1 40_load_ehr_tables.py"
+  source_path: "data/raw/ehr_cache/"
+  table_row_counts:
+    admissions: 546028
+    patients: 364627
+    diagnoses_icd: 6364488
+    d_icd_diagnoses: 112107
+    d_labitems: 1650
+    edstays: 425087
+    ed_diagnosis: 899050
+    triage: 425087
+    labevents: 158374764
+  file_checksums:
+    admissions: "60a6637e9d889fbb94ffac0f7c543bbfdde793e4bd3b846725af01c0c7b801f8"
+    patients: "c761a1ae7734681dfd77a3b5ce13f409b7a2e81ed3fba9fc2c5967ea061bf501"
+    diagnoses_icd: "46544ef58f219e5500bd33158fd8634321e6a98f91a42f4a7b420c7cebea7c9b"
+    d_icd_diagnoses: "ef0d3d0ce9ca24433211b753c9b13f1323994797cd844fa3d27eef74888bce62"
+    d_labitems: "7cb902b47e9932b0cb60788629ec9fffd8f7fb2ae5b8648be16c2593b03a5f56"
+    edstays: "ae174055ad23e91a27e0ba18855218aba278e9af7a281ac6a939bb7de4247f1a"
+    ed_diagnosis: "b56b076a9438dbbaedec17ef9be2acdaf43facce069a9754aabaca896902b9bb"
+    triage: "b26bea0d9f74e91c60d018f8cd9052073c9fbf012afc795b0a3af599d82c96bb"
+    labevents: "d77fa32c33145a9258072fef3b1473bd2f647aecdced1cf0781fc4f623c31ba2"

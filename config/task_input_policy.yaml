@@ -1,0 +1,70 @@
+# Task input policy — defines allowed modalities per task
+# CRITICAL for leakage prevention: labels derived from a source cannot use that source as input
+# Doc §1.1, §5.1 step 4, §9.2
+
+modalities_available:
+  signal_lead2: "processed/signals_lead2/{study_id}.npy  — shape (5000,) float32"
+  signal_12lead: "processed/signals_12lead/{study_id}.npy — shape (5000,12) float32"
+  image_clean: "processed/images_clean/{study_id}.png"
+  image_scanlike: "processed/images_scanlike/{study_id}.jpg"
+  report_text: "machine_measurements.csv columns report_0..report_17 concatenated"
+  machine_measurements: "rr_interval, qrs_onset, qrs_end, t_end, p_axis, qrs_axis, t_axis"
+
+tasks:
+  B1_measurement_blind:
+    allowed:
+      - signal_lead2
+      - signal_12lead
+    forbidden:
+      - report_text          # contains HR/QRS/QTc descriptions → direct leakage
+      - machine_measurements # IS the label source → perfect leakage
+      - image_clean          # image rendering may embed measurement text
+      - image_scanlike
+    leakage_rationale: "Labels (hr_label, qrs_label, qtc_label) are derived directly from rr_interval, qrs_end-qrs_onset, and t_end. Any input containing these values allows trivial copying."
+
+  B2_noise_robustness:
+    allowed:
+      - signal_lead2         # corrupted version only; clean signal not seen at test time
+    forbidden:
+      - report_text
+      - machine_measurements
+      - image_clean
+      - image_scanlike
+    leakage_rationale: "Same as B1 — B2 uses B1 labels on corrupted signals."
+
+  B3_temporal_grounding:
+    allowed:
+      - signal_lead2
+      - signal_12lead
+    forbidden:
+      - report_text          # report may state 'HR 85 bpm' → label leakage for HIGH_HEART_RATE
+      - machine_measurements
+    leakage_rationale: "Temporal labels derived from R-peak detection and QRS onset/end. Machine measurements provide aggregate values that partially encode the labels."
+
+  B4_cross_modal_verification:
+    allowed:
+      - signal_lead2
+      - signal_12lead
+      - image_clean
+      - image_scanlike
+      - report_text
+    forbidden: []
+    leakage_rationale: "Verification task — all modalities are legitimate inputs; the task is to match them."
+
+  B5_contradiction_detection:
+    allowed:
+      - report_text          # must read report to detect contradiction
+      - signal_lead2         # signal provides ground truth for claim verification
+    forbidden:
+      - machine_measurements # IS the label source (hr from rr_interval) → direct leakage
+    leakage_rationale: "Contradiction labels are derived from machine measurements. Providing rr_interval/qrs fields would allow trivial computation of the true HR/QRS, defeating the detection challenge."
+
+  B6_difficulty_stratified:
+    allowed:
+      - signal_lead2
+      - signal_12lead
+      - image_clean
+      - image_scanlike
+      - report_text
+    forbidden: []
+    leakage_rationale: "Same as B4."

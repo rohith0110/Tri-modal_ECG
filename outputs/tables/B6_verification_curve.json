@@ -1,0 +1,61 @@
+{
+  "levels": {
+    "0": {
+      "name": "Random negative",
+      "n_pairs": 2000,
+      "n_positive": 2000,
+      "auroc": 0.5333,
+      "auprc": 0.526,
+      "accuracy": 0.5195,
+      "mrr": 0.002
+    },
+    "1": {
+      "name": "Matched HR bin",
+      "n_pairs": 2000,
+      "n_positive": 2000,
+      "auroc": 0.5177,
+      "auprc": 0.5118,
+      "accuracy": 0.5138,
+      "mrr": 0.0021
+    },
+    "2": {
+      "name": "Matched HR+QRS bins",
+      "n_pairs": 2000,
+      "n_positive": 2000,
+      "auroc": 0.5191,
+      "auprc": 0.5154,
+      "accuracy": 0.5138,
+      "mrr": 0.0021
+    },
+    "3": {
+      "name": "Matched HR+QRS+axis bins",
+      "n_pairs": 2000,
+      "n_positive": 2000,
+      "auroc": 0.523,
+      "auprc": 0.5161,
+      "accuracy": 0.5162,
+      "mrr": 0.0025
+    },
+    "4": {
+      "name": "Same patient, different study",
+      "n_pairs": 2000,
+      "n_positive": 2000,
+      "auroc": 0.5227,
+      "auprc": 0.5205,
+      "accuracy": 0.5135,
+      "mrr": 0.0026
+    },
+    "5": {
+      "name": "Nearest signal embedding",
+      "n_pairs": 2000,
+      "n_positive": 2000,
+      "auroc": 0.4917,
+      "auprc": 0.5041,
+      "accuracy": 0.492,
+      "mrr": 0.0024
+    }
+  },
+  "n_anchors": 2000,
+  "model": "ResNet512[:64] + TF-IDF2000[:64] + cosine \u2192 LR trained on Level-0 pairs",
+  "note": "Levels 0-5 hard-negative construction; 2000 anchors from test split"
+}

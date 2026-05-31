@@ -1,0 +1,52 @@
+This is BibTeX, Version 0.99e
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: main_v2.aux
+Reallocating 'name_of_file' (item size: 1) to 9 items.
+The style file: numbered.bst
+Reallocating 'name_of_file' (item size: 1) to 11 items.
+Database file #1: references.bib
+Reallocating 'wiz_functions' (item size: 4) to 6000 items.
+Reallocating 'singl_function' (item size: 4) to 100 items.
+Warning--empty pages in thawkar2023xraygpt
+You've used 30 entries,
+            3197 wiz_defined-function locations,
+            833 strings with 12744 characters,
+and the built_in function-call counts, 24803 in all, are:
+= -- 1477
+> -- 1407
+< -- 11
++ -- 994
+- -- 402
+* -- 3155
+:= -- 3232
+add.period$ -- 63
+call.type$ -- 30
+change.case$ -- 160
+chr.to.int$ -- 29
+cite$ -- 31
+duplicate$ -- 1817
+empty$ -- 1630
+format.name$ -- 488
+if$ -- 4501
+int.to.chr$ -- 2
+int.to.str$ -- 31
+missing$ -- 410
+newline$ -- 137
+num.names$ -- 90
+pop$ -- 683
+preamble$ -- 1
+purify$ -- 150
+quote$ -- 0
+skip$ -- 569
+stack$ -- 0
+substring$ -- 970
+swap$ -- 1631
+text.length$ -- 7
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 180
+warning$ -- 1
+while$ -- 110
+width$ -- 0
+write$ -- 404
+(There was 1 warning)

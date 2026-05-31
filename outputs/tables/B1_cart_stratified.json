@@ -1,0 +1,89 @@
+{
+  "per_cart_top5": {
+    "6632385": {
+      "n_ecgs": 386,
+      "n_subjects": 368,
+      "accuracy": 0.9741,
+      "macro_f1": 0.9495,
+      "n_positive_per_class": {
+        "bradycardia": 36,
+        "normal": 291,
+        "tachycardia": 59
+      },
+      "missingness_pct": 0.0
+    },
+    "6752764": {
+      "n_ecgs": 146,
+      "n_subjects": 146,
+      "accuracy": 0.9658,
+      "macro_f1": 0.9518,
+      "n_positive_per_class": {
+        "bradycardia": 24,
+        "normal": 103,
+        "tachycardia": 19
+      },
+      "missingness_pct": 0.0
+    },
+    "6848296": {
+      "n_ecgs": 116,
+      "n_subjects": 113,
+      "accuracy": 0.9569,
+      "macro_f1": 0.9243,
+      "n_positive_per_class": {
+        "bradycardia": 13,
+        "normal": 87,
+        "tachycardia": 16
+      },
+      "missingness_pct": 0.0
+    },
+    "6903271": {
+      "n_ecgs": 115,
+      "n_subjects": 114,
+      "accuracy": 0.9913,
+      "macro_f1": 0.9836,
+      "n_positive_per_class": {
+        "bradycardia": 14,
+        "normal": 89,
+        "tachycardia": 12
+      },
+      "missingness_pct": 0.0
+    },
+    "6672155": {
+      "n_ecgs": 114,
+      "n_subjects": 112,
+      "accuracy": 0.9561,
+      "macro_f1": 0.9209,
+      "n_positive_per_class": {
+        "bradycardia": 11,
+        "normal": 83,
+        "tachycardia": 20
+      },
+      "missingness_pct": 0.0
+    }
+  },
+  "all_other_carts": {
+    "n_ecgs": 2118,
+    "n_subjects": 1735,
+    "accuracy": 0.9618,
+    "macro_f1": 0.9475,
+    "n_positive_per_class": {
+      "bradycardia": 341,
+      "normal": 1517,
+      "tachycardia": 260
+    },
+    "missingness_pct": 0.0
+  },
+  "overall": {
+    "n_ecgs": 2995,
+    "n_subjects": 2382,
+    "accuracy": 0.9643,
+    "macro_f1": 0.9487,
+    "n_positive_per_class": {
+      "bradycardia": 439,
+      "normal": 2170,
+      "tachycardia": 386
+    },
+    "missingness_pct": 0.0
+  },
+  "note": "Sampled 2,995 test ECGs across 138 cart_ids; top 5 broken out, remainder aggregated."
+}

@@ -1,0 +1,753 @@
+Tri-Modal-ECG: an 800,000-study multimodal ECG dataset built on MIMIC-IV-ECG with 1
+scan-like image augmentation, multi-stage quality control, and three reproducible 2
+benchmarks for cross-modal verification, temporal grounding, and physiological 3
+plausibility 4
+Neeraj Choudary1, Banoth Rohith Rathod1, and Anshika Mishra1
+5
+1Mahindra University, Hyderabad, India 6
+Abstract 7
+The electrocardiogram (ECG) is a primary, non-invasive modality for assessing cardiac electro- 8
+physiology, and machine learning systems for ECG analysis are increasingly multimodal: they 9
+consume waveforms, ECG-paper images, and free-text reports together. The recently released 10
+MEETI dataset showed the value of pairing MIMIC-IV-ECG signals with rendered images, beat- 11
+level features, and large-language-model interpretations1. MEETI, however, is constrained on 12
+three axes that limit benchmarking: it provides plotted images for only roughly 10,000 records, 13
+its annotations are produced by GPT-4o and therefore depend on a closed model, and it does 14
+not partition the underlying 784,680 records into reproducible train/validation/test splits or expose 15
+downstream tasks. To address these constraints we present Tri-Modal-ECG, a fully open and 16
+reproducible multimodal ECG resource that covers 799,706 quality-controlled studies from 17
+161,328 unique patients drawn from MIMIC-IV-ECG. Each record is aligned across four modal- 18
+ities: a Lead II waveform array, a 12-lead waveform array, a clean ECG-paper PNG rendering, 19
+a deterministic scan-like JPG simulating clinical document degradation, the original machine- 20
+generated text report, and the corresponding structured measurements (heart rate, P/QRS/T 21
+timing, axes). On top of this core resource, we release three large benchmark task datasets gen- 22
+erated entirely by deterministic, audit-able rules without any LLM in the loop: Task A (cross-modal 23
+verification, 5,597,755 rows), Task B (per-second temporal grounding using local R-peak detection 24
+and QRS delineation, 2,399,118 rows) and Task C (physiological-plausibility classification, 4,726,480 25
+rows). All splits are patient-level with verified zero patient overlap between train, validation and 26
+test, eliminating the leakage modes that confound study-level random splits. We document a 27
+multi-stage quality-control pipeline (PIL+OpenCV image integrity audit, waveform length and 28
+decoder validity, non-empty report check) whose persisted JSON artefacts let any user audit 29
+the dataset's 400,000+ files without re-running the build. Compared with MEETI, Tri-Modal-ECG 30
+covers  80× more images, adds a scan-like image stream, exposes deterministic benchmark 31
+tasks, and provides a verifiable patient-level split. We hope this resource lowers the barrier 32
+for reproducible multimodal ECG research, and supports rigorous evaluation of cross-modal 33
+alignment, temporal localization, and grounded reasoning over cardiac signals. 34
+Background & Summary 35
+Cardiovascular disease is the leading cause of mortality worldwide2, and the 12-lead ECG 36
+remains the primary non-invasive tool for diagnosing arrhythmias, conduction disorders, and 37
+ischemia3­5. Modern ECG analysis is increasingly multimodal: clinicians and machine learning 38
+systems consume the waveform itself (as digital samples), the rendered ECG paper image, 39
+and the cardiologist's textual report together, and recent ECG­language models extend this 40
+fusion further6­9. Vision­language pre-training paradigms originally developed for natural images 41
+and pathology10­13 have been transferred to ECG, but their evaluation has been bottle-necked 42
+by datasets: most public ECG corpora provide a single modality (waveforms, e.g., PTB-XL14, 43
+1
+ICBEB15, SHDB-AF16), or two modalities (waveform + report, e.g., MIMIC-IV-ECG17; image + 44
+report, e.g., common clinical archives), forcing ECG­language models to be evaluated through 45
+bespoke pipelines. 46
+The MEETI release1 is, to our knowledge, the first attempt at a four-component MIMIC-IV-ECG 47
+extension: signal, image, beat-level FeatureDB parameters, and an LLM-generated interpretation 48
+per record. Tri-Modal-ECG inherits MEETI's central insight--that multimodal ECG research needs 49
+a single corpus where signal, image, structured features and free text are aligned by a common 50
+identifier--and addresses three practical limits we observed when trying to build a benchmark on 51
+top of MEETI: 52
+1. Image coverage. MEETI1 releases approximately 10,000 ECG paper images out of 784,680 53
+records (Section "Usage Notes"). Tri-Modal-ECG renders 800,033 clean ECG-paper PNGs 54
+and 800,033 scan-like JPGs from the full record list and ships both as part of the dataset. 55
+2. LLM-free annotations. MEETI's per-study textual interpretations are produced by GPT-4o18, 56
+which makes faithful reproduction difficult: the GPT-4o variant available at any future date 57
+may differ, the prompt sensitivity of LLM annotations is well documented19, and downstream 58
+evaluations cannot easily separate "model is wrong" from "annotation was wrong". Tri-Modal- 59
+ECG generates all benchmark labels deterministically from the structured measurement 60
+table and from explicit signal-processing logic on Lead II (NeuroKit220 R-peak detection21
+61
+and wavelet-based QRS delineation22), so every label is reproducible by re-running our 62
+scripts. 63
+3. Benchmarks and splits. MEETI does not expose train/validation/test splits or task defini- 64
+tions on top of the four-modality records. Tri-Modal-ECG provides a patient-level 80/10/10 65
+split with explicit leakage checks, and three benchmark tasks (verification, temporal ground- 66
+ing, plausibility) totalling 12,723,353 rows. 67
+A second contribution is the scan-like image stream. Many clinical ECGs reach hospital 68
+archives only as scans or photos of paper output; a model that has only seen pixel-perfect plots 69
+will degrade when deployed against scanned documents. We therefore release a deterministic 70
+OpenCV-based augmentation that, seeded by study_id, rotates, applies a small perspective 71
+skew, blurs, and JPEG-compresses every clean PNG, producing one matched scan-like JPG per 72
+study. The transform is fully deterministic so the augmented image of a given record is identical 73
+across re-builds, and the per-study seed eliminates the train/test sneak-leak risk that random 74
+augmentations carry. 75
+A third contribution is the multi-stage QC pipeline. Producing 2.4M files (Lead II .npy, 76
+12-lead .npy, clean PNG, scan-like JPG, and per-study QC JSON for 800K studies) without any 77
+single decoder failure is a non-trivial engineering target. We track validity at three levels: signal 78
+(waveform decodes and length equals 5,000 samples), image (PIL verify + OpenCV decode 79
+for both modalities), and text (non-empty machine report). Per-study QC JSONs and a final 80
+dataset_integrity_summary.json are persisted on disk so a downstream user can audit our 81
+coverage claims without rerunning the build. 82
+Finally, we expose three benchmark tasks that match how multimodal ECG models are actually 83
+trained and evaluated. Task A: Cross-modal Verification treats a record as the triple (signal, 84
+image, text) and constructs structured negatives--random swaps of a single modality, partial 85
+mismatches, and same-heart-rate-bucket hard negatives--to evaluate alignment beyond trivial 86
+cues. Task B: Temporal Grounding returns ten per-second binary labels for each of three queries 87
+(HIGH_HEART_RATE, LOW_HEART_RATE, WIDE_QRS) computed locally from R-peak detection and QRS 88
+delineation; the labels are non-uniform within studies (Figure 16, Table 1) and therefore carry a 89
+real temporal signal. Task C: Physiological Plausibility assigns SUPPORTED, CONTRADICTED, 90
+2
+or UNCERTAIN to eight short physiological claims for every study, allowing both natural-language 91
+entailment and grounded-reasoning evaluation against structured ECG measurements. 92
+Figure 1 summarises the resulting feature differences between Tri-Modal-ECG and MEETI1; 93
+Figure 2 sketches the construction pipeline. 94
+Figure 1: Feature-level comparison of Tri-Modal-ECG and the MEETI release1. "yes/no" is
+decided from the released artefact: cells in the MEETI column reflect what is shipped in the
+MEETI repository (signals, 10,000 plotted images, beat-level features extracted by FeatureDB,
+MIMIC-IV report, GPT-4o interpretations); cells in our column reflect what is shipped in this
+release. Tri-Modal-ECG matches MEETI on the four core modalities and additionally provides
+full-coverage clean and scan-like images, a multi-stage persisted QC, patient-level splits with
+leakage checks, three deterministic benchmark tasks, and per-modality storage budgets.
+Methods 95
+Source data 96
+Tri-Modal-ECG is built directly on top of MIMIC-IV-ECG version 1.017,27, a publicly accessi- 97
+ble diagnostic 12-lead ECG corpus drawn from routine clinical care at Beth Israel Deaconess 98
+Medical Center. From the upstream release we use three files: record_list.csv (800,035 99
+3
+Figure 2: Tri-Modal-ECG construction pipeline (10 stages). Blue boxes are indexing stages (master
+index from record_list.csv and machine_measurements.csv, patient-level split, leakage check).
+Green boxes are signal/image generation (WFDB23 extraction to NumPy24, Matplotlib25 clean
+rendering, OpenCV26 deterministic scan-like augmentation). Orange boxes are quality control
+(image integrity check using PIL+OpenCV decoders, per-study QC JSON, cleaned-index gating).
+Red box is the three benchmark tasks (verification / temporal grounding / plausibility) emitted as
+JSONL streams. Every stage is independently re-runnable from its on-disk inputs.
+rows mapping study_id to a WFDB record path), machine_measurements.csv (800,035 rows of 100
+machine-generated text report fragments report_0. . . report_17 and structured measurements 101
+(rr_interval, p_onset, p_end, qrs_onset, qrs_end, t_end, p_axis, qrs_axis, t_axis)), and the 102
+underlying WFDB waveform records under data/files/. Each waveform is 10,000-sample 12- 103
+lead but truncated to a uniform 5,000 × 12 matrix at 500 Hz upon load with the WFDB-Python 104
+toolkit23; this corresponds to a standard 10-second diagnostic ECG. 105
+Master index and patient-level split 106
+We build a master index by concatenating report_0. . . report_17 into a single T_machine text 107
+field per study, joined to the waveform path and subject_id, and persisted as a single Apache 108
+Parquet file28. Splits are constructed at the patient level: unique subject_ids are shuffled with 109
+NumPy24 seed 42 and partitioned 80/10/10 into train, validation, and test subsets; every study 110
+inherits the split of its patient. We then verify that the three patient sets are pairwise disjoint, 111
+eliminating the dominant leakage mode for ECG datasets in which the same patient contributes 112
+multiple recordings (Figure 4, Table 7). 113
+Signal extraction 114
+For every study in the split index we read the WFDB record23, validate that all twelve leads 115
+are present, that Lead II is one of them, and that the recording length is exactly 5,000 samples, 116
+and persist three artefacts: processed/signals_lead2/{study_id}.npy (length-5000 float array), 117
+processed/signals_12lead/{study_id}.npy (shape-(5000, 12) float matrix), and processed/ 118
+signal_metadata/{study_id}.json (lead names, sampling rate, file checksum). Lead II is used 119
+by all downstream image and Task B steps because it is the standard rhythm channel and is 120
+present in every diagnostic 12-lead ECG. Figure 5 shows the raw 12-lead matrix for one cleaned 121
+4
+Figure 3: Studies and unique patients per split in the cleaned tri-modal dataset. The patient
+and study counts both follow the intended 80/10/10 ratio, and the construction script verifies
+train  val = train  test = val  test =  at the patient level.
+Figure 4: Distribution of ECGs per patient (cleaned dataset, log-scale y-axis, clipped at 20 ECGs
+per patient). The long tail--a small subset of patients contributes a disproportionate number of
+recordings--is the reason a study-level random split would massively contaminate validation and
+test, and motivates the patient-level partition described above.
+study, exactly as it lands on disk; Figure 6 shows Lead II strips spanning the heart-rate and 122
+QRS-duration ranges in our dataset. 123
+Clean ECG image rendering 124
+Each Lead II array is rendered to a clean ECG-paper PNG with Matplotlib25 using fixed parameters: 125
+figure size 12×2.5 in, time axis 0­10 s, y-range [-2, 2], light ECG-paper background colour #fffafa, 126
+major x grid every 0.2 s and minor every 0.04 s, major y every 0.5 and minor every 0.1. Amplitude 127
+is normalised by dividing the signal by its 99th-percentile absolute amplitude and scaling by 1.2, 128
+which clips outliers but preserves morphology (Figure 7). Studies for which the 99th-percentile 129
+amplitude is exactly zero (a flatline or fully saturated record) are detected, logged, and excluded 130
+rather than producing a meaningless image. Workers use Matplotlib's headless Agg backend; we 131
+leave two CPU cores free during rendering so the host system remains responsive. 132
+5
+Figure 5: Raw 12-lead waveform matrix for a single cleaned study, exactly as stored in
+signals_12lead/{study_id}.npy (shape 5000 × 12, 500 Hz). Lead II (top right panel) is the
+rhythm strip used to render the clean ECG-paper image and to drive Task B's local detection.
+Scan-like image generation 133
+Real-world ECG images often reach a model as scans or photos of paper, not as pixel-perfect 134
+plots. We therefore release a second image stream: a scan-like JPG produced from each clean 135
+PNG by a deterministic OpenCV26 augmentation chain. For each study we (i) seed a NumPy 136
+generator from the integer study_id, (ii) downscale the width to at most 1,600 pixels, (iii) rotate by 137
+±2, (iv) apply a small perspective shift sampled in [-1%, +1%] of width, (v) Gaussian-blur with 138
+kernel size 3 or 5, (vi) jitter brightness and contrast, and (vii) JPEG-encode with quality in [70, 95]. 139
+Figure 8 shows the six-step chain on one example, and Figure 9 shows clean / scan-like pairs 140
+across multiple physiological conditions. Because the seed depends on study_id and not on 141
+a wallclock or worker index, the augmented JPG of a given record is bit-for-bit identical across 142
+rebuilds, which protects downstream evaluations against silent drift. 143
+Multi-stage quality control 144
+Quality control happens at four levels and is fully reproducible from on-disk artefacts. (1) Image in- 145
+tegrity audit: each clean PNG is opened with both PIL (img.verify()) and OpenCV (cv2.imread) 146
+and required to have non-zero dimensions; each scan-like JPG is opened with OpenCV; missing 147
+files and decoder failures are written to per-modality regeneration lists. (2) Regeneration loop: 148
+missing or corrupt clean images are recomputed from their Lead II .npy and scan-like images are 149
+re-derived from the resulting clean PNGs. (3) Per-study tri-modal QC: qc.py writes one JSON 150
+per study with waveform_ok (Lead II .npy loads and length is 5,000), image_ok (both clean and 151
+6
+Figure 6: Lead II strips for four cleaned studies spanning the dataset's physiology range (brady-
+cardia, normal rhythm, tachycardia, wide-QRS). All panels share the same time axis (0­10 s) and
+the same 99th-percentile amplitude normalization applied during clean-image rendering.
+Figure 7: Effect of the 99th-percentile amplitude normalization (render_clean_images.py). Top:
+raw mV signal. Bottom: normalised signal that is actually drawn into the PNG. The normaliser
+is robust against single-sample artefacts but preserves the wave-by-wave morphology that
+downstream image models rely on.
+scan-like exist), and text_ok (T_machine non-empty); see Listing 1. (4) Cleaned-index gating: 152
+cleanup_master_index.py keeps only studies with waveform_ok  image_ok  text_ok, produc- 153
+7
+Figure 8: Six-step deterministic scan-like augmentation chain applied to one clean PNG. The
+augmentation is seeded by study_id; the rightmost panel matches the JPG that ends up on disk.
+The transform models the dominant degradations of real scanned clinical documents (mild rotation,
+perspective skew, optical blur, JPEG block artefacts) without altering the cardiac waveform.
+Figure 9: Clean PNG (left) and the matched scan-like JPG (right) for four cleaned studies
+spanning tachycardia, bradycardia, wide-QRS, and normal-HR rhythms. The deterministic
+transform preserves clinically relevant waveform features but reproduces realistic document
+degradation; both modalities are released for every study.
+ing index_clean.parquet (799,706 rows). Figure 10 shows the recovery effect of the regeneration 154
+loop: an intermediate run reported 173,784 scan-like errors, after which the audit reports zero 155
+corrupt files and at most two missing files per modality. Figure 11 shows the final tri-modal QC 156
+8
+pass/fail breakdown; Figure 12 shows per-modality file coverage. 157
+Listing 1: Per-study QC JSON written by qc.py.
+158
+{ 159
+"study_id": 40000017, 160
+"waveform_ok": true, 161
+"image_ok": true, 162
+"text_ok": true, 163
+"notes": "" 164
+} 165
+166
+Figure 10: Image regeneration loop, before (intermediate scan-like run) and after (final
+dataset_integrity_summary.json). The intermediate run reported 173,784 scan-like errors
+caused by transient I/O and decoder issues; iterative recomputation from the persisted Lead II
+arrays reduced this to two missing scan-like images and zero corrupt scan-like images for the
+entire 800,035-record table. The right panel uses a symmetric-log axis so the residual failures
+remain visible.
+Figure 11: Final tri-modal QC outcome on index_with_split.parquet: every study must pass
+the waveform, image and text checks to enter the cleaned index. 799,706 of 800,033 studies pass;
+the remaining 327 are removed because at least one modality is missing or invalid. This gate is
+the single source of truth for which studies appear in any downstream task.
+9
+Figure 12: Per-modality file coverage at the end of QC, plotted against the 800,035 records
+expected from record_list.csv. Lead II arrays, 12-lead arrays, clean PNGs, and scan-like JPGs
+all reach within two files of the upper bound; per-study QC JSONs and signal metadata are
+produced for the smaller post-split index (800,033).
+Measurement enrichment 167
+After the cleaned index is produced, we merge nine structured fields from machine_measurements. 168
+csv (rr_interval, p_onset, p_end, qrs_onset, qrs_end, t_end, p_axis, qrs_axis, t_axis) into 169
+the cleaned index, producing index_clean_with_measurements.parquet, the source of truth 170
+for Task A and Task C. To suppress the MIMIC-IV-ECG sentinel codes (29999, 32767, 65535, 171
+-32768, 0) used to mark unavailable measurements we apply physiological-plausibility filters 172
+when reporting summary statistics in Section "Technical Validation"; the underlying parquet retains 173
+the raw values so that other workflows can choose their own thresholds. 174
+The three benchmark tasks 175
+Task A: cross-modal verification 176
+Task A asks: do this signal, this image, and this text belong to the same ECG study? For each 177
+cleaned study we emit two positive rows (image_type=clean and image_type=scanlike) and 178
+up to five negative rows: TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH (image and 179
+text from another study, signal from anchor), and a same-heart-rate-bucket HARD_NEGATIVE_TEXT 180
+(text swapped from a study in the same HR bucket; only emitted if a same-bucket alternative 181
+exists). HR buckets are computed from rr_interval as brady (< 60 bpm), normal_low (60­80), 182
+normal_high (80­100), and tachy ( 100); see Figure 14 for an end-to-end illustration of the 183
+same-bucket text swap. Figure 13 walks through the full row-construction logic on a real anchor 184
+study, and Figure 15 reports the final negative-type counts. 185
+Task B: temporal grounding (per-second labels via local detection) 186
+Task B associates a physiological query with the temporal regions of a 10-second ECG that satisfy 187
+it. Each study is divided into ten one-second bins (each bin is exactly 500 samples at 500 Hz) 188
+and we emit one row per (study_id, query) pair carrying a length-10 binary label vector. The 189
+three queries are HIGH_HEART_RATE (local instantaneous HR > 100 bpm), LOW_HEART_RATE (local 190
+10
+Figure 13: Task A row construction on a single anchor study. Green-titled rows are positives
+(clean and scan-like image, respectively). Red-titled rows are the five negative types. Each row's
+three columns show which study contributed the signal, the image, and the text; TEXT_SWAP only
+changes the text source, IMAGE_SWAP only changes the image source, etc. HARD_NEGATIVE_TEXT
+swaps text from a study in the same HR bucket, so heart-rate alone cannot solve the task.
+HR < 60 bpm), and WIDE_QRS (a QRS complex with onset inside the bin whose duration exceeds 191
+120 ms). 192
+11
+Figure 14: Heart-rate buckets used to construct HARD_NEGATIVE_TEXT rows. Studies are parti-
+tioned into four buckets (brady, normal_low, normal_high, tachy) using the cut-points marked in
+Figure 25; the hard-negative text is sampled from a study in the same bucket as the anchor.
+Figure 15: Task A negative-type and positive/negative distribution computed from
+processed/taskA_stats.json. The five negative types are nearly equal in size because each
+is generated once per study; HARD_NEGATIVE_TEXT is the only exception, missing 187 rows that
+correspond to the studies whose RR interval is invalid and therefore cannot be assigned a HR
+bucket.
+Local detection logic. An earlier baseline of Task B used the global rr_interval to set all ten 193
+bins to either 0 or 1, which carried no temporal signal. We replaced that logic with per-bin local 194
+detection backed by NeuroKit220. Specifically: (i) R-peak positions are detected on the full Lead II 195
+signal with the Pan-Tompkins algorithm21; (ii) instantaneous HR is computed at the midpoint 196
+of each detected RR interval as 60 · FS/RRsamples
+and per-bin HR is the mean of the midpoints 197
+inside that bin (with nearest-midpoint fallback for empty bins); (iii) QRS onsets and offsets are 198
+produced beat-by-beat by NeuroKit2's wavelet delineator (ecg_delineate, method dwt) following 199
+the Martínez et al. approach22, and a bin is labelled 1 if any beat with QRS onset inside that bin 200
+has duration > 60 samples (=120 ms). When R-peak detection fails we fall back to the global 201
+rr_interval rule for HR queries (and zeros for WIDE_QRS, which cannot be inferred without QRS 202
+12
+boundaries); the QC-cleaned index makes such fallbacks rare. 203
+Figure 16 contrasts the labels under the old and the new rule: under the old rule the per- 204
+bin positive fraction is identical across all ten bins for each query; under the new rule the 205
+per-bin fractions vary, demonstrating that the temporal localization signal in the labels is real. 206
+Figure 17 shows three real cleaned studies with mixed labels overlaid on the Lead II strip--a 207
+HIGH_HEART_RATE bin only goes positive where the local instantaneous HR actually exceeds 208
+100 bpm. Table 1 reports the exact per-bin positive count for each query, and Figure 18 plots the 209
+per-query distribution. 210
+Figure 16: Task B label fix. Left: per-query count of studies with at least one positive bin, before vs
+after the fix. Under the old global-RR rule, LOW_HEART_RATE and WIDE_QRS produced exactly zero
+positive rows because the rule only checked HR > 100. After the fix, all three queries produce
+realistic positive counts that match the underlying physiology. Right: the post-fix per-bin positive
+fraction for the three queries; the non-uniform pattern across bins is the visual proof that local
+detection (rather than a global stamp) drives the labels.
+Table 1: Task B per-bin positive count per query (computed by streaming
+taskB_temporal_grounding.jsonl; total studies = 799,706). The non-uniform within-query
+pattern across the ten bins is the quantitative counterpart of Figure 16 and rules out the trivial
+all-bins-equal degenerate solution.
+Query bin 0 bin 1 bin 2 bin 3 bin 4 bin 5 bin 6 bin 7 bin 8 bin 9
+HIGH_HEART_RATE 302,485 238,566 198,554 171,332 164,817 161,081 156,830 153,509 151,130 147,643
+LOW_HEART_RATE 73,304 88,993 116,779 124,069 128,435 128,119 128,507 129,945 131,636 131,057
+WIDE_QRS 105,687 111,752 112,298 112,271 113,013 113,896 114,860 115,585 116,783 110,451
+Task C: physiological plausibility 211
+Task C evaluates whether a short physiological text claim about a study is supported, contradicted, 212
+or undecidable given the study's structured measurements. We emit eight claims per study-- 213
+tachycardia present, bradycardia present, normal heart rate, wide qrs complex, normal 214
+qrs duration, left axis deviation, right axis deviation, axis normal--paired with one of 215
+three labels: SUPPORTED, CONTRADICTED, or UNCERTAIN (only if the underlying measurement is 216
+missing or invalid). The decision rules are deterministic: HR is computed from rr_interval 217
+as 60,000/rr, QRS duration from qrs_end - qrs_onset, and axis from qrs_axis (left < -30, 218
+13
+Figure 17: Task B local detection on three real cleaned studies, one per query. Each panel
+overlays the per-bin label vector on the Lead II waveform; bins labelled 1 are shaded green. The
+first panel shows a HIGH_HEART_RATE study where only the bins where the local instantaneous
+HR actually exceeds 100 bpm fire; the second panel shows a study with a LOW_HEART_RATE burst
+restricted to mid-strip; the third panel shows a study where wide-QRS beats appear in some bins
+but not others. Compare with the old rule, which would have produced the all-zero or all-one
+vector for every panel.
+Figure 18: Task B per-query positive rate (left, fraction of studies with any positive bin) and per-bin
+positive fraction (right) computed by streaming the final taskB_temporal_grounding.jsonl. The
+per-bin fractions vary within each query, indicating real temporal information.
+right > +90, normal otherwise). Where possible, a single measurement emits two rows--a 219
+SUPPORTED row for the matching claim and a CONTRADICTED row for its inverse--which preserves 220
+the natural physiological distribution while balancing both label classes (Figure 19). The result is a 221
+4,726,480-row corpus where SUPPORTED and CONTRADICTED are nearly balanced (Figure 20, 222
+14
+Figure 21), and where UNCERTAIN appears only on heart-rate claims for the 187 studies with 223
+invalid RR (374 rows after both heart-rate claims fire). 224
+Figure 19: Task C generation walk-through. Each panel reproduces task_C.py's logic on a real
+cleaned study, prints the structured measurements that drive the claims, and shows the (claim,
+label) rows that the script writes to JSONL. The four condition branches (tachy, brady, wide QRS,
+axis) cover all eight claim strings.
+Figure 20: Task C label and claim distribution computed by streaming taskC_plausibility.jsonl.
+Left: SUPPORTED, CONTRADICTED, and UNCERTAIN counts on a symmetric-log y-axis, so
+the small UNCERTAIN bar (374 rows from invalid RR) is still visible. Right: per-claim row count.
+15
+Figure 21: Task C claim×label heatmap (color = log10
+(count + 1)). Every claim has non-trivial
+SUPPORTED mass; the four heart-rate / QRS claims also have many CONTRADICTED rows because
+they are emitted as the inverse of the matching SUPPORTED row from the same measurement.
+UNCERTAIN appears only on the two heart-rate claims (the 187 studies with invalid RR contribute
+374 rows).
+Data Records 225
+File layout 226
+The Tri-Modal-ECG dataset is organised under processed/ of the project repository (Listing 2). 227
+Top-level directories carry one file per study, named by study_id. Three Apache Parquet indexes 228
+describe the dataset at increasing levels of curation; three JSONL files carry the benchmark tasks; 229
+per-study QC JSONs persist the validity of every record. 230
+Listing 2: On-disk layout of the released dataset.
+231
+processed/ 232
+index/ 233
+index.parquet (800,035 rows) 234
+index_with_split.parquet (800,033 rows + train/val/test) 235
+index_clean.parquet (799,706 rows; tri-modal valid) 236
+index_clean_with_measurements.parquet (+ rr_interval, p_*, qrs_*, t_* axes) 237
+splits.json (patient ID lists per split) 238
+signals_lead2/{study_id}.npy (length-5000 float, 16.5 GB) 239
+signals_12lead/{study_id}.npy (5000x12 float, 196.6 GB) 240
+signal_metadata/{study_id}.json (lead names, sampling rate, ...) 241
+images_clean/{study_id}.png (Matplotlib clean PNG, 147.6 GB) 242
+images_scanlike/{study_id}.jpg (deterministic scan-like JPG, 71.6 GB) 243
+qc/{study_id}.json (waveform/image/text validity) 244
+taskA_verification.jsonl (5,597,755 rows, 995 MB) 245
+taskA_stats.json (per-negative-type counts) 246
+taskB_temporal_grounding.jsonl (2,399,118 rows, 262 MB) 247
+taskC_plausibility.jsonl (4,726,480 rows, 451 MB) 248
+249
+Modality alignment and storage 250
+Each cleaned study is jointly addressable by its study_id across all four modalities. Figure 22 251
+shows one record's four artefacts side-by-side as a "data card". Storage is dominated by the 252
+16
+lossless 12-lead arrays and the clean PNGs (Figure 23); the scan-like JPGs are 48% the size of 253
+the corresponding PNGs even after the augmentation chain, and the Lead II-only arrays are an 254
+order of magnitude smaller than the 12-lead arrays. Table 2 reports the per-modality file count 255
+and total bytes. 256
+Figure 22: One Tri-Modal-ECG record viewed across its four modalities (study 40689238,
+normal_high HR group). (a) Lead II waveform array. (b) Clean ECG-paper PNG rendered
+from (a). (c) Scan-like JPG produced deterministically from (b). (d) The MIMIC-IV machine report
+and the structured measurements joined into the cleaned index. All four artefacts share the same
+study_id.
+Index schemas 257
+Table 3 summarises the columns shipped with the cleaned, measurement-enriched index. Ta- 258
+bles 4, 5, 6 describe the JSONL row schema for the three benchmark tasks. 259
+Reading the dataset 260
+Below is a minimal Python snippet that opens the four modalities of one record together. The 261
+snippet does not require any custom library: NumPy24, Pillow, and pandas with PyArrow28 cover 262
+the full read path. 263
+Listing 3: Reading one Tri-Modal-ECG record across all four modalities.
+264
+import json 265
+17
+Figure 23: Storage footprint by modality. Left: per-image file size distribution (2,000 randomly
+sampled studies). Right: total bytes per directory after deduplication. Lossless PNGs dominate
+the on-disk footprint; the JPEG-encoded scan-like images are roughly half the size despite the
+per-study augmentation chain.
+Table 2: Per-modality file count and total bytes for the released dataset. The lower file count for
+QC and signal metadata (each 800,033) reflects the post-split index size; the cleaned tri-modal
+index (799,706 rows) is a strict subset.
+Directory / file Files Total bytes
+signals_lead2/ 800,033 16,472,663,136
+signals_12lead/ 800,031 196,615,360,384
+signal_metadata/ 781,230 79,708,082
+images_clean/ 800,033 147,623,940,034
+images_scanlike/ 800,033 71,565,027,783
+qc/ 800,033 72,808,556
+taskA_verification.jsonl 1 file (5,597,755 rows) 995,525,090
+taskB_temporal_grounding.jsonl 1 file (2,399,118 rows) 261,586,328
+taskC_plausibility.jsonl 1 file (4,726,480 rows) 450,748,659
+import numpy as np 266
+import pandas as pd 267
+from PIL import Image 268
+269
+ROOT = "processed" 270
+study_id = 40689238 271
+272
+# 1. Lead-II waveform (length 5000, 500 Hz) 273
+sig_lead2 = np.load(f"{ROOT}/signals_lead2/{study_id}.npy") 274
+275
+# 2. 12-lead waveform (5000 x 12) 276
+sig_12lead = np.load(f"{ROOT}/signals_12lead/{study_id}.npy") 277
+278
+# 3. Clean ECG-paper PNG 279
+img_clean = Image.open(f"{ROOT}/images_clean/{study_id}.png") 280
+281
+18
+Table 3: Schema of index_clean_with_measurements.parquet (799,706 rows). All columns are
+sourced from MIMIC-IV-ECG except split, which is assigned by our patient-level partitioner.
+Column Type Description
+study_id int64 MIMIC-IV-ECG study identifier (primary key)
+subject_id int64 MIMIC-IV patient identifier
+path string Relative WFDB path inside data/files/
+T_machine string Concatenation of report_0­report_17 from the MIMIC release
+split string One of train, val, test (assigned per patient)
+rr_interval float RR interval in milliseconds
+p_onset, p_end float P-wave timing (ms)
+qrs_onset, qrs_end float QRS-complex timing (ms)
+t_end float End of T wave (ms)
+p_axis, qrs_axis, t_axis float Electrical axes (degrees)
+Table 4: Schema of one row in taskA_verification.jsonl.
+Field Type Description
+anchor_study_id int Anchor study
+signal_id int study_id contributing the Lead II signal
+image_id int study_id contributing the image
+text_id int study_id contributing the text report
+image_type string clean or scanlike
+y_match int (0/1) 1 if all three IDs equal the anchor
+neg_type string or null One of TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP,
+PARTIAL_MISMATCH, HARD_NEGATIVE_TEXT; null for
+positives
+split string Inherited from the anchor's patient split
+Table 5: Schema of one row in taskB_temporal_grounding.jsonl. Each row carries a length-10
+binary vector, one per one-second bin.
+Field Type Description
+study_id int Cleaned study identifier
+query string One of HIGH_HEART_RATE, LOW_HEART_RATE, WIDE_QRS
+labels list[int] (length 10) 1 if the bin satisfies the query (local detection), else 0
+split string Inherited from the patient split
+# 4. Deterministic scan-like JPG 282
+img_scan = Image.open(f"{ROOT}/images_scanlike/{study_id}.jpg") 283
+284
+# 5. Aligned text + structured measurements 285
+df = pd.read_parquet(f"{ROOT}/index/index_clean_with_measurements.parquet") 286
+19
+Table 6: Schema of one row in taskC_plausibility.jsonl.
+Field Type Description
+study_id int Cleaned study identifier
+claim string One of eight claim strings (see text)
+label string SUPPORTED, CONTRADICTED, or UNCERTAIN
+split string Inherited from the patient split
+row = df[df.study_id == study_id].iloc[0] 287
+print(row.T_machine) 288
+print({c: row[c] for c in ["rr_interval", "qrs_onset", "qrs_end", "qrs_axis"]}) 289
+290
+# 6. Per-study QC status 291
+with open(f"{ROOT}/qc/{study_id}.json") as fp: 292
+print(json.load(fp)) 293
+294
+Technical Validation 295
+Technical validation has three components: (i) coverage and integrity of the released artefacts, 296
+(ii) descriptive statistics of the structured measurements compared with expected physiological 297
+ranges, and (iii) per-task validation of the three benchmark JSONLs. 298
+Coverage and dataset funnel 299
+The dataset funnel from the raw record_list.csv to the final cleaned tri-modal index removes 300
+329 studies, every one of which corresponds to a missing or invalid modality (Figure 24). The 301
+post-QC patient-level split is shown in Table 7 and the per-modality file coverage in Figure 12. The 302
+persisted dataset_integrity_summary.json confirms that, of 800,035 expected records, 800,033 303
+have a valid clean PNG and 800,033 have a valid scan-like JPG, and that no decoder failed on any 304
+image after the regeneration loop closed (Figure 10). 305
+Figure 24: Dataset funnel from raw record list (800,035 studies in MIMIC-IV-ECG) through patient-
+level split (800,033), tri-modal QC (799,706), and measurement enrichment (799,706). 329 studies
+are removed in total, each because at least one modality is missing or invalid.
+20
+Table 7: Patient-level split of the cleaned tri-modal dataset. Patients are pairwise disjoint between
+splits by construction.
+Split ECG studies Unique patients
+Train 641,053 129,061
+Validation 80,427 16,133
+Test 78,226 16,134
+Total 799,706 161,328
+Distribution of structured measurements 306
+Table 8 reports central-tendency and dispersion statistics for the structured measurements after 307
+suppressing the MIMIC-IV sentinel codes (29999, 32767, 65535, -32768, 0) and applying 308
+physiologically-plausible range filters (HR  [20, 300] bpm, 200  RR  3000 ms, 30 < Pdur
+< 309
+300 ms, 30 < QRSdur
+< 400 ms, 200 < QT < 800 ms, |axis|  180). The reported median HR 310
+(74.07 bpm), median QRS duration (94 ms), median QT (396 ms) and median QRS axis (14) all 311
+sit in the expected adult range and align with values reported by MEETI1 on the same upstream 312
+measurements. 313
+Table 8: Descriptive statistics of structured measurements (Tri-Modal-ECG cleaned index, n =
+799,706). Sentinels and out-of-range values dropped before stats; the "n" column is the number of
+remaining valid values. Compare to MEETI1 Table 3, which reports similar central tendencies on
+the same upstream MIMIC-IV-ECG measurements.
+Measurement n Mean Std Median IQR Q1 Q3 Range
+HR (bpm) 798,166 78.05 20.28 74.07 24.07 64.03 88.11 20.00, 255.32
+RR (ms) 798,166 816.61 196.64 810.00 256.00 681.00 937.00 235.00, 3000.00
+P-wave duration (ms) 568,271 108.66 18.21 110.00 22.00 98.00 120.00 32.00, 216.00
+QRS duration (ms) 798,104 99.72 23.07 94.00 22.00 84.00 106.00 32.00, 391.00
+QT interval (ms) 798,201 397.91 49.07 396.00 62.00 366.00 428.00 202.00, 798.00
+QRS axis (deg) 776,506 13.28 45.38 14.00 62.00 -16.00 46.00 -180.00, 180.00
+P axis (deg) 661,861 45.65 29.42 51.00 31.00 33.00 64.00 -180.00, 180.00
+T axis (deg) 784,996 40.25 56.10 42.00 51.00 16.00 67.00 -180.00, 180.00
+The HR-bucket distribution that drives Task A and Task C is shown in Figure 25; the QRS-duration 314
+and QRS-axis distributions that drive Task C's wide-QRS and axis claims are in Figures 26­27. 315
+The bucket counts in Figure 25 (brady = 123,353, normal_low = 362,372, normal_high = 206,115, 316
+tachy = 107,679, invalid RR = 187) sum to the cleaned-index size, confirming that every study is 317
+bucketed exactly once. 318
+Hero examples and axis evidence 319
+Three "hero" figures show the four modalities for representative bradycardia, normal-rhythm, and 320
+tachycardia studies, exactly as they will appear to a downstream model (Figures 28­30); these 321
+are the per-study units that Task A treats as positives. Figure 31 presents Lead II evidence for the 322
+three axis branches that drive Task C's axis claims. 323
+21
+Figure 25: Heart-rate distribution and the bucket counts used by Task A and Task C. Dashed lines
+mark the 60 bpm and 100 bpm cut-points; bucket counts are written next to the histogram.
+Figure 26: QRS-duration distribution with the 120 ms threshold marked. The wide-QRS subset
+(n = 123,590) is large enough to balance the wide and normal QRS claims in Task C.
+Task A counts 324
+Task A contains 5,597,755 rows: each of the 799,706 cleaned studies emits two positive rows 325
+(clean and scan-like image) and four canonical negatives (TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, 326
+PARTIAL_MISMATCH); the same-bucket HARD_NEGATIVE_TEXT is emitted for 799,519 studies (the 187 327
+studies with invalid RR cannot be placed in a HR bucket and therefore have no eligible same- 328
+bucket sibling). Splits inherit from the patient split: train= 4,487,216, val= 562,971, test= 547,568. 329
+Image type splits as clean= 4,798,049 and scan-like= 799,706 (the scan-like positive is emitted 330
+exactly once per study; standard negatives use clean images by construction). See Figure 15 for 331
+the per-negative-type bar chart and processed/taskA_stats.json for the persisted counts. 332
+22
+Figure 27: QRS-axis distribution with the -30 and +90 thresholds. The dataset's distribution
+shows clear modes around the standard normal-axis range, with a left-axis subset (127,042
+studies) much larger than the right-axis subset (26,600).
+Figure 28: Hero record (bradycardia, HR= 50 bpm). Top row: Lead II (left) and 12-lead (right)
+waveform arrays; bottom row: clean PNG (left) and scan-like JPG (right). The structured-
+measurement strip on the right matches the Task C SUPPORTED bradycardia present row that
+this study contributes.
+Task B counts 333
+Task B contains 2,399,118 rows = 799,706 × 3 (one per query per study). Train= 1,923,159, 334
+val= 241,281, test= 234,678. The fraction of studies with at least one positive bin is 63.18% for 335
+23
+Figure 29: Hero record (normal-rhythm, HR= 91 bpm). The same modality layout as Figure 28;
+this study contributes Task C SUPPORTED normal heart rate and normal qrs duration rows.
+HIGH_HEART_RATE, 33.16% for LOW_HEART_RATE, and 49.59% for WIDE_QRS. Within the studies that 336
+have any positive bin, the fraction with mixed labels (i.e., the label vector is not all-zero or all-one) 337
+is 87.0% for HIGH_HEART_RATE, 95.3% for LOW_HEART_RATE, and 99.5% for WIDE_QRS; this is the 338
+quantitative counterpart of Figure 17 and confirms that the local detector produces meaningful 339
+intra-study temporal variation rather than re-encoding the global rr_interval. 340
+Task C counts 341
+Task C contains 4,726,480 rows: 2,398,931 SUPPORTED, 2,327,175 CONTRADICTED, and 374 UNCERTAIN. 342
+The eight claims and their row counts are summarised in Table 9. Splits: train= 3,789,152, 343
+val= 475,014, test= 462,314. 344
+Differences from MEETI on shared statistics 345
+Where both releases describe the same underlying MIMIC-IV-ECG measurement, our central- 346
+tendency numbers are very close to those reported in MEETI1: median HR 74.07 bpm (MEETI: 347
+74.50), median QRS duration 94 ms (MEETI: 91 for FeatureDB-extracted per-beat duration), 348
+median QT 396 ms (MEETI: 371), median QRS axis 14 (MEETI does not report axis separately). 349
+The slight differences are expected because MEETI computes per-beat features with FeatureDB 350
+whereas Tri-Modal-ECG inherits MIMIC's record-level machine measurements, but the agreement 351
+on the medians supports the validity of both extractions. The major release-level differences 352
+24
+Figure 30: Hero record (tachycardia, HR= 123 bpm). Same modality layout. This study contributes
+Task C SUPPORTED tachycardia present rows and Task B HIGH_HEART_RATE positive bins.
+Figure 31: Lead II evidence for the three axis branches in Task C. Left: qrs_axis = -48 (left
+axis deviation SUPPORTED). Centre: qrs_axis = +46 (axis normal SUPPORTED). Right:
+qrs_axis = +104 (right axis deviation SUPPORTED).
+(image coverage, scan-like stream, deterministic benchmarks, patient-level split) are shown in 353
+Figure 1 and discussed in the Background & Summary. 354
+25
+Table 9: Task C per-claim row counts.
+Claim Rows
+tachycardia present 799,706
+bradycardia present 799,706
+wide qrs complex 799,706
+normal qrs duration 799,706
+normal heart rate 574,308
+axis normal 646,064
+left axis deviation 153,642
+right axis deviation 153,642
+Usage Notes 355
+Authoritative entry point. The single source of truth for the dataset is processed/index/index_ 356
+clean_with_measurements.parquet. Every benchmark task is generated from this index, and 357
+every per-study QC JSON is keyed by the same study_id. Users who only need a tabular 358
+interface to the cleaned dataset can ignore the JSONL files entirely. 359
+Splits. Splits in our parquet and JSONL files are patient-level. Do not re-shuffle records at 360
+the row level; doing so silently introduces patient leakage, which has been shown to inflate ECG 361
+model performance by up to several AUC points on PTB-XL-style corpora29,30. 362
+Image modality choice. Models that ingest only the clean PNG will be exposed to a more 363
+uniform pixel distribution than they will see in a deployed setting. We strongly recommend training 364
+(or at least evaluating) on the scan-like JPG; the deterministic seed makes this reproducible and 365
+safe to combine with the patient-level split. 366
+Sentinel codes. The structured-measurement columns inherit MIMIC's sentinel codes (29999, 367
+32767, 65535, -32768, 0) for missing values. Apply the physiological-plausibility filters de- 368
+scribed in Section "Distribution of structured measurements" before computing summary statistics. 369
+The benchmark-task generators apply task-specific handling: Task A uses HR buckets that map 370
+invalid RR to "no bucket"; Task C emits an UNCERTAIN row when the relevant measurement is 371
+missing. 372
+Local detection vs. global stamps. Task B's labels are produced by NeuroKit220 R-peak 373
+detection21 and wavelet QRS delineation22; the global RR-based fallback only fires when local 374
+detection raises an exception. Users who want the all-bins-equal global rule for ablations can 375
+recompute it from the structured measurements; users who want stricter local detection can 376
+replace NeuroKit2 with their preferred pipeline by editing scripts/task_B.py. 377
+No LLM in the loop. All benchmark labels are deterministic functions of the structured 378
+measurements and Lead II signal. There is no GPT-4o or similar LLM call in the data pipeline; this 379
+is the main reason the benchmark tasks are reproducible across rebuilds and across hardware. 380
+Limitations. (1) Task B's R-peak detector inherits the failure modes of Pan-Tompkins on 381
+extremely noisy signals; the QC pipeline removes flatline records but cannot remove every noisy 382
+beat. The global fallback is conservative on WIDE_QRS (always-zero), which slightly underesti- 383
+mates wide-QRS prevalence in noisy studies. (2) Task C uses MIMIC's record-level machine 384
+measurements rather than per-beat measurements; deeper investigations of beat-level variability 385
+(e.g., heart-rate variability, dynamic QT prolongation) are better served by the per-beat FeatureDB 386
+extraction shipped with MEETI1. (3) Both release-time runtime numbers and intermediate failure 387
+counts are persisted only for the scan-like generation pass; runtimes for clean rendering, QC, and 388
+26
+the three task generators are printed to the console but not durably logged. (4) The released 389
+audit-md notes minor schema drift between this paper's JSONL keys (labels, claim, label) and 390
+an earlier rule-book (y_bins, claim_tag, y_support); we have prioritised the schemas as actually 391
+generated, and downstream tooling should follow Tables 4­6. 392
+Resource Availability 393
+The full code base used to construct Tri-Modal-ECG (signal extraction, image rendering, scan- 394
+like augmentation, QC, regeneration, splitting, measurement enrichment, and the three task 395
+generators) is shipped under scripts/. The on-disk artefacts described in Section "Data Records" 396
+are produced from the public MIMIC-IV-ECG dataset under the PhysioNet-credentialed-access 397
+licence17,27; users must agree to that licence and download the upstream data themselves 398
+before running our pipeline. The Python environment used for this work is captured in ecg_env/ 399
+(CPython, NumPy24, Matplotlib25, OpenCV26, WFDB23, NeuroKit220, pandas with PyArrow28). 400
+The full reproducible pipeline order, persisted runtime evidence, and a verification checklist are 401
+included as appendices in the accompanying technical report (TRI_MODAL_ECG_UNDERSTANDING_ 402
+SYSTEM_REPORT.md). 403
+Acknowledgments 404
+This work uses the MIMIC-IV-ECG release17,27 and was inspired by the MEETI extension1, 405
+whose four-component vision (signal + image + features + interpretation) motivated the design of 406
+Tri-Modal-ECG. 407
+Author Contributions 408
+N.C., B.R.R. and A.M. jointly designed the pipeline, implemented the codebase, generated and 409
+audited the dataset, conducted the technical validation, and prepared the manuscript. All authors 410
+reviewed and approved the final version. 411
+Declaration of Interests 412
+The authors declare no competing interests. 413
+27
+References 414
+1. Zhang, D., Lan, X., Geng, S., Zhao, Q., Fan, S., Feng, M., and Hong, S. (2025). Meeti: A mul- 415
+timodal ECG dataset from MIMIC-IV-ECG with signals, images, features and interpretations. 416
+arXiv preprint arXiv:2507.15255. 417
+2. Martin, S.S., Aday, A.W., Allen, N.B., Almarzooq, Z.I., Anderson, C.A., Arora, P., Avery, C.L., 418
+Baker-Smith, C.M., Bansal, N., Beaton, A.Z. et al. (2025). 2025 heart disease and stroke 419
+statistics: a report of us and global data from the american heart association. Circulation 420
+151, e41­e660. 421
+3. Tan, J., Fan, H., Luo, J., Zhou, Y., Wang, N., Wang, X., Liu, G., Liu, C., and Wang, Z. (2025). 422
+A pediatric ecg database with disease diagnosis covering 11643 children. Scientific Data 12, 423
+867. 424
+4. Yagi, R., Mori, Y., Goto, S., Iwami, T., and Inoue, K. (2024). Routine electrocardiogram 425
+screening and cardiovascular disease events in adults. JAMA Internal Medicine 184, 1035­ 426
+1044. 427
+5. Zheng, J., Fu, G., Anderson, K., Chu, H., and Rakovski, C. (2020). A 12-lead ecg database 428
+to identify origins of idiopathic ventricular arrhythmia containing 334 patients. Scientific data 429
+7, 98. 430
+6. Li, J., Liu, C., Cheng, S., Arcucci, R., and Hong, S. (2024). Frozen language model helps 431
+ecg zero-shot learning. In Medical Imaging with Deep Learning. PMLR pp. 402­415. 432
+7. Li, J., Aguirre, A.D., Junior, V.M., Jin, J., Liu, C., Zhong, L., Sun, C., Clifford, G., Bran- 433
+don Westover, M., and Hong, S. (2025). An electrocardiogram foundation model built on over 434
+10 million recordings. NEJM AI 2, AIoa2401033. 435
+8. Lan, X., Wu, F., He, K., Zhao, Q., Hong, S., and Feng, M. (2025). Gem: Empowering mllm for 436
+grounded ecg understanding with time series and images. arXiv preprint arXiv:2503.06073. 437
+9. Zhao, Y., Zhang, T., Wang, X., Han, P., Chen, T., Huang, L., Jin, Y., and Kang, J. (2024). 438
+ECG-Chat: A large ECG-Language model for cardiac disease diagnosis. arXiv preprint 439
+arXiv:2408.08849. 440
+10. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, 441
+A., Mishkin, P., Clark, J., Krueger, G., and Sutskever, I. (2021). Learning transferable 442
+visual models from natural language supervision. In Proceedings of the 38th International 443
+Conference on Machine Learning vol. 139. pp. 8748­8763. 444
+11. Li, J., Li, D., Savarese, S., and Hoi, S. (2023). BLIP-2: Bootstrapping language-image 445
+pre-training with frozen image encoders and large language models. In Proceedings of the 446
+40th International Conference on Machine Learning. pp. 19730­19742. 447
+12. Huang, Z., Bianchi, F., Yuksekgonul, M., Montine, T.J., and Zou, J. (2023). A visual­language 448
+foundation model for pathology image analysis using medical Twitter. Nature Medicine 29, 449
+2307­2316. 450
+13. Thawkar, O., Shaker, A., Mullappilly, S.S., Cholakkal, H., Anwer, R.M., Khan, S., Laaksonen, 451
+J., and Khan, F.S. (2023). XrayGPT: Chest radiographs summarization using large medical 452
+vision-language models. In arXiv preprint arXiv:2306.07971. 453
+28
+14. Wagner, P., Strodthoff, N., Bousseljot, R.D., Kreiseler, D., Lunze, F.I., Samek, W., and 454
+Schaeffter, T. (2020). Ptb-xl, a large publicly available electrocardiography dataset. Scientific 455
+data 7, 1­15. 456
+15. Zheng, J., Zhang, J., Danioko, S., Yao, H., Guo, H., and Rakovski, C. (2020). A 12-lead 457
+electrocardiogram database for arrhythmia research covering more than 10,000 patients. 458
+Scientific data 7, 48. 459
+16. Tsutsui, K., Brimer, S.B., Ben-Moshe, N., Sellal, J.M., Oster, J., Mori, H., Ikeda, Y., Arai, 460
+T., Nakano, S., Kato, R. et al. (2025). Shdb-af: a japanese holter ecg database of atrial 461
+fibrillation. Scientific Data 12, 454. 462
+17. Gow, B., Pollard, T., Nathanson, L.A., Johnson, A., Moody, B., Fernandes, C., Greenbaum, N., 463
+Waks, J.W., Eslami, P., Carbonati, T. et al. (2023). Mimic-iv-ecg: Diagnostic electrocardiogram 464
+matched subset. Type: dataset 6, 13­14. 465
+18. Achiam, J., Adler, S., Agarwal, S., Ahmad, L., Akkaya, I., Aleman, F.L., Almeida, D., Al- 466
+tenschmidt, J., Altman, S., Anadkat, S. et al. (2023). Gpt-4 technical report. arXiv preprint 467
+arXiv:2303.08774. 468
+19. Sandmann, S., Hegselmann, S., Fujarski, M., Bickmann, L., Wild, B., Eils, R., and Varghese, 469
+J. (2025). Benchmark evaluation of deepseek large language models in clinical decision- 470
+making. Nature Medicine pp. 1­1. 471
+20. Makowski, D., Pham, T., Lau, Z.J., Brammer, J.C., Lespinasse, F., Pham, H., Schölzel, 472
+C., and Chen, S.H.A. (2021). NeuroKit2: A Python toolbox for neurophysiological signal 473
+processing. Behavior Research Methods 53, 1689­1696. 474
+21. Pan, J., and Tompkins, W.J. (1985). A real-time QRS detection algorithm. IEEE Transactions 475
+on Biomedical Engineering BME-32, 230­236. 476
+22. Martínez, J.P., Almeida, R., Olmos, S., Rocha, A.P., and Laguna, P. (2004). A wavelet-based 477
+ECG delineator: Evaluation on standard databases. IEEE Transactions on Biomedical 478
+Engineering 51, 570­581. 479
+23. Moody, G.B., Mark, R.G., and Goldberger, A.L. (2001). The WFDB software package: open- 480
+source tools for processing physiologic signals. IEEE Engineering in Medicine and Biology 481
+Magazine 20, 70­75. 482
+24. Harris, C.R., Millman, K.J., van der Walt, S.J., Gommers, R., Virtanen, P., Cournapeau, D., 483
+Wieser, E., Taylor, J., Berg, S., Smith, N.J. et al. (2020). Array programming with NumPy. 484
+Nature 585, 357­362. 485
+25. Hunter, J.D. (2007). Matplotlib: A 2D graphics environment. Computing in Science & 486
+Engineering 9, 90­95. 487
+26. Bradski, G. (2000). The OpenCV library. Dr. Dobb's Journal of Software Tools 25, 120­125. 488
+27. Johnson, A., Bulgarelli, L., Pollard, T., Horng, S., Celi, L.A., and Mark, R. (2020). Mimic-iv. 489
+PhysioNet. Available online at: https://physionet. org/content/mimiciv/1.0/(accessed August 490
+23, 2021) pp. 49­55. 491
+28. Vohra, D. (2016). Apache arrow and Parquet: Open standards for data interchange. In 492
+Practical Apache Spark. Apress pp. 325­335. 493
+29
+29. Strodthoff, N., Wagner, P., Schaeffter, T., and Samek, W. (2021). Deep learning for ECG 494
+analysis: Benchmarks and insights from PTB-XL. IEEE Journal of Biomedical and Health 495
+Informatics 25, 1519­1528. 496
+30. Ribeiro, A.H., Ribeiro, M.H., Paixão, G.M., Oliveira, D.M., Gomes, P.R., Canazart, J.A., 497
+Ferreira, M.P., Andersson, C.R., Macfarlane, P.W., Meira Jr, W. et al. (2020). Automatic 498
+diagnosis of the 12-lead ECG using a deep neural network. Nature Communications 11, 499
+1760. 500
+30
+

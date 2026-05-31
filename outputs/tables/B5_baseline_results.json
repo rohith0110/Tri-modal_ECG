@@ -1,0 +1,18 @@
+{
+  "text_only": {
+    "auprc": 0.9445,
+    "auroc": 0.9631,
+    "f1": 0.9311,
+    "accuracy": 0.9272,
+    "n_test": 8011,
+    "model": "TF-IDF(5000, 1-2gram) + LogisticRegression"
+  },
+  "signal_text_fusion": {
+    "auprc": 0.9795,
+    "auroc": 0.9902,
+    "f1": 0.9633,
+    "accuracy": 0.9633,
+    "n_test": 3000,
+    "model": "ResNet512 + TF-IDF(5000) concat -> LogisticRegression"
+  }
+}

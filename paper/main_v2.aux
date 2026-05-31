@@ -1,0 +1,212 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\bibstyle{numbered}
+\citation{zhang2024meeti}
+\citation{martin20252025}
+\citation{tan2025pediatric,yagi2024routine,zheng202012}
+\citation{li2024frozen,li2025electrocardiogram,lan2025gem,zhao2025ecg}
+\citation{radford2021clip,li2023blip2,huang2023visual,thawkar2023xraygpt}
+\citation{wagner2020ptb}
+\citation{zheng2020121}
+\citation{tsutsui2025shdb}
+\citation{gow2023mimic}
+\def\@LN@column{1}
+\citation{zhang2024meeti}
+\citation{zhang2024meeti}
+\citation{achiam2023gpt}
+\citation{sandmann2025benchmark}
+\citation{makowski2021neurokit2}
+\citation{pan1985realtime}
+\citation{martinez2004wavelet}
+\def\@LN@column{1}
+\citation{zhang2024meeti}
+\citation{zhang2024meeti}
+\citation{zhang2024meeti}
+\citation{xiao2018physionet}
+\citation{harris2020array}
+\citation{hunter2007matplotlib}
+\citation{bradski2000opencv}
+\citation{xiao2018physionet}
+\citation{harris2020array}
+\citation{hunter2007matplotlib}
+\citation{bradski2000opencv}
+\citation{gow2023mimic,johnson2020mimic}
+\citation{xiao2018physionet}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Feature-level comparison of Tri-Modal-ECG and the MEETI release \cite  {zhang2024meeti}. ``yes/no'' is decided from the released artefact: cells in the MEETI column reflect what is shipped in the MEETI repository (signals, $\sim $10{,}000 plotted images, beat-level features extracted by FeatureDB, MIMIC-IV report, GPT-4o interpretations); cells in our column reflect what is shipped in this release. Tri-Modal-ECG matches MEETI on the four core modalities and additionally provides full-coverage clean and scan-like images, a multi-stage persisted QC, patient-level splits with leakage checks, three deterministic benchmark tasks, and per-modality storage budgets.}}{3}{figure.caption.3}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:feature_matrix}{{1}{3}{Feature-level comparison of Tri-Modal-ECG and the MEETI release \cite {zhang2024meeti}. ``yes/no'' is decided from the released artefact: cells in the MEETI column reflect what is shipped in the MEETI repository (signals, $\sim $10{,}000 plotted images, beat-level features extracted by FeatureDB, MIMIC-IV report, GPT-4o interpretations); cells in our column reflect what is shipped in this release. Tri-Modal-ECG matches MEETI on the four core modalities and additionally provides full-coverage clean and scan-like images, a multi-stage persisted QC, patient-level splits with leakage checks, three deterministic benchmark tasks, and per-modality storage budgets}{figure.caption.3}{}}
+\citation{vaynberg2020apache}
+\citation{harris2020array}
+\citation{xiao2018physionet}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Tri-Modal-ECG construction pipeline (10 stages). Blue boxes are indexing stages (master index from \texttt  {record\_list.csv} and \texttt  {machine\_measurements.csv}, patient-level split, leakage check). Green boxes are signal/image generation (WFDB \cite  {xiao2018physionet} extraction to NumPy \cite  {harris2020array}, Matplotlib \cite  {hunter2007matplotlib} clean rendering, OpenCV \cite  {bradski2000opencv} deterministic scan-like augmentation). Orange boxes are quality control (image integrity check using PIL+OpenCV decoders, per-study QC JSON, cleaned-index gating). Red box is the three benchmark tasks (verification / temporal grounding / plausibility) emitted as JSONL streams. Every stage is independently re-runnable from its on-disk inputs.}}{4}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:pipeline_paper}{{2}{4}{Tri-Modal-ECG construction pipeline (10 stages). Blue boxes are indexing stages (master index from \texttt {record\_list.csv} and \texttt {machine\_measurements.csv}, patient-level split, leakage check). Green boxes are signal/image generation (WFDB \cite {xiao2018physionet} extraction to NumPy \cite {harris2020array}, Matplotlib \cite {hunter2007matplotlib} clean rendering, OpenCV \cite {bradski2000opencv} deterministic scan-like augmentation). Orange boxes are quality control (image integrity check using PIL+OpenCV decoders, per-study QC JSON, cleaned-index gating). Red box is the three benchmark tasks (verification / temporal grounding / plausibility) emitted as JSONL streams. Every stage is independently re-runnable from its on-disk inputs}{figure.caption.4}{}}
+\citation{hunter2007matplotlib}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Studies and unique patients per split in the cleaned tri-modal dataset. The patient and study counts both follow the intended 80/10/10 ratio, and the construction script verifies $\text  {train}\cap \text  {val}=\text  {train}\cap \text  {test}=\text  {val}\cap \text  {test}=\emptyset $ at the patient level.}}{5}{figure.caption.8}\protected@file@percent }
+\newlabel{fig:split}{{3}{5}{Studies and unique patients per split in the cleaned tri-modal dataset. The patient and study counts both follow the intended 80/10/10 ratio, and the construction script verifies $\text {train}\cap \text {val}=\text {train}\cap \text {test}=\text {val}\cap \text {test}=\emptyset $ at the patient level}{figure.caption.8}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Distribution of ECGs per patient (cleaned dataset, log-scale $y$-axis, clipped at 20 ECGs per patient). The long tail---a small subset of patients contributes a disproportionate number of recordings---is the reason a study-level random split would massively contaminate validation and test, and motivates the patient-level partition described above.}}{5}{figure.caption.9}\protected@file@percent }
+\newlabel{fig:ecgs_per_patient}{{4}{5}{Distribution of ECGs per patient (cleaned dataset, log-scale $y$-axis, clipped at 20 ECGs per patient). The long tail---a small subset of patients contributes a disproportionate number of recordings---is the reason a study-level random split would massively contaminate validation and test, and motivates the patient-level partition described above}{figure.caption.9}{}}
+\citation{bradski2000opencv}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Raw 12-lead waveform matrix for a single cleaned study, exactly as stored in \texttt  {signals\_12lead/\{study\_id\}.npy} (shape $5000\times 12$, $500$~Hz). Lead~II (top right panel) is the rhythm strip used to render the clean ECG-paper image and to drive Task~B's local detection.}}{6}{figure.caption.11}\protected@file@percent }
+\newlabel{fig:12lead}{{5}{6}{Raw 12-lead waveform matrix for a single cleaned study, exactly as stored in \texttt {signals\_12lead/\{study\_id\}.npy} (shape $5000\times 12$, $500$~Hz). Lead~II (top right panel) is the rhythm strip used to render the clean ECG-paper image and to drive Task~B's local detection}{figure.caption.11}{}}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Lead~II strips for four cleaned studies spanning the dataset's physiology range (bradycardia, normal rhythm, tachycardia, wide-QRS). All panels share the same time axis ($0$--$10$~s) and the same 99th-percentile amplitude normalization applied during clean-image rendering.}}{7}{figure.caption.12}\protected@file@percent }
+\newlabel{fig:lead2_conditions}{{6}{7}{Lead~II strips for four cleaned studies spanning the dataset's physiology range (bradycardia, normal rhythm, tachycardia, wide-QRS). All panels share the same time axis ($0$--$10$~s) and the same 99th-percentile amplitude normalization applied during clean-image rendering}{figure.caption.12}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Effect of the 99th-percentile amplitude normalization (\texttt  {render\_clean\_images.py}). Top: raw mV signal. Bottom: normalised signal that is actually drawn into the PNG. The normaliser is robust against single-sample artefacts but preserves the wave-by-wave morphology that downstream image models rely on.}}{7}{figure.caption.14}\protected@file@percent }
+\newlabel{fig:normalization}{{7}{7}{Effect of the 99th-percentile amplitude normalization (\texttt {render\_clean\_images.py}). Top: raw mV signal. Bottom: normalised signal that is actually drawn into the PNG. The normaliser is robust against single-sample artefacts but preserves the wave-by-wave morphology that downstream image models rely on}{figure.caption.14}{}}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Six-step deterministic scan-like augmentation chain applied to one clean PNG. The augmentation is seeded by \texttt  {study\_id}; the rightmost panel matches the JPG that ends up on disk. The transform models the dominant degradations of real scanned clinical documents (mild rotation, perspective skew, optical blur, JPEG block artefacts) without altering the cardiac waveform.}}{8}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:scanlike_pipeline}{{8}{8}{Six-step deterministic scan-like augmentation chain applied to one clean PNG. The augmentation is seeded by \texttt {study\_id}; the rightmost panel matches the JPG that ends up on disk. The transform models the dominant degradations of real scanned clinical documents (mild rotation, perspective skew, optical blur, JPEG block artefacts) without altering the cardiac waveform}{figure.caption.16}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Clean PNG (left) and the matched scan-like JPG (right) for four cleaned studies spanning tachycardia, bradycardia, wide-QRS, and normal-HR rhythms. The deterministic transform preserves clinically relevant waveform features but reproduces realistic document degradation; both modalities are released for every study.}}{8}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:clean_vs_scan}{{9}{8}{Clean PNG (left) and the matched scan-like JPG (right) for four cleaned studies spanning tachycardia, bradycardia, wide-QRS, and normal-HR rhythms. The deterministic transform preserves clinically relevant waveform features but reproduces realistic document degradation; both modalities are released for every study}{figure.caption.17}{}}
+\def\@LN@column{1}
+\newlabel{lst:qcjson}{{1}{9}{Per-study QC JSON written by \texttt {qc.py}}{lstlisting.1}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {1}{\ignorespaces Per-study QC JSON written by \texttt  {qc.py}.}}{9}{lstlisting.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Image regeneration loop, before (intermediate scan-like run) and after (final \texttt  {dataset\_integrity\_summary.json}). The intermediate run reported 173{,}784 scan-like errors caused by transient I/O and decoder issues; iterative recomputation from the persisted Lead~II arrays reduced this to two missing scan-like images and zero corrupt scan-like images for the entire $800{,}035$-record table. The right panel uses a symmetric-log axis so the residual failures remain visible.}}{9}{figure.caption.19}\protected@file@percent }
+\newlabel{fig:regeneration}{{10}{9}{Image regeneration loop, before (intermediate scan-like run) and after (final \texttt {dataset\_integrity\_summary.json}). The intermediate run reported 173{,}784 scan-like errors caused by transient I/O and decoder issues; iterative recomputation from the persisted Lead~II arrays reduced this to two missing scan-like images and zero corrupt scan-like images for the entire $800{,}035$-record table. The right panel uses a symmetric-log axis so the residual failures remain visible}{figure.caption.19}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Final tri-modal QC outcome on \texttt  {index\_with\_split.parquet}: every study must pass the waveform, image and text checks to enter the cleaned index. $799{,}706$ of $800{,}033$ studies pass; the remaining $327$ are removed because at least one modality is missing or invalid. This gate is the single source of truth for which studies appear in any downstream task.}}{9}{figure.caption.20}\protected@file@percent }
+\newlabel{fig:qc_outcome}{{11}{9}{Final tri-modal QC outcome on \texttt {index\_with\_split.parquet}: every study must pass the waveform, image and text checks to enter the cleaned index. $799{,}706$ of $800{,}033$ studies pass; the remaining $327$ are removed because at least one modality is missing or invalid. This gate is the single source of truth for which studies appear in any downstream task}{figure.caption.20}{}}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Per-modality file coverage at the end of QC, plotted against the $800{,}035$ records expected from \texttt  {record\_list.csv}. Lead~II arrays, 12-lead arrays, clean PNGs, and scan-like JPGs all reach within two files of the upper bound; per-study QC JSONs and signal metadata are produced for the smaller post-split index ($800{,}033$).}}{10}{figure.caption.21}\protected@file@percent }
+\newlabel{fig:modality_coverage}{{12}{10}{Per-modality file coverage at the end of QC, plotted against the $800{,}035$ records expected from \texttt {record\_list.csv}. Lead~II arrays, 12-lead arrays, clean PNGs, and scan-like JPGs all reach within two files of the upper bound; per-study QC JSONs and signal metadata are produced for the smaller post-split index ($800{,}033$)}{figure.caption.21}{}}
+\citation{makowski2021neurokit2}
+\citation{pan1985realtime}
+\citation{martinez2004wavelet}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces Task~A row construction on a single anchor study. Green-titled rows are positives (clean and scan-like image, respectively). Red-titled rows are the five negative types. Each row's three columns show which study contributed the signal, the image, and the text; \texttt  {TEXT\_SWAP} only changes the text source, \texttt  {IMAGE\_SWAP} only changes the image source, etc. \texttt  {HARD\_NEGATIVE\_TEXT} swaps text from a study in the same HR bucket, so heart-rate alone cannot solve the task.}}{11}{figure.caption.25}\protected@file@percent }
+\newlabel{fig:taskA_negatives}{{13}{11}{Task~A row construction on a single anchor study. Green-titled rows are positives (clean and scan-like image, respectively). Red-titled rows are the five negative types. Each row's three columns show which study contributed the signal, the image, and the text; \texttt {TEXT\_SWAP} only changes the text source, \texttt {IMAGE\_SWAP} only changes the image source, etc. \texttt {HARD\_NEGATIVE\_TEXT} swaps text from a study in the same HR bucket, so heart-rate alone cannot solve the task}{figure.caption.25}{}}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces Heart-rate buckets used to construct \texttt  {HARD\_NEGATIVE\_TEXT} rows. Studies are partitioned into four buckets (\texttt  {brady}, \texttt  {normal\_low}, \texttt  {normal\_high}, \texttt  {tachy}) using the cut-points marked in Figure~\ref {fig:hr_distribution}; the hard-negative text is sampled from a study in the \emph  {same} bucket as the anchor.}}{12}{figure.caption.26}\protected@file@percent }
+\newlabel{fig:hr_bucket_logic}{{14}{12}{Heart-rate buckets used to construct \texttt {HARD\_NEGATIVE\_TEXT} rows. Studies are partitioned into four buckets (\texttt {brady}, \texttt {normal\_low}, \texttt {normal\_high}, \texttt {tachy}) using the cut-points marked in Figure~\ref {fig:hr_distribution}; the hard-negative text is sampled from a study in the \emph {same} bucket as the anchor}{figure.caption.26}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces Task~A negative-type and positive/negative distribution computed from \texttt  {processed/taskA\_stats.json}. The five negative types are nearly equal in size because each is generated once per study; \texttt  {HARD\_NEGATIVE\_TEXT} is the only exception, missing $187$ rows that correspond to the studies whose RR interval is invalid and therefore cannot be assigned a HR bucket.}}{12}{figure.caption.27}\protected@file@percent }
+\newlabel{fig:taskA_distribution}{{15}{12}{Task~A negative-type and positive/negative distribution computed from \texttt {processed/taskA\_stats.json}. The five negative types are nearly equal in size because each is generated once per study; \texttt {HARD\_NEGATIVE\_TEXT} is the only exception, missing $187$ rows that correspond to the studies whose RR interval is invalid and therefore cannot be assigned a HR bucket}{figure.caption.27}{}}
+\@writefile{toc}{\contentsline {paragraph}{Local detection logic.}{12}{section*.29}\protected@file@percent }
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces Task~B label fix. Left: per-query count of studies with at least one positive bin, before vs after the fix. Under the old global-RR rule, \texttt  {LOW\_HEART\_RATE} and \texttt  {WIDE\_QRS} produced exactly zero positive rows because the rule only checked $\text  {HR}>100$. After the fix, all three queries produce realistic positive counts that match the underlying physiology. Right: the post-fix per-bin positive fraction for the three queries; the non-uniform pattern across bins is the visual proof that local detection (rather than a global stamp) drives the labels.}}{13}{figure.caption.30}\protected@file@percent }
+\newlabel{fig:taskB_local}{{16}{13}{Task~B label fix. Left: per-query count of studies with at least one positive bin, before vs after the fix. Under the old global-RR rule, \texttt {LOW\_HEART\_RATE} and \texttt {WIDE\_QRS} produced exactly zero positive rows because the rule only checked $\text {HR}>100$. After the fix, all three queries produce realistic positive counts that match the underlying physiology. Right: the post-fix per-bin positive fraction for the three queries; the non-uniform pattern across bins is the visual proof that local detection (rather than a global stamp) drives the labels}{figure.caption.30}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Task~B per-bin positive count per query (computed by streaming \texttt  {taskB\_temporal\_grounding.jsonl}; total studies $=799{,}706$). The non-uniform within-query pattern across the ten bins is the quantitative counterpart of Figure~\ref {fig:taskB_local} and rules out the trivial all-bins-equal degenerate solution.}}{13}{table.caption.33}\protected@file@percent }
+\newlabel{tab:taskB_perbin}{{1}{13}{Task~B per-bin positive count per query (computed by streaming \texttt {taskB\_temporal\_grounding.jsonl}; total studies $=799{,}706$). The non-uniform within-query pattern across the ten bins is the quantitative counterpart of Figure~\ref {fig:taskB_local} and rules out the trivial all-bins-equal degenerate solution}{table.caption.33}{}}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces Task~B local detection on three real cleaned studies, one per query. Each panel overlays the per-bin label vector on the Lead~II waveform; bins labelled $1$ are shaded green. \textbf  {Top:} \texttt  {HIGH\_HEART\_RATE} study with a sustained tachycardic run --- bins 1--7 fire because the local instantaneous HR exceeds $100$~bpm there, while bins 0 and 8--9 stay $0$ where the rhythm is at or below the threshold. \textbf  {Middle:} \texttt  {LOW\_HEART\_RATE} study where the rate slows after roughly $3$~s and remains bradycardic for the rest of the strip, so bins 3--9 fire and the early bins stay $0$. \textbf  {Bottom:} \texttt  {WIDE\_QRS} study where wide-QRS beats appear from bin 2 through bin 8 (the wavelet delineator measures QRS duration $>120$~ms for those beats), and the very first and last bins do not fire because their beats either had borderline-narrow QRS or the delineator returned NaN boundaries. The old global rule would have collapsed each panel to all-zero or all-one; the per-bin patterns shown here are what makes the labels useful for temporal-grounding training.}}{14}{figure.caption.31}\protected@file@percent }
+\newlabel{fig:taskB_examples}{{17}{14}{Task~B local detection on three real cleaned studies, one per query. Each panel overlays the per-bin label vector on the Lead~II waveform; bins labelled $1$ are shaded green. \textbf {Top:} \texttt {HIGH\_HEART\_RATE} study with a sustained tachycardic run --- bins 1--7 fire because the local instantaneous HR exceeds $100$~bpm there, while bins 0 and 8--9 stay $0$ where the rhythm is at or below the threshold. \textbf {Middle:} \texttt {LOW\_HEART\_RATE} study where the rate slows after roughly $3$~s and remains bradycardic for the rest of the strip, so bins 3--9 fire and the early bins stay $0$. \textbf {Bottom:} \texttt {WIDE\_QRS} study where wide-QRS beats appear from bin 2 through bin 8 (the wavelet delineator measures QRS duration $>120$~ms for those beats), and the very first and last bins do not fire because their beats either had borderline-narrow QRS or the delineator returned NaN boundaries. The old global rule would have collapsed each panel to all-zero or all-one; the per-bin patterns shown here are what makes the labels useful for temporal-grounding training}{figure.caption.31}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces Task~B per-query positive rate (left, fraction of studies with any positive bin) and per-bin positive fraction (right) computed by streaming the final \texttt  {taskB\_temporal\_grounding.jsonl}. The per-bin fractions vary within each query, indicating real temporal information.}}{14}{figure.caption.32}\protected@file@percent }
+\newlabel{fig:taskB_distribution}{{18}{14}{Task~B per-query positive rate (left, fraction of studies with any positive bin) and per-bin positive fraction (right) computed by streaming the final \texttt {taskB\_temporal\_grounding.jsonl}. The per-bin fractions vary within each query, indicating real temporal information}{figure.caption.32}{}}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {19}{\ignorespaces Task~C generation walk-through. Each panel reproduces \texttt  {task\_C.py}'s logic on a real cleaned study, prints the structured measurements that drive the claims, and shows the (claim, label) rows that the script writes to JSONL. The four condition branches (tachy, brady, wide QRS, axis) cover all eight claim strings.}}{15}{figure.caption.35}\protected@file@percent }
+\newlabel{fig:taskC_walkthrough}{{19}{15}{Task~C generation walk-through. Each panel reproduces \texttt {task\_C.py}'s logic on a real cleaned study, prints the structured measurements that drive the claims, and shows the (claim, label) rows that the script writes to JSONL. The four condition branches (tachy, brady, wide QRS, axis) cover all eight claim strings}{figure.caption.35}{}}
+\newlabel{lst:layout}{{2}{15}{On-disk layout of the released dataset}{lstlisting.2}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {2}{\ignorespaces On-disk layout of the released dataset.}}{15}{lstlisting.2}\protected@file@percent }
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {20}{\ignorespaces Task~C label and claim distribution computed by streaming \texttt  {taskC\_plausibility.jsonl}. Left: SUPPORTED, CONTRADICTED, and UNCERTAIN counts on a symmetric-log $y$-axis, so the small UNCERTAIN bar (374 rows from invalid RR) is still visible. Right: per-claim row count.}}{16}{figure.caption.36}\protected@file@percent }
+\newlabel{fig:taskC_distribution}{{20}{16}{Task~C label and claim distribution computed by streaming \texttt {taskC\_plausibility.jsonl}. Left: SUPPORTED, CONTRADICTED, and UNCERTAIN counts on a symmetric-log $y$-axis, so the small UNCERTAIN bar (374 rows from invalid RR) is still visible. Right: per-claim row count}{figure.caption.36}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {21}{\ignorespaces Task~C claim$\times $label heatmap (color = $\log _{10}(\text  {count}+1)$). Every claim has non-trivial \texttt  {SUPPORTED} mass; the four heart-rate / QRS claims also have many \texttt  {CONTRADICTED} rows because they are emitted as the inverse of the matching SUPPORTED row from the same measurement. UNCERTAIN appears only on the two heart-rate claims (the $187$ studies with invalid RR contribute $374$ rows).}}{16}{figure.caption.37}\protected@file@percent }
+\newlabel{fig:taskC_heatmap}{{21}{16}{Task~C claim$\times $label heatmap (color = $\log _{10}(\text {count}+1)$). Every claim has non-trivial \texttt {SUPPORTED} mass; the four heart-rate / QRS claims also have many \texttt {CONTRADICTED} rows because they are emitted as the inverse of the matching SUPPORTED row from the same measurement. UNCERTAIN appears only on the two heart-rate claims (the $187$ studies with invalid RR contribute $374$ rows)}{figure.caption.37}{}}
+\citation{harris2020array}
+\citation{vaynberg2020apache}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {22}{\ignorespaces One Tri-Modal-ECG record viewed across its four modalities (study \texttt  {40689238}, \texttt  {normal\_high} HR group). (a) Lead~II waveform array. (b) Clean ECG-paper PNG rendered from (a). (c) Scan-like JPG produced deterministically from (b). (d) The MIMIC-IV machine report and the structured measurements joined into the cleaned index. All four artefacts share the same \texttt  {study\_id}.}}{17}{figure.caption.41}\protected@file@percent }
+\newlabel{fig:modality_montage}{{22}{17}{One Tri-Modal-ECG record viewed across its four modalities (study \texttt {40689238}, \texttt {normal\_high} HR group). (a) Lead~II waveform array. (b) Clean ECG-paper PNG rendered from (a). (c) Scan-like JPG produced deterministically from (b). (d) The MIMIC-IV machine report and the structured measurements joined into the cleaned index. All four artefacts share the same \texttt {study\_id}}{figure.caption.41}{}}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {23}{\ignorespaces Storage footprint by modality. Left: per-image file size distribution (2{,}000 randomly sampled studies). Right: total bytes per directory after deduplication. Lossless PNGs dominate the on-disk footprint; the JPEG-encoded scan-like images are roughly half the size despite the per-study augmentation chain.}}{18}{figure.caption.42}\protected@file@percent }
+\newlabel{fig:storage}{{23}{18}{Storage footprint by modality. Left: per-image file size distribution (2{,}000 randomly sampled studies). Right: total bytes per directory after deduplication. Lossless PNGs dominate the on-disk footprint; the JPEG-encoded scan-like images are roughly half the size despite the per-study augmentation chain}{figure.caption.42}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Per-modality file count and total bytes for the released dataset. The lower file count for QC and signal metadata (each $800{,}033$) reflects the post-split index size; the cleaned tri-modal index ($799{,}706$ rows) is a strict subset.}}{18}{table.caption.43}\protected@file@percent }
+\newlabel{tab:storage}{{2}{18}{Per-modality file count and total bytes for the released dataset. The lower file count for QC and signal metadata (each $800{,}033$) reflects the post-split index size; the cleaned tri-modal index ($799{,}706$ rows) is a strict subset}{table.caption.43}{}}
+\newlabel{lst:reader}{{3}{18}{Reading one Tri-Modal-ECG record across all four modalities}{lstlisting.3}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {3}{\ignorespaces Reading one Tri-Modal-ECG record across all four modalities.}}{18}{lstlisting.3}\protected@file@percent }
+\def\@LN@column{1}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Schema of \texttt  {index\_clean\_with\_measurements.parquet} (799{,}706 rows). All columns are sourced from MIMIC-IV-ECG except \texttt  {split}, which is assigned by our patient-level partitioner.}}{19}{table.caption.45}\protected@file@percent }
+\newlabel{tab:index_schema}{{3}{19}{Schema of \texttt {index\_clean\_with\_measurements.parquet} (799{,}706 rows). All columns are sourced from MIMIC-IV-ECG except \texttt {split}, which is assigned by our patient-level partitioner}{table.caption.45}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Schema of one row in \texttt  {taskA\_verification.jsonl}.}}{19}{table.caption.46}\protected@file@percent }
+\newlabel{tab:taskA_schema}{{4}{19}{Schema of one row in \texttt {taskA\_verification.jsonl}}{table.caption.46}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Schema of one row in \texttt  {taskB\_temporal\_grounding.jsonl}. Each row carries a length-10 binary vector, one per one-second bin.}}{19}{table.caption.47}\protected@file@percent }
+\newlabel{tab:taskB_schema}{{5}{19}{Schema of one row in \texttt {taskB\_temporal\_grounding.jsonl}. Each row carries a length-10 binary vector, one per one-second bin}{table.caption.47}{}}
+\citation{zhang2024meeti}
+\def\@LN@column{1}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Schema of one row in \texttt  {taskC\_plausibility.jsonl}.}}{20}{table.caption.48}\protected@file@percent }
+\newlabel{tab:taskC_schema}{{6}{20}{Schema of one row in \texttt {taskC\_plausibility.jsonl}}{table.caption.48}{}}
+\citation{zhang2024meeti}
+\citation{zhang2024meeti}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {24}{\ignorespaces Dataset funnel from raw record list ($800{,}035$ studies in MIMIC-IV-ECG) through patient-level split ($800{,}033$), tri-modal QC ($799{,}706$), and measurement enrichment ($799{,}706$). 329 studies are removed in total, each because at least one modality is missing or invalid.}}{21}{figure.caption.52}\protected@file@percent }
+\newlabel{fig:funnel}{{24}{21}{Dataset funnel from raw record list ($800{,}035$ studies in MIMIC-IV-ECG) through patient-level split ($800{,}033$), tri-modal QC ($799{,}706$), and measurement enrichment ($799{,}706$). 329 studies are removed in total, each because at least one modality is missing or invalid}{figure.caption.52}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Patient-level split of the cleaned tri-modal dataset. Patients are pairwise disjoint between splits by construction.}}{21}{table.caption.53}\protected@file@percent }
+\newlabel{tab:split}{{7}{21}{Patient-level split of the cleaned tri-modal dataset. Patients are pairwise disjoint between splits by construction}{table.caption.53}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Descriptive statistics of structured measurements (Tri-Modal-ECG cleaned index, $n=799{,}706$). Sentinels and out-of-range values dropped before stats; the ``$n$'' column is the number of remaining valid values. Compare to MEETI \cite  {zhang2024meeti} Table~3, which reports similar central tendencies on the same upstream MIMIC-IV-ECG measurements.}}{21}{table.caption.55}\protected@file@percent }
+\newlabel{tab:descriptive}{{8}{21}{Descriptive statistics of structured measurements (Tri-Modal-ECG cleaned index, $n=799{,}706$). Sentinels and out-of-range values dropped before stats; the ``$n$'' column is the number of remaining valid values. Compare to MEETI \cite {zhang2024meeti} Table~3, which reports similar central tendencies on the same upstream MIMIC-IV-ECG measurements}{table.caption.55}{}}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {25}{\ignorespaces Heart-rate distribution and the bucket counts used by Task~A and Task~C. Dashed lines mark the 60~bpm and 100~bpm cut-points; bucket counts are written next to the histogram.}}{22}{figure.caption.56}\protected@file@percent }
+\newlabel{fig:hr_distribution}{{25}{22}{Heart-rate distribution and the bucket counts used by Task~A and Task~C. Dashed lines mark the 60~bpm and 100~bpm cut-points; bucket counts are written next to the histogram}{figure.caption.56}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {26}{\ignorespaces QRS-duration distribution with the $120$~ms threshold marked. The wide-QRS subset ($n=123{,}590$) is large enough to balance the wide and normal QRS claims in Task~C.}}{22}{figure.caption.57}\protected@file@percent }
+\newlabel{fig:qrs_duration}{{26}{22}{QRS-duration distribution with the $120$~ms threshold marked. The wide-QRS subset ($n=123{,}590$) is large enough to balance the wide and normal QRS claims in Task~C}{figure.caption.57}{}}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {27}{\ignorespaces QRS-axis distribution with the $-30^\circ $ and $+90^\circ $ thresholds. The dataset's distribution shows clear modes around the standard normal-axis range, with a left-axis subset ($127{,}042$ studies) much larger than the right-axis subset ($26{,}600$).}}{23}{figure.caption.58}\protected@file@percent }
+\newlabel{fig:qrs_axis}{{27}{23}{QRS-axis distribution with the $-30^\circ $ and $+90^\circ $ thresholds. The dataset's distribution shows clear modes around the standard normal-axis range, with a left-axis subset ($127{,}042$ studies) much larger than the right-axis subset ($26{,}600$)}{figure.caption.58}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {28}{\ignorespaces Hero record (bradycardia, HR$=50$~bpm). Top row: Lead~II (left) and 12-lead (right) waveform arrays; bottom row: clean PNG (left) and scan-like JPG (right). The structured-measurement strip on the right matches the Task~C SUPPORTED \texttt  {bradycardia present} row that this study contributes.}}{23}{figure.caption.60}\protected@file@percent }
+\newlabel{fig:hero_brady}{{28}{23}{Hero record (bradycardia, HR$=50$~bpm). Top row: Lead~II (left) and 12-lead (right) waveform arrays; bottom row: clean PNG (left) and scan-like JPG (right). The structured-measurement strip on the right matches the Task~C SUPPORTED \texttt {bradycardia present} row that this study contributes}{figure.caption.60}{}}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {29}{\ignorespaces Hero record (normal-rhythm, HR$=91$~bpm). The same modality layout as Figure~\ref {fig:hero_brady}; this study contributes Task~C SUPPORTED \texttt  {normal heart rate} and \texttt  {normal qrs duration} rows.}}{24}{figure.caption.61}\protected@file@percent }
+\newlabel{fig:hero_normalhigh}{{29}{24}{Hero record (normal-rhythm, HR$=91$~bpm). The same modality layout as Figure~\ref {fig:hero_brady}; this study contributes Task~C SUPPORTED \texttt {normal heart rate} and \texttt {normal qrs duration} rows}{figure.caption.61}{}}
+\citation{zhang2024meeti}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {30}{\ignorespaces Hero record (tachycardia, HR$=123$~bpm). Same modality layout. This study contributes Task~C SUPPORTED \texttt  {tachycardia present} rows and Task~B \texttt  {HIGH\_HEART\_RATE} positive bins.}}{25}{figure.caption.62}\protected@file@percent }
+\newlabel{fig:hero_tachy}{{30}{25}{Hero record (tachycardia, HR$=123$~bpm). Same modality layout. This study contributes Task~C SUPPORTED \texttt {tachycardia present} rows and Task~B \texttt {HIGH\_HEART\_RATE} positive bins}{figure.caption.62}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {31}{\ignorespaces Lead~II evidence for the three axis branches in Task~C. Left: $qrs\_axis=-48^\circ $ (\texttt  {left axis deviation} SUPPORTED). Centre: $qrs\_axis=+46^\circ $ (\texttt  {axis normal} SUPPORTED). Right: $qrs\_axis=+104^\circ $ (\texttt  {right axis deviation} SUPPORTED).}}{25}{figure.caption.63}\protected@file@percent }
+\newlabel{fig:axis_examples}{{31}{25}{Lead~II evidence for the three axis branches in Task~C. Left: $qrs\_axis=-48^\circ $ (\texttt {left axis deviation} SUPPORTED). Centre: $qrs\_axis=+46^\circ $ (\texttt {axis normal} SUPPORTED). Right: $qrs\_axis=+104^\circ $ (\texttt {right axis deviation} SUPPORTED)}{figure.caption.63}{}}
+\citation{strodthoff2021deep,ribeiro2020automatic}
+\citation{makowski2021neurokit2}
+\citation{pan1985realtime}
+\citation{martinez2004wavelet}
+\def\@LN@column{1}
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Task~C per-claim row counts.}}{26}{table.caption.67}\protected@file@percent }
+\newlabel{tab:taskC_claim_counts}{{9}{26}{Task~C per-claim row counts}{table.caption.67}{}}
+\citation{zhang2024meeti}
+\citation{gow2023mimic,johnson2020mimic}
+\citation{harris2020array}
+\citation{hunter2007matplotlib}
+\citation{bradski2000opencv}
+\citation{xiao2018physionet}
+\citation{makowski2021neurokit2}
+\citation{vaynberg2020apache}
+\citation{gow2023mimic,johnson2020mimic}
+\citation{zhang2024meeti}
+\def\@LN@column{1}
+\bibdata{references}
+\bibcite{zhang2024meeti}{{1}{2025}{{Zhang et~al.}}{{Zhang, Lan, Geng, Zhao, Fan, Feng and Hong}}}
+\bibcite{martin20252025}{{2}{2025}{{Martin et~al.}}{{Martin, Aday, Allen, Almarzooq, Anderson, Arora, Avery, Baker-Smith, Bansal, Beaton et~al.}}}
+\bibcite{tan2025pediatric}{{3}{2025}{{Tan et~al.}}{{Tan, Fan, Luo, Zhou, Wang, Wang, Liu, Liu and Wang}}}
+\bibcite{yagi2024routine}{{4}{2024}{{Yagi et~al.}}{{Yagi, Mori, Goto, Iwami and Inoue}}}
+\bibcite{zheng202012}{{5}{2020{}}{{Zheng et~al.}}{{Zheng, Fu, Anderson, Chu and Rakovski}}}
+\bibcite{li2024frozen}{{6}{2024}{{Li et~al.}}{{Li, Liu, Cheng, Arcucci and Hong}}}
+\bibcite{li2025electrocardiogram}{{7}{2025}{{Li et~al.}}{{Li, Aguirre, Junior, Jin, Liu, Zhong, Sun, Clifford, Brandon~Westover and Hong}}}
+\bibcite{lan2025gem}{{8}{2025}{{Lan et~al.}}{{Lan, Wu, He, Zhao, Hong and Feng}}}
+\bibcite{zhao2025ecg}{{9}{2024}{{Zhao et~al.}}{{Zhao, Zhang, Wang, Han, Chen, Huang, Jin and Kang}}}
+\bibcite{radford2021clip}{{10}{2021}{{Radford et~al.}}{{Radford, Kim, Hallacy, Ramesh, Goh, Agarwal, Sastry, Askell, Mishkin, Clark, Krueger and Sutskever}}}
+\bibcite{li2023blip2}{{11}{2023}{{Li et~al.}}{{Li, Li, Savarese and Hoi}}}
+\bibcite{huang2023visual}{{12}{2023}{{Huang et~al.}}{{Huang, Bianchi, Yuksekgonul, Montine and Zou}}}
+\bibcite{thawkar2023xraygpt}{{13}{2023}{{Thawkar et~al.}}{{Thawkar, Shaker, Mullappilly, Cholakkal, Anwer, Khan, Laaksonen and Khan}}}
+\bibcite{wagner2020ptb}{{14}{2020}{{Wagner et~al.}}{{Wagner, Strodthoff, Bousseljot, Kreiseler, Lunze, Samek and Schaeffter}}}
+\def\@LN@column{1}
+\bibcite{zheng2020121}{{15}{2020{}}{{Zheng et~al.}}{{Zheng, Zhang, Danioko, Yao, Guo and Rakovski}}}
+\bibcite{tsutsui2025shdb}{{16}{2025}{{Tsutsui et~al.}}{{Tsutsui, Brimer, Ben-Moshe, Sellal, Oster, Mori, Ikeda, Arai, Nakano, Kato et~al.}}}
+\bibcite{gow2023mimic}{{17}{2023}{{Gow et~al.}}{{Gow, Pollard, Nathanson, Johnson, Moody, Fernandes, Greenbaum, Waks, Eslami, Carbonati et~al.}}}
+\bibcite{achiam2023gpt}{{18}{2023}{{Achiam et~al.}}{{Achiam, Adler, Agarwal, Ahmad, Akkaya, Aleman, Almeida, Altenschmidt, Altman, Anadkat et~al.}}}
+\bibcite{sandmann2025benchmark}{{19}{2025}{{Sandmann et~al.}}{{Sandmann, Hegselmann, Fujarski, Bickmann, Wild, Eils and Varghese}}}
+\bibcite{makowski2021neurokit2}{{20}{2021}{{Makowski et~al.}}{{Makowski, Pham, Lau, Brammer, Lespinasse, Pham, Sch{\"o}lzel and Chen}}}
+\bibcite{pan1985realtime}{{21}{1985}{{Pan and Tompkins}}{{}}}
+\bibcite{martinez2004wavelet}{{22}{2004}{{Mart{\'\i }nez et~al.}}{{Mart{\'\i }nez, Almeida, Olmos, Rocha and Laguna}}}
+\bibcite{xiao2018physionet}{{23}{2001}{{Moody et~al.}}{{Moody, Mark and Goldberger}}}
+\bibcite{harris2020array}{{24}{2020}{{Harris et~al.}}{{Harris, Millman, van~der Walt, Gommers, Virtanen, Cournapeau, Wieser, Taylor, Berg, Smith et~al.}}}
+\bibcite{hunter2007matplotlib}{{25}{2007}{{Hunter}}{{}}}
+\bibcite{bradski2000opencv}{{26}{2000}{{Bradski}}{{}}}
+\bibcite{johnson2020mimic}{{27}{2020}{{Johnson et~al.}}{{Johnson, Bulgarelli, Pollard, Horng, Celi and Mark}}}
+\bibcite{vaynberg2020apache}{{28}{2016}{{Vohra}}{{}}}
+\bibcite{strodthoff2021deep}{{29}{2021}{{Strodthoff et~al.}}{{Strodthoff, Wagner, Schaeffter and Samek}}}
+\def\@LN@column{1}
+\bibcite{ribeiro2020automatic}{{30}{2020}{{Ribeiro et~al.}}{{Ribeiro, Ribeiro, Paix{\~a}o, Oliveira, Gomes, Canazart, Ferreira, Andersson, Macfarlane, Meira~Jr et~al.}}}
+\def\@LN@column{1}
+\gdef \@abspage@last{30}

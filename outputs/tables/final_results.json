@@ -1,0 +1,25 @@
+[
+  {
+    "task": "B1",
+    "n_seeds": 3,
+    "macro_auprc_mean": 0.9914,
+    "macro_auprc_std": 0.0016,
+    "macro_auroc_mean": 0.9965,
+    "macro_auroc_std": 0.0004,
+    "macro_f1_mean": 0.955,
+    "macro_f1_std": 0.0071,
+    "accuracy_mean": 0.9639,
+    "accuracy_std": 0.0057,
+    "auprc_ci_95_seed0": [
+      0.9859,
+      0.9976
+    ],
+    "n_test_ecg": 499,
+    "n_per_class": {
+      "bradycardia": 99,
+      "normal": 337,
+      "tachycardia": 63
+    },
+    "model": "ECGResNet1D_1lead"
+  }
+]

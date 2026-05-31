@@ -1,0 +1,90 @@
+# Task definitions — locked at dataset construction time
+# Plan B only (no EHR access)
+
+tasks:
+  B1_measurement_blind:
+    name: "Measurement-Blind Physiological Inference"
+    description: "Predict binned HR, QRS duration, and QTc from raw signal only. Labels from machine measurements — must not appear in model inputs."
+    dataset: "processed/taskB1_measurement_blind.jsonl"
+    targets:
+      hr_label:
+        type: classification
+        classes: [bradycardia, normal, tachycardia]
+        primary_metric: AUPRC
+        secondary_metric: AUROC
+      qrs_label:
+        type: classification
+        classes: [normal, borderline, wide]
+        primary_metric: AUPRC
+        secondary_metric: AUROC
+      qtc_label:
+        type: classification
+        classes: [short, normal, prolonged]
+        primary_metric: AUPRC
+        secondary_metric: AUROC
+    allowed_inputs: [signal_lead2]
+    forbidden_inputs: [report_text, machine_measurements, structured_features]
+    algorithmic_baseline: "NeuroKit2 R-peak detector → HR; QRS detector → QRS duration"
+    subgroup_analysis: ["by_cart_id", "by_sqi_tier"]
+    notes: "Doc §6.2: report performance by SQI tier and by cart_id. Include NeuroKit2 baseline."
+
+  B2_noise_robustness:
+    name: "Noise-Robustness Curriculum"
+    dataset: "processed/taskB2_noise_robustness.jsonl"
+    corruption_types: [gaussian, baseline_wander, powerline, emg, electrode_motion, lead_dropout, gain_drift, saturation]
+    snr_levels_db: [30, 20, 10, 5, 0]
+    evaluation_regimes:
+      regime_1: "clean-trained model evaluated on corrupted test set"
+      regime_2: "noise-augmented model evaluated on corrupted test set"
+      regime_3: "natural SQI-tier evaluation (using existing QC flags)"
+    primary_metrics:
+      - area_under_corruption_curve
+      - relative_performance_drop
+      - collapse_threshold
+    allowed_inputs: [signal_lead2]
+    base_task: B1_measurement_blind
+    notes: "Doc §6.3: keep regimes strictly separated. Collapse threshold = performance drops below 50% of clean."
+
+  B3_temporal_grounding:
+    name: "Waveform Event Localization"
+    dataset: "processed/taskB_temporal_grounding.jsonl"
+    targets:
+      queries: [HIGH_HEART_RATE, LOW_HEART_RATE, WIDE_QRS]
+      granularity: "1-second bins (10 bins per signal)"
+      label_type: binary_per_bin
+    primary_metric: temporal_IoU
+    secondary_metrics: [F1_per_bin, event_count_distribution]
+    allowed_inputs: [signal_lead2, signal_12lead]
+    notes: "Doc §6.4: use temporal IoU only when target intervals have meaningful onset/offset. Report event-count distribution."
+
+  B4_cross_modal_verification:
+    name: "Cross-Modal Reconstruction and Verification"
+    dataset: "processed/taskA_verification.jsonl"
+    task_type: retrieval_and_verification
+    modality_pairs:
+      - [signal, image]
+      - [signal, text]
+      - [image, text]
+    primary_metric: Recall_at_1
+    secondary_metrics: [Recall_at_5, Recall_at_10, MRR]
+    difficulty_levels: "neg_type field in dataset"
+    allowed_inputs: [signal_lead2, image_clean, image_scanlike, report_text]
+    notes: "Doc §6.5/6.7: prefer retrieval and masked attribute prediction over free-text generation."
+
+  B5_contradiction_detection:
+    name: "Contradiction Detection in Reports"
+    dataset: "processed/taskC_plausibility.jsonl"
+    task_type: binary_classification
+    target: "SUPPORTED vs CONTRADICTED (label field)"
+    balance: "50/50 clean/corrupted"
+    primary_metric: AUPRC
+    secondary_metrics: [AUROC, F1, accuracy]
+    allowed_inputs: [report_text, signal_lead2]
+    notes: "Doc §6.6: safe contradictions only (HR<=50 or HR>=120). Current dataset uses claim+label format. Doc also requires original_report_text, corrupted_report_text, span fields — see B5 format gap."
+
+  B6_difficulty_stratified:
+    name: "Difficulty-Stratified Cross-Modal Verification"
+    dataset: "processed/taskA_verification.jsonl"
+    description: "Subset of B4 stratified by neg_type difficulty level"
+    primary_metric: Recall_at_1_per_difficulty_level
+    notes: "Covered by neg_type field in taskA_verification.jsonl."

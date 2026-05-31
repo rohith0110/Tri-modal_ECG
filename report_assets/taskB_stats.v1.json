@@ -1,0 +1,70 @@
+{
+  "totals": {
+    "HIGH_HEART_RATE": 799706,
+    "LOW_HEART_RATE": 799706,
+    "WIDE_QRS": 799706
+  },
+  "any_pos": {
+    "HIGH_HEART_RATE": 505270,
+    "WIDE_QRS": 396535,
+    "LOW_HEART_RATE": 265201
+  },
+  "all_zero": {
+    "LOW_HEART_RATE": 534505,
+    "WIDE_QRS": 403171,
+    "HIGH_HEART_RATE": 294436
+  },
+  "all_one": {
+    "HIGH_HEART_RATE": 65700,
+    "LOW_HEART_RATE": 12430,
+    "WIDE_QRS": 2162
+  },
+  "mixed": {
+    "HIGH_HEART_RATE": 439570,
+    "WIDE_QRS": 394373,
+    "LOW_HEART_RATE": 252771
+  },
+  "per_bin_pos": {
+    "HIGH_HEART_RATE": [
+      302485,
+      238566,
+      198554,
+      171332,
+      164817,
+      161081,
+      156830,
+      153509,
+      151130,
+      147643
+    ],
+    "LOW_HEART_RATE": [
+      73304,
+      88993,
+      116779,
+      124069,
+      128435,
+      128119,
+      128507,
+      129945,
+      131636,
+      131057
+    ],
+    "WIDE_QRS": [
+      105687,
+      111752,
+      112298,
+      112271,
+      113013,
+      113896,
+      114860,
+      115585,
+      116783,
+      110451
+    ]
+  },
+  "splits": {
+    "train": 1923159,
+    "val": 241281,
+    "test": 234678
+  }
+}

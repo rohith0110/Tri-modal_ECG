@@ -1,0 +1,53 @@
+# ──────────────────────────────────────────────────────────────────
+# Allowlist strategy: ignore everything at the repo ROOT by default,
+# then explicitly re-include the source / documentation trees.
+#
+# `/*` is ANCHORED to the repo root, so it only ignores top-level
+# entries (data/, ecg_env/, processed/, stray files, …) and does NOT
+# re-ignore files nested inside the folders we re-include below.
+#
+# data/  and  ecg_env/  are never re-included → they can never be
+# committed (raw + processed datasets stay local only).
+# ──────────────────────────────────────────────────────────────────
+/*
+
+# --- allow project source & documentation (whole subtrees) ---
+!/.gitignore
+!/.gitattributes
+!/config/
+!/docs/
+!/scripts/
+!/paper/
+!/report_assets/
+
+# --- outputs: ignore the whole tree, then allow ONLY text reports
+#     & result tables. figures/ and model_runs/ (.png/.pt) and the
+#     root .docx stay out. ---
+!/outputs/
+/outputs/*
+!/outputs/audit_reports/
+!/outputs/stage_reports/
+!/outputs/tables/
+
+# --- never commit logs, caches, or notebook checkpoints anywhere ---
+**/logs/
+*.log
+**/__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# --- hard safety net: dataset / binary blobs must NEVER be committed,
+#     even if one ever lands inside an allowed folder by mistake.
+#     (Intentionally excludes *.png/*.jpg/*.pdf/*.csv so paper figures,
+#      report-asset images, and small result CSVs stay tracked.) ---
+*.csv.gz
+*.gz
+*.h5
+*.hdf5
+*.npy
+*.dat
+*.hea
+*.parquet
+*.pt
+*.pth
+*.ckpt

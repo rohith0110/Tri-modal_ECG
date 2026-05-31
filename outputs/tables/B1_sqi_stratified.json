@@ -1,0 +1,42 @@
+{
+  "overall": {
+    "n_ecgs": 2995,
+    "n_subjects": 2382,
+    "accuracy": 0.9643,
+    "macro_f1": 0.9487,
+    "macro_auprc": 0.9867,
+    "sqi_mean": 0.8005
+  },
+  "high_sqi": {
+    "n_ecgs": 1826,
+    "n_subjects": 1541,
+    "accuracy": 0.9721,
+    "macro_f1": 0.9606,
+    "macro_auprc": 0.9891,
+    "sqi_mean": 0.9479
+  },
+  "medium_sqi": {
+    "n_ecgs": 542,
+    "n_subjects": 491,
+    "accuracy": 0.9613,
+    "macro_f1": 0.9442,
+    "macro_auprc": 0.983,
+    "sqi_mean": 0.7039
+  },
+  "low_sqi": {
+    "n_ecgs": 627,
+    "n_subjects": 560,
+    "accuracy": 0.9442,
+    "macro_f1": 0.906,
+    "macro_auprc": 0.9703,
+    "sqi_mean": 0.4546
+  },
+  "sqi_thresholds": {
+    "high": 0.8,
+    "medium": 0.6
+  },
+  "sqi_method": "kurtosis-SQI: sigmoid(0.3*(excess_kurtosis - 3)); high>=0.8, medium>=0.6, low<0.6",
+  "n_total_test_ecgs": 78076,
+  "n_total_test_subjects": 16134,
+  "note": "Evaluated on 3000-record sample of test split"
+}

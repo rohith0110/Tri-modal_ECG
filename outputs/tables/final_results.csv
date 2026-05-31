@@ -1,0 +1,2 @@
+Task,Model,N_ECG_test,AUPRC_mean,AUPRC_std,AUROC_mean,F1_mean,Accuracy,N_seeds
+B1,ECGResNet1D_1lead,499,0.9914,0.0016,0.9965,0.955,0.9639,3

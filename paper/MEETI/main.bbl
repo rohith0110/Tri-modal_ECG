@@ -1,0 +1,130 @@
+\begin{thebibliography}{28}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\providecommand{\href}[2]{#2}
+\providecommand{\path}[1]{#1}
+\providecommand{\DOIprefix}{doi: }
+\providecommand{\ArXivprefix}{arXiv: }
+\providecommand{\URLprefix}{URL: }
+\providecommand{\Pubmedprefix}{pmid: }
+\providecommand{\doi}[1]{\href{http://dx.doi.org/#1}{\path{#1}}}
+\providecommand{\Pubmed}[1]{\href{pmid:#1}{\path{#1}}}
+\providecommand{\BIBand}{and}
+\providecommand{\bibinfo}[2]{#2}
+\ifx\xfnm\undefined \def\xfnm[#1]{\unskip,\space#1}\fi
+\makeatletter\def\@biblabel#1{#1.}\makeatother
+%Type = Article
+\bibitem[{Martin et~al.(2025)Martin, Aday, Allen, Almarzooq, Anderson, Arora, Avery, Baker-Smith, Bansal, Beaton et~al.}]{martin20252025}
+\bibinfo{author}{Martin, S.S.}, \bibinfo{author}{Aday, A.W.}, \bibinfo{author}{Allen, N.B.}, \bibinfo{author}{Almarzooq, Z.I.}, \bibinfo{author}{Anderson, C.A.}, \bibinfo{author}{Arora, P.}, \bibinfo{author}{Avery, C.L.}, \bibinfo{author}{Baker-Smith, C.M.}, \bibinfo{author}{Bansal, N.}, \bibinfo{author}{Beaton, A.Z.} et~al. (\bibinfo{year}{2025}). \bibinfo{title}{2025 heart disease and stroke statistics: a report of us and global data from the american heart association}.
+\newblock \bibinfo{journal}{Circulation} \emph{\bibinfo{volume}{151}}, \bibinfo{pages}{e41--e660}.
+%Type = Article
+\bibitem[{Tan et~al.(2025)Tan, Fan, Luo, Zhou, Wang, Wang, Liu, Liu and Wang}]{tan2025pediatric}
+\bibinfo{author}{Tan, J.}, \bibinfo{author}{Fan, H.}, \bibinfo{author}{Luo, J.}, \bibinfo{author}{Zhou, Y.}, \bibinfo{author}{Wang, N.}, \bibinfo{author}{Wang, X.}, \bibinfo{author}{Liu, G.}, \bibinfo{author}{Liu, C.}, and \bibinfo{author}{Wang, Z.} (\bibinfo{year}{2025}). \bibinfo{title}{A pediatric ecg database with disease diagnosis covering 11643 children}.
+\newblock \bibinfo{journal}{Scientific Data} \emph{\bibinfo{volume}{12}}, \bibinfo{pages}{867}.
+%Type = Article
+\bibitem[{Yagi et~al.(2024)Yagi, Mori, Goto, Iwami and Inoue}]{yagi2024routine}
+\bibinfo{author}{Yagi, R.}, \bibinfo{author}{Mori, Y.}, \bibinfo{author}{Goto, S.}, \bibinfo{author}{Iwami, T.}, and \bibinfo{author}{Inoue, K.} (\bibinfo{year}{2024}). \bibinfo{title}{Routine electrocardiogram screening and cardiovascular disease events in adults}.
+\newblock \bibinfo{journal}{JAMA Internal Medicine} \emph{\bibinfo{volume}{184}}, \bibinfo{pages}{1035--1044}.
+%Type = Article
+\bibitem[{Zheng et~al.(2020{\natexlab{a}})Zheng, Fu, Anderson, Chu and Rakovski}]{zheng202012}
+\bibinfo{author}{Zheng, J.}, \bibinfo{author}{Fu, G.}, \bibinfo{author}{Anderson, K.}, \bibinfo{author}{Chu, H.}, and \bibinfo{author}{Rakovski, C.} (\bibinfo{year}{2020}{\natexlab{a}}). \bibinfo{title}{A 12-lead ecg database to identify origins of idiopathic ventricular arrhythmia containing 334 patients}.
+\newblock \bibinfo{journal}{Scientific data} \emph{\bibinfo{volume}{7}}, \bibinfo{pages}{98}.
+%Type = Article
+\bibitem[{Hong et~al.(2020{\natexlab{a}})Hong, Zhou, Shang, Xiao and Sun}]{hong2020opportunities}
+\bibinfo{author}{Hong, S.}, \bibinfo{author}{Zhou, Y.}, \bibinfo{author}{Shang, J.}, \bibinfo{author}{Xiao, C.}, and \bibinfo{author}{Sun, J.} (\bibinfo{year}{2020}{\natexlab{a}}). \bibinfo{title}{Opportunities and challenges of deep learning methods for electrocardiogram data: A systematic review}.
+\newblock \bibinfo{journal}{Computers in biology and medicine} \emph{\bibinfo{volume}{122}}, \bibinfo{pages}{103801}.
+%Type = Inproceedings
+\bibitem[{Lan et~al.(2022)Lan, Ng, Hong and Feng}]{lan2022intra}
+\bibinfo{author}{Lan, X.}, \bibinfo{author}{Ng, D.}, \bibinfo{author}{Hong, S.}, and \bibinfo{author}{Feng, M.} (\bibinfo{year}{2022}). \bibinfo{title}{Intra-inter subject self-supervised learning for multivariate cardiac signals}.
+\newblock In \bibinfo{booktitle}{Proceedings of the AAAI Conference on Artificial Intelligence} vol.~\bibinfo{volume}{36}. pp. \bibinfo{pages}{4532--4540}.
+%Type = Inproceedings
+\bibitem[{Lan et~al.(2024)Lan, Yan, Hong and Feng}]{lan2024towards}
+\bibinfo{author}{Lan, X.}, \bibinfo{author}{Yan, H.}, \bibinfo{author}{Hong, S.}, and \bibinfo{author}{Feng, M.} (\bibinfo{year}{2024}). \bibinfo{title}{Towards enhancing time series contrastive learning: A dynamic bad pair mining approach}.
+\newblock In \bibinfo{booktitle}{The Twelfth International Conference on Learning Representations}.
+\newblock \URLprefix \url{https://openreview.net/forum?id=K2c04ulKXn}.
+%Type = Article
+\bibitem[{Li et~al.(2025)Li, Aguirre, Junior, Jin, Liu, Zhong, Sun, Clifford, Brandon~Westover and Hong}]{li2025electrocardiogram}
+\bibinfo{author}{Li, J.}, \bibinfo{author}{Aguirre, A.D.}, \bibinfo{author}{Junior, V.M.}, \bibinfo{author}{Jin, J.}, \bibinfo{author}{Liu, C.}, \bibinfo{author}{Zhong, L.}, \bibinfo{author}{Sun, C.}, \bibinfo{author}{Clifford, G.}, \bibinfo{author}{Brandon~Westover, M.}, and \bibinfo{author}{Hong, S.} (\bibinfo{year}{2025}). \bibinfo{title}{An electrocardiogram foundation model built on over 10 million recordings}.
+\newblock \bibinfo{journal}{NEJM AI} \emph{\bibinfo{volume}{2}}, \bibinfo{pages}{AIoa2401033}.
+%Type = Article
+\bibitem[{Liu et~al.(2023)Liu, Zhu, Wu, Yang, You, Wang, Lu, Liu, Zheng, Sun et~al.}]{liu2023medical}
+\bibinfo{author}{Liu, F.}, \bibinfo{author}{Zhu, T.}, \bibinfo{author}{Wu, X.}, \bibinfo{author}{Yang, B.}, \bibinfo{author}{You, C.}, \bibinfo{author}{Wang, C.}, \bibinfo{author}{Lu, L.}, \bibinfo{author}{Liu, Z.}, \bibinfo{author}{Zheng, Y.}, \bibinfo{author}{Sun, X.} et~al. (\bibinfo{year}{2023}). \bibinfo{title}{A medical multimodal large language model for future pandemics}.
+\newblock \bibinfo{journal}{NPJ Digital Medicine} \emph{\bibinfo{volume}{6}}, \bibinfo{pages}{226}.
+%Type = Article
+\bibitem[{Sandmann et~al.(2025)Sandmann, Hegselmann, Fujarski, Bickmann, Wild, Eils and Varghese}]{sandmann2025benchmark}
+\bibinfo{author}{Sandmann, S.}, \bibinfo{author}{Hegselmann, S.}, \bibinfo{author}{Fujarski, M.}, \bibinfo{author}{Bickmann, L.}, \bibinfo{author}{Wild, B.}, \bibinfo{author}{Eils, R.}, and \bibinfo{author}{Varghese, J.} (\bibinfo{year}{2025}). \bibinfo{title}{Benchmark evaluation of deepseek large language models in clinical decision-making}.
+\newblock \bibinfo{journal}{Nature Medicine} pp. \bibinfo{pages}{1--1}.
+%Type = Article
+\bibitem[{Zhou et~al.(2025)Zhou, Xu, Zhang, Xu, Guo, Zhan, Fang, Ding, Wang, Xu et~al.}]{zhou2025large}
+\bibinfo{author}{Zhou, S.}, \bibinfo{author}{Xu, Z.}, \bibinfo{author}{Zhang, M.}, \bibinfo{author}{Xu, C.}, \bibinfo{author}{Guo, Y.}, \bibinfo{author}{Zhan, Z.}, \bibinfo{author}{Fang, Y.}, \bibinfo{author}{Ding, S.}, \bibinfo{author}{Wang, J.}, \bibinfo{author}{Xu, K.} et~al. (\bibinfo{year}{2025}). \bibinfo{title}{Large language models for disease diagnosis: A scoping review}.
+\newblock \bibinfo{journal}{npj Artificial Intelligence} \emph{\bibinfo{volume}{1}}, \bibinfo{pages}{9}.
+%Type = Article
+\bibitem[{Hong et~al.(2025)Hong, Liu, Wu, Lu, Yang, Chen, Rao, Liu, Ye, Zhuang et~al.}]{hong2025evaluating}
+\bibinfo{author}{Hong, Q.}, \bibinfo{author}{Liu, S.}, \bibinfo{author}{Wu, L.}, \bibinfo{author}{Lu, Q.}, \bibinfo{author}{Yang, P.}, \bibinfo{author}{Chen, D.}, \bibinfo{author}{Rao, G.}, \bibinfo{author}{Liu, X.}, \bibinfo{author}{Ye, H.}, \bibinfo{author}{Zhuang, P.} et~al. (\bibinfo{year}{2025}). \bibinfo{title}{Evaluating the performance of large language \& visual-language models in cervical cytology screening}.
+\newblock \bibinfo{journal}{NPJ Precision Oncology} \emph{\bibinfo{volume}{9}}, \bibinfo{pages}{153}.
+%Type = Article
+\bibitem[{Wagner et~al.(2020)Wagner, Strodthoff, Bousseljot, Kreiseler, Lunze, Samek and Schaeffter}]{wagner2020ptb}
+\bibinfo{author}{Wagner, P.}, \bibinfo{author}{Strodthoff, N.}, \bibinfo{author}{Bousseljot, R.D.}, \bibinfo{author}{Kreiseler, D.}, \bibinfo{author}{Lunze, F.I.}, \bibinfo{author}{Samek, W.}, and \bibinfo{author}{Schaeffter, T.} (\bibinfo{year}{2020}). \bibinfo{title}{Ptb-xl, a large publicly available electrocardiography dataset}.
+\newblock \bibinfo{journal}{Scientific data} \emph{\bibinfo{volume}{7}}, \bibinfo{pages}{1--15}.
+%Type = Article
+\bibitem[{Gow et~al.(2023)Gow, Pollard, Nathanson, Johnson, Moody, Fernandes, Greenbaum, Waks, Eslami, Carbonati et~al.}]{gow2023mimic}
+\bibinfo{author}{Gow, B.}, \bibinfo{author}{Pollard, T.}, \bibinfo{author}{Nathanson, L.A.}, \bibinfo{author}{Johnson, A.}, \bibinfo{author}{Moody, B.}, \bibinfo{author}{Fernandes, C.}, \bibinfo{author}{Greenbaum, N.}, \bibinfo{author}{Waks, J.W.}, \bibinfo{author}{Eslami, P.}, \bibinfo{author}{Carbonati, T.} et~al. (\bibinfo{year}{2023}). \bibinfo{title}{Mimic-iv-ecg: Diagnostic electrocardiogram matched subset}.
+\newblock \bibinfo{journal}{Type: dataset} \emph{\bibinfo{volume}{6}}, \bibinfo{pages}{13--14}.
+%Type = Article
+\bibitem[{Kansal et~al.(2025)Kansal, Chen, Jin, Rajpurkar and Kim}]{kansal2025mc}
+\bibinfo{author}{Kansal, A.}, \bibinfo{author}{Chen, E.}, \bibinfo{author}{Jin, B.T.}, \bibinfo{author}{Rajpurkar, P.}, and \bibinfo{author}{Kim, D.A.} (\bibinfo{year}{2025}). \bibinfo{title}{Mc-med, multimodal clinical monitoring in the emergency department}.
+\newblock \bibinfo{journal}{Scientific Data} \emph{\bibinfo{volume}{12}}, \bibinfo{pages}{1094}.
+%Type = Article
+\bibitem[{Al-Zaiti et~al.(2023)Al-Zaiti, Martin-Gill, Z{\`e}gre-Hemsey, Bouzid, Faramand, Alrawashdeh, Gregg, Helman, Riek, Kraevsky-Phillips et~al.}]{al2023machine}
+\bibinfo{author}{Al-Zaiti, S.S.}, \bibinfo{author}{Martin-Gill, C.}, \bibinfo{author}{Z{\`e}gre-Hemsey, J.K.}, \bibinfo{author}{Bouzid, Z.}, \bibinfo{author}{Faramand, Z.}, \bibinfo{author}{Alrawashdeh, M.O.}, \bibinfo{author}{Gregg, R.E.}, \bibinfo{author}{Helman, S.}, \bibinfo{author}{Riek, N.T.}, \bibinfo{author}{Kraevsky-Phillips, K.} et~al. (\bibinfo{year}{2023}). \bibinfo{title}{Machine learning for ecg diagnosis and risk stratification of occlusion myocardial infarction}.
+\newblock \bibinfo{journal}{Nature Medicine} \emph{\bibinfo{volume}{29}}, \bibinfo{pages}{1804--1813}.
+%Type = Article
+\bibitem[{Chen et~al.(2024)Chen, Huang, Zhang, Chang, Zhang, Li, Qiu, Hu, Peng, Du et~al.}]{chen2024congenital}
+\bibinfo{author}{Chen, J.}, \bibinfo{author}{Huang, S.}, \bibinfo{author}{Zhang, Y.}, \bibinfo{author}{Chang, Q.}, \bibinfo{author}{Zhang, Y.}, \bibinfo{author}{Li, D.}, \bibinfo{author}{Qiu, J.}, \bibinfo{author}{Hu, L.}, \bibinfo{author}{Peng, X.}, \bibinfo{author}{Du, Y.} et~al. (\bibinfo{year}{2024}). \bibinfo{title}{Congenital heart disease detection by pediatric electrocardiogram based deep learning integrated with human concepts}.
+\newblock \bibinfo{journal}{Nature Communications} \emph{\bibinfo{volume}{15}}, \bibinfo{pages}{976}.
+%Type = Article
+\bibitem[{Fan et~al.(2025)Fan, Zhang, Wang, Geng, Lu, Sang, Xu, Wang, Zhao, Cheng et~al.}]{fan2025detecting}
+\bibinfo{author}{Fan, S.}, \bibinfo{author}{Zhang, D.}, \bibinfo{author}{Wang, Y.}, \bibinfo{author}{Geng, S.}, \bibinfo{author}{Lu, K.}, \bibinfo{author}{Sang, M.}, \bibinfo{author}{Xu, W.}, \bibinfo{author}{Wang, H.}, \bibinfo{author}{Zhao, Q.}, \bibinfo{author}{Cheng, C.} et~al. (\bibinfo{year}{2025}). \bibinfo{title}{Detecting long qt syndrome and first-degree atrioventricular block using single-lead ai-ecg: A multi-center real-world study}.
+\newblock \bibinfo{journal}{arXiv preprint arXiv:2502.17499}.
+%Type = Article
+\bibitem[{{\c{S}}AHiN et~al.(2025){\c{S}}AHiN, Arslan and {\"O}zdemir}]{csahin2025unlocking}
+\bibinfo{author}{{\c{S}}AHiN, E.}, \bibinfo{author}{Arslan, N.N.}, and \bibinfo{author}{{\"O}zdemir, D.} (\bibinfo{year}{2025}). \bibinfo{title}{Unlocking the black box: an in-depth review on interpretability, explainability, and reliability in deep learning}.
+\newblock \bibinfo{journal}{Neural Computing and Applications} \emph{\bibinfo{volume}{37}}, \bibinfo{pages}{859--965}.
+%Type = Inproceedings
+\bibitem[{Li et~al.(2024)Li, Liu, Cheng, Arcucci and Hong}]{li2024frozen}
+\bibinfo{author}{Li, J.}, \bibinfo{author}{Liu, C.}, \bibinfo{author}{Cheng, S.}, \bibinfo{author}{Arcucci, R.}, and \bibinfo{author}{Hong, S.} (\bibinfo{year}{2024}). \bibinfo{title}{Frozen language model helps ecg zero-shot learning}.
+\newblock In \bibinfo{booktitle}{Medical Imaging with Deep Learning}. \bibinfo{organization}{PMLR} pp. \bibinfo{pages}{402--415}.
+%Type = Article
+\bibitem[{Lai et~al.(2025)Lai, Chen, Zhao, Zhang, Wang, Geng, Li and Hong}]{lai2025diffusets}
+\bibinfo{author}{Lai, Y.}, \bibinfo{author}{Chen, J.}, \bibinfo{author}{Zhao, Q.}, \bibinfo{author}{Zhang, D.}, \bibinfo{author}{Wang, Y.}, \bibinfo{author}{Geng, S.}, \bibinfo{author}{Li, H.}, and \bibinfo{author}{Hong, S.} (\bibinfo{year}{2025}). \bibinfo{title}{Diffusets: 12-lead ecg generation conditioned on clinical text reports and patient-specific information}.
+\newblock \bibinfo{journal}{Patterns}.
+%Type = Article
+\bibitem[{Tsutsui et~al.(2025)Tsutsui, Brimer, Ben-Moshe, Sellal, Oster, Mori, Ikeda, Arai, Nakano, Kato et~al.}]{tsutsui2025shdb}
+\bibinfo{author}{Tsutsui, K.}, \bibinfo{author}{Brimer, S.B.}, \bibinfo{author}{Ben-Moshe, N.}, \bibinfo{author}{Sellal, J.M.}, \bibinfo{author}{Oster, J.}, \bibinfo{author}{Mori, H.}, \bibinfo{author}{Ikeda, Y.}, \bibinfo{author}{Arai, T.}, \bibinfo{author}{Nakano, S.}, \bibinfo{author}{Kato, R.} et~al. (\bibinfo{year}{2025}). \bibinfo{title}{Shdb-af: a japanese holter ecg database of atrial fibrillation}.
+\newblock \bibinfo{journal}{Scientific Data} \emph{\bibinfo{volume}{12}}, \bibinfo{pages}{454}.
+%Type = Article
+\bibitem[{Zheng et~al.(2020{\natexlab{b}})Zheng, Zhang, Danioko, Yao, Guo and Rakovski}]{zheng2020121}
+\bibinfo{author}{Zheng, J.}, \bibinfo{author}{Zhang, J.}, \bibinfo{author}{Danioko, S.}, \bibinfo{author}{Yao, H.}, \bibinfo{author}{Guo, H.}, and \bibinfo{author}{Rakovski, C.} (\bibinfo{year}{2020}{\natexlab{b}}). \bibinfo{title}{A 12-lead electrocardiogram database for arrhythmia research covering more than 10,000 patients}.
+\newblock \bibinfo{journal}{Scientific data} \emph{\bibinfo{volume}{7}}, \bibinfo{pages}{48}.
+%Type = Article
+\bibitem[{Johnson et~al.(2020)Johnson, Bulgarelli, Pollard, Horng, Celi and Mark}]{johnson2020mimic}
+\bibinfo{author}{Johnson, A.}, \bibinfo{author}{Bulgarelli, L.}, \bibinfo{author}{Pollard, T.}, \bibinfo{author}{Horng, S.}, \bibinfo{author}{Celi, L.A.}, and \bibinfo{author}{Mark, R.} (\bibinfo{year}{2020}). \bibinfo{title}{Mimic-iv}.
+\newblock \bibinfo{journal}{PhysioNet. Available online at: https://physionet. org/content/mimiciv/1.0/(accessed August 23, 2021)} pp. \bibinfo{pages}{49--55}.
+%Type = Inproceedings
+\bibitem[{Hong et~al.(2020{\natexlab{b}})Hong, Fu, Zhou, Yu, Li, Wang and Cheng}]{hong2020cardiolearn}
+\bibinfo{author}{Hong, S.}, \bibinfo{author}{Fu, Z.}, \bibinfo{author}{Zhou, R.}, \bibinfo{author}{Yu, J.}, \bibinfo{author}{Li, Y.}, \bibinfo{author}{Wang, K.}, and \bibinfo{author}{Cheng, G.} (\bibinfo{year}{2020}{\natexlab{b}}). \bibinfo{title}{Cardiolearn: a cloud deep learning service for cardiac disease detection from electrocardiogram}.
+\newblock In \bibinfo{booktitle}{Companion Proceedings of the Web Conference 2020}. pp. \bibinfo{pages}{148--152}.
+%Type = Article
+\bibitem[{Zhang et~al.(2023)Zhang, Geng, Zhou, Xu, Wei, Wang, Yu, Zhu, Li, Zhao et~al.}]{zhang2023artificial}
+\bibinfo{author}{Zhang, D.}, \bibinfo{author}{Geng, S.}, \bibinfo{author}{Zhou, Y.}, \bibinfo{author}{Xu, W.}, \bibinfo{author}{Wei, G.}, \bibinfo{author}{Wang, K.}, \bibinfo{author}{Yu, J.}, \bibinfo{author}{Zhu, Q.}, \bibinfo{author}{Li, Y.}, \bibinfo{author}{Zhao, Y.} et~al. (\bibinfo{year}{2023}). \bibinfo{title}{Artificial intelligence system for detection and screening of cardiac abnormalities using electrocardiogram images}.
+\newblock \bibinfo{journal}{arXiv preprint arXiv:2302.10301}.
+%Type = Article
+\bibitem[{Achiam et~al.(2023)Achiam, Adler, Agarwal, Ahmad, Akkaya, Aleman, Almeida, Altenschmidt, Altman, Anadkat et~al.}]{achiam2023gpt}
+\bibinfo{author}{Achiam, J.}, \bibinfo{author}{Adler, S.}, \bibinfo{author}{Agarwal, S.}, \bibinfo{author}{Ahmad, L.}, \bibinfo{author}{Akkaya, I.}, \bibinfo{author}{Aleman, F.L.}, \bibinfo{author}{Almeida, D.}, \bibinfo{author}{Altenschmidt, J.}, \bibinfo{author}{Altman, S.}, \bibinfo{author}{Anadkat, S.} et~al. (\bibinfo{year}{2023}). \bibinfo{title}{Gpt-4 technical report}.
+\newblock \bibinfo{journal}{arXiv preprint arXiv:2303.08774}.
+%Type = Article
+\bibitem[{Lan et~al.(2025)Lan, Wu, He, Zhao, Hong and Feng}]{lan2025gem}
+\bibinfo{author}{Lan, X.}, \bibinfo{author}{Wu, F.}, \bibinfo{author}{He, K.}, \bibinfo{author}{Zhao, Q.}, \bibinfo{author}{Hong, S.}, and \bibinfo{author}{Feng, M.} (\bibinfo{year}{2025}). \bibinfo{title}{Gem: Empowering mllm for grounded ecg understanding with time series and images}.
+\newblock \bibinfo{journal}{arXiv preprint arXiv:2503.06073}.
+
+\end{thebibliography}

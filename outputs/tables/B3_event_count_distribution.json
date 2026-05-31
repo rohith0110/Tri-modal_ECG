@@ -1,0 +1,74 @@
+{
+  "n_records_sampled": 800000,
+  "per_query": {
+    "HIGH_HEART_RATE": {
+      "n_records": 266667,
+      "mean_events": 2.203,
+      "median_events": 1,
+      "std_events": 3.27,
+      "min_events": 0,
+      "max_events": 10,
+      "pct_records_with_zero_events": 46.05,
+      "pct_records_with_all_bins": 8.29,
+      "event_count_histogram": {
+        "0": 122801,
+        "1": 54208,
+        "2": 20589,
+        "3": 11089,
+        "4": 7023,
+        "5": 5173,
+        "6": 4553,
+        "7": 4882,
+        "8": 5910,
+        "9": 8319,
+        "10": 22120
+      }
+    },
+    "LOW_HEART_RATE": {
+      "n_records": 266667,
+      "mean_events": 1.5,
+      "median_events": 0,
+      "std_events": 2.844,
+      "min_events": 0,
+      "max_events": 10,
+      "pct_records_with_zero_events": 67.13,
+      "pct_records_with_all_bins": 3.99,
+      "event_count_histogram": {
+        "0": 179014,
+        "1": 22911,
+        "2": 11525,
+        "3": 8017,
+        "4": 6370,
+        "5": 5601,
+        "6": 5288,
+        "7": 5387,
+        "8": 6454,
+        "9": 5449,
+        "10": 10651
+      }
+    },
+    "WIDE_QRS": {
+      "n_records": 266666,
+      "mean_events": 1.434,
+      "median_events": 0,
+      "std_events": 2.096,
+      "min_events": 0,
+      "max_events": 10,
+      "pct_records_with_zero_events": 50.05,
+      "pct_records_with_all_bins": 0.29,
+      "event_count_histogram": {
+        "0": 133460,
+        "1": 49611,
+        "2": 26358,
+        "3": 17110,
+        "4": 12296,
+        "5": 9057,
+        "6": 7161,
+        "7": 5089,
+        "8": 3680,
+        "9": 2069,
+        "10": 775
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+dataset_version: v2.0.0
+created_at_iso: '2026-06-01T02:34:48Z'
+script_commit_hash: 7e83abb
+preprocessing_recipe_version: stage3_v1
+filter_lib: scipy.signal
+filter_lib_version: scipy
+baseline_highpass:
+  hp_cutoff_hz: 0.5
+  hp_order: 4
+powerline_notch:
+  notch_freq_hz: 60.0
+  notch_q_factor: 30.0
+lowpass:
+  lp_cutoff_hz: 100.0
+  lp_order: 4
+resampling:
+  original_fs: 500.0
+  target_fs: 500.0
+normalization:
+  scaler_type: zscore_per_lead
+  scaler_fit_split: train
+  lead2_scaler_path: config/scalers/lead2_zscore_train.npz
+  twelve_lead_scaler_path: config/scalers/twelve_lead_zscore_train.npz
+  lead_order:
+  - I
+  - II
+  - III
+  - aVR
+  - aVL
+  - aVF
+  - V1
+  - V2
+  - V3
+  - V4
+  - V5
+  - V6
+  train_subject_count: 112947
+  lead2_train_study_count: 559500
+  twelve_lead_train_study_count: 559500
+materialized_preprocessed_signals: false

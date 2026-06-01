@@ -72,15 +72,15 @@ Rollback story is "regenerate from `data/raw/files/` via the
 version-locked extractor scripts" — the raw WFDB waveforms are the only
 true source of truth and are never touched.
 
-| Folder today                             | Decision                                                 | Final on-disk artifact                                                                                            | Notes                                                                                                                                                              |
-| ---------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `qc/` 651 K × JSON                       | **A-2** parquet only; delete JSONs                       | `data/processed/qc.parquet`                                                                                       | Truth-doc literal §5.5 path violated; content preserved.                                                                                                           |
-| `signal_metadata/` 781 K × JSON          | **B-1** parquet only                                     | `data/processed/signal_metadata.parquet`                                                                          | Truth doc doesn't pin a path here.                                                                                                                                 |
-| `signals_lead2/` 800 K × NPY (15.7 GB)   | **C-2** HDF5 only; delete `.npy` folder after validation | `data/processed/signals/lead2_raw.h5` + (Stage 9 optional) `lead2_preprocessed.h5`                                | One file per modality kind.                                                                                                                                        |
-| `signals_12lead/` 800 K × NPY (187.5 GB) | **C-2** HDF5 only; delete `.npy` folder after validation | `data/processed/signals/twelve_lead_raw_shard_{00..04}.h5` (~5 shards × ~40 GB) + manifest                        | Sharded for transfer; preprocessed twin added in Stage 9 if materialized.                                                                                          |
-| `signals_corrupted/` 80 K × NPY (1.5 GB) | **D-3** single parquet                                   | `data/processed/signals_corrupted.parquet` (columns: `study_id, corruption_type, snr_db, signal[5000] float32`)   | Keep persisted (not regenerate on the fly). 2 K anchors × 8 corruptions × 5 SNRs ≈ 80 K rows ≈ 1.6 GB. Plan A/B is silent on N; 2 K anchors is resolved.           |
-| `images_clean/` 800 K × PNG (140.8 GB)   | **E-1 / fewer shards** — **both layouts**                | `data/processed/images/clean_lead2_shard_{000..099}.tar` (~100 shards × ~1.4 GB) + `images/clean_lead2_manifest.parquet` **AND** `clean_12lead_shard_{000..029}.tar` (low-DPI/quality) + `images/clean_12lead_manifest.parquet` | Per §12 resolution: render both Lead-II strip AND 12-lead 3×4 grid; minimize 12-lead size with low DPI and high JPEG/PNG compression. |
-| `images_scanlike/` 800 K × JPG (68.2 GB) | **F-1 / fewer shards** — **both layouts**                | `data/processed/images/scanlike_lead2_shard_{000..049}.tar` + `scanlike_lead2_manifest.parquet` **AND** `scanlike_12lead_shard_{000..017}.tar` + `scanlike_12lead_manifest.parquet` | Always shipped (Truth doc §5.4 D2 mandates and `30_qc.py` reads it). Same shape as clean; both layouts. |
+| Folder today                             | Decision                                                 | Final on-disk artifact                                                                                                                                                                                                          | Notes                                                                                                                                                    |
+| ---------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qc/` 651 K × JSON                       | **A-2** parquet only; delete JSONs                       | `data/processed/qc.parquet`                                                                                                                                                                                                     | Truth-doc literal §5.5 path violated; content preserved.                                                                                                 |
+| `signal_metadata/` 781 K × JSON          | **B-1** parquet only                                     | `data/processed/signal_metadata.parquet`                                                                                                                                                                                        | Truth doc doesn't pin a path here.                                                                                                                       |
+| `signals_lead2/` 800 K × NPY (15.7 GB)   | **C-2** HDF5 only; delete `.npy` folder after validation | `data/processed/signals/lead2_raw.h5` + (Stage 9 optional) `lead2_preprocessed.h5`                                                                                                                                              | One file per modality kind.                                                                                                                              |
+| `signals_12lead/` 800 K × NPY (187.5 GB) | **C-2** HDF5 only; delete `.npy` folder after validation | `data/processed/signals/twelve_lead_raw_shard_{00..04}.h5` (~5 shards × ~40 GB) + manifest                                                                                                                                      | Sharded for transfer; preprocessed twin added in Stage 9 if materialized.                                                                                |
+| `signals_corrupted/` 80 K × NPY (1.5 GB) | **D-3** single parquet                                   | `data/processed/signals_corrupted.parquet` (columns: `study_id, corruption_type, snr_db, signal[5000] float32`)                                                                                                                 | Keep persisted (not regenerate on the fly). 2 K anchors × 8 corruptions × 5 SNRs ≈ 80 K rows ≈ 1.6 GB. Plan A/B is silent on N; 2 K anchors is resolved. |
+| `images_clean/` 800 K × PNG (140.8 GB)   | **E-1 / fewer shards** — **both layouts**                | `data/processed/images/clean_lead2_shard_{000..099}.tar` (~100 shards × ~1.4 GB) + `images/clean_lead2_manifest.parquet` **AND** `clean_12lead_shard_{000..029}.tar` (low-DPI/quality) + `images/clean_12lead_manifest.parquet` | Per §12 resolution: render both Lead-II strip AND 12-lead 3×4 grid; minimize 12-lead size with low DPI and high JPEG/PNG compression.                    |
+| `images_scanlike/` 800 K × JPG (68.2 GB) | **F-1 / fewer shards** — **both layouts**                | `data/processed/images/scanlike_lead2_shard_{000..049}.tar` + `scanlike_lead2_manifest.parquet` **AND** `scanlike_12lead_shard_{000..017}.tar` + `scanlike_12lead_manifest.parquet`                                             | Always shipped (Truth doc §5.4 D2 mandates and `30_qc.py` reads it). Same shape as clean; both layouts.                                                  |
 
 ### 2.1 Cross-cutting manifest schema
 
@@ -322,13 +322,13 @@ index filters them at the index-cleanup stage.
 
 A second signal modality must exist with the recommended filter chain:
 
-| Operation               | Default                                                                | Stored metadata in HDF5 attrs                           |
-| ----------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------- |
-| Baseline-wander removal | zero-phase high-pass ~0.5 Hz                                           | `hp_cutoff_hz`, `hp_order`, `filter_lib_version`        |
-| Powerline notch         | 60 Hz per user resolution (configurable 50/60 Hz default 60 Hz)        | `notch_freq_hz`, `notch_q_factor`                       |
-| Low-pass                | ~100–150 Hz                                                            | `lp_cutoff_hz`, `lp_order`                              |
-| Resampling              | none (keep 500 Hz)                                                     | `original_fs`, `target_fs`                              |
-| Normalization           | per-lead z-score, scaler fit on **train split only**                   | `scaler_type=zscore_per_lead`, `scaler_fit_split=train` |
+| Operation               | Default                                                         | Stored metadata in HDF5 attrs                           |
+| ----------------------- | --------------------------------------------------------------- | ------------------------------------------------------- |
+| Baseline-wander removal | zero-phase high-pass ~0.5 Hz                                    | `hp_cutoff_hz`, `hp_order`, `filter_lib_version`        |
+| Powerline notch         | 60 Hz per user resolution (configurable 50/60 Hz default 60 Hz) | `notch_freq_hz`, `notch_q_factor`                       |
+| Low-pass                | ~100–150 Hz                                                     | `lp_cutoff_hz`, `lp_order`                              |
+| Resampling              | none (keep 500 Hz)                                              | `original_fs`, `target_fs`                              |
+| Normalization           | per-lead z-score, scaler fit on **train split only**            | `scaler_type=zscore_per_lead`, `scaler_fit_split=train` |
 
 **Recipe vs. materialization — two separable artifacts.** The filter
 chain above decomposes into two things, and only the first is mandatory:
@@ -466,11 +466,11 @@ distribution. No skipping.
 
 #### 3.7.3 Required artifacts of the linkage stage
 
-| File                                                       | Content                                                                                                      |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --- | --------------------------------------------- |
-| `data/processed/linkage/candidate_links.parquet`           | every candidate `(study_id, hadm_id, stay_id, link_type, offset_minutes)`                                    |
-| `data/processed/linkage/linkage_final.parquet`             | one row per study after tie-breaking with `link_tier, hadm_id, stay_id, offset_minutes`                      |
-| `data/processed/linkage/label_availability.parquet`        | per study: `icd_available, lab_K_within_6h, lab_K_within_24h, …, mortality_observable, readmission_eligible` |
+| File                                                  | Content                                                                                                      |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --- | --------------------------------------------- |
+| `data/processed/linkage/candidate_links.parquet`      | every candidate `(study_id, hadm_id, stay_id, link_type, offset_minutes)`                                    |
+| `data/processed/linkage/linkage_final.parquet`        | one row per study after tie-breaking with `link_tier, hadm_id, stay_id, offset_minutes`                      |
+| `data/processed/linkage/label_availability.parquet`   | per study: `icd_available, lab_K_within_6h, lab_K_within_24h, …, mortality_observable, readmission_eligible` |
 | `outputs/audit_reports/linkage_feasibility_report.md` | Tables L1–L4 + Figure L1 + 20 manual-audit examples                                                          |
 | `config/decision.yaml`                                | `{chosen_path: A                                                                                             | B   | hybrid, threshold_pass: {…}, frozen_at: ISO}` |
 
@@ -565,60 +565,60 @@ script; "**New**" = author a new script.
 
 ### Phase 1 — index building
 
-| #   | Script                            | Status | Changes                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| --- | --------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #   | Script                            | Status | Changes                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | --------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 01  | `01_build_master_index.py`        | Modify | Output renamed to `data/processed/index/ecg_metadata.parquet`. Add columns: `has_machine_measurements`, `has_machine_report_text`, `machine_hr_bpm`, `machine_qrs_ms`, `machine_qtc_ms`, `cart_id`, `filtering`, `bandwidth`. Ingest cardiologist `T_cardio` from `waveform_note_links.csv` (nullable) but do not gate tasks on it. Keep original report lines as list column `report_lines` alongside `T_machine`. |
-| 02  | `02_create_patient_split.py`      | Modify | Ratio **70 / 10 / 20** (was 80/10/10). Stratify by HR bucket _and_ EHR linkage tier (after §3.7 runs). Write `data/processed/splits_subject_level.parquet` plus `splits.json`. Hard check zero subject overlap.                                                                                                                                                                                                                  |
-| 03  | `03_add_measurements_to_index.py` | Modify | Run after QC stage. Add missing-flag columns per measurement so downstream consumers can tell "0" from "missing".                                                                                                                                                                                                                                                                                                                |
-| 04  | `04_cleanup_master_index.py`      | Modify | Reads from `data/processed/waveform_qc.parquet` and `data/processed/qc.parquet` (not per-study JSON). Filter rule unchanged.                                                                                                                                                                                                                                                                                                     |
-| 05  | `05_build_manifest_and_splits.py` | Modify | Builds the new canonical `data/processed/modality_manifest.parquet` with the §2.1 schema.                                                                                                                                                                                                                                                                                                                                        |
+| 02  | `02_create_patient_split.py`      | Modify | Ratio **70 / 10 / 20** (was 80/10/10). Stratify by HR bucket _and_ EHR linkage tier (after §3.7 runs). Write `data/processed/splits_subject_level.parquet` plus `splits.json`. Hard check zero subject overlap.                                                                                                                                                                                                     |
+| 03  | `03_add_measurements_to_index.py` | Modify | Run after QC stage. Add missing-flag columns per measurement so downstream consumers can tell "0" from "missing".                                                                                                                                                                                                                                                                                                   |
+| 04  | `04_cleanup_master_index.py`      | Modify | Reads from `data/processed/waveform_qc.parquet` and `data/processed/qc.parquet` (not per-study JSON). Filter rule unchanged.                                                                                                                                                                                                                                                                                        |
+| 05  | `05_build_manifest_and_splits.py` | Modify | Builds the new canonical `data/processed/modality_manifest.parquet` with the §2.1 schema.                                                                                                                                                                                                                                                                                                                           |
 
 ### Phase 2 — signal extraction (NEW: emit HDF5 directly)
 
-| #   | Script                      | Status | Changes                                                                                                                                                                                                                                                                                                                                                |
-| --- | --------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 10  | `10_extract_ecg_signals.py` | Modify | Pattern B writer (see §7.2). Each ProcessPoolExecutor worker writes a private partial HDF5 (`data/processed/partial/lead2_worker_{wid}.h5` and `data/processed/partial/twelve_lead_worker_{wid}.h5`). Worker also returns a `signal_metadata` dict to the main process.                                                                                |
-| 10b | `10b_pack_signals.py`       | New    | Offline packer. Consumes the `data/processed/partial/*.h5` files and writes the canonical `data/processed/signals/lead2_raw.h5` plus `data/processed/signals/twelve_lead_raw_shard_{00..04}.h5` (5 shards). Builds `data/processed/signals/signals_manifest.parquet` and stamps HDF5 with §2.2 attrs. Deletes `partial/` on success.                    |
+| #   | Script                      | Status | Changes                                                                                                                                                                                                                                                                                                                              |
+| --- | --------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 10  | `10_extract_ecg_signals.py` | Modify | Pattern B writer (see §7.2). Each ProcessPoolExecutor worker writes a private partial HDF5 (`data/processed/partial/lead2_worker_{wid}.h5` and `data/processed/partial/twelve_lead_worker_{wid}.h5`). Worker also returns a `signal_metadata` dict to the main process.                                                              |
+| 10b | `10b_pack_signals.py`       | New    | Offline packer. Consumes the `data/processed/partial/*.h5` files and writes the canonical `data/processed/signals/lead2_raw.h5` plus `data/processed/signals/twelve_lead_raw_shard_{00..04}.h5` (5 shards). Builds `data/processed/signals/signals_manifest.parquet` and stamps HDF5 with §2.2 attrs. Deletes `partial/` on success. |
 
 ### Phase 3 — preprocessing recipe + (optional) preprocessed signals
 
 The preprocessing concern splits in two (§3.3): the **recipe** (always
 produced, in Stage 3) and the **materialized signals** (optional, Stage 9).
 
-| #   | Script                     | Status | Changes                                                                                                                                                                                                                                                                                                                                                                            |
-| --- | -------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 14  | `14_fit_preprocessing_recipe.py` | New | **Always runs (Stage 3 sub-step).** Stream the **train-split** rows of `lead2_raw.h5` + `twelve_lead_raw_shard_*.h5`, fit per-lead z-score scalers, and write `config/preprocessing_recipe.yaml` (filter params: 0.5 Hz baseline HP, 60 Hz notch, ~100 Hz low-pass, no resample) + `config/scalers/lead2_zscore_train.npz` and the 12-lead scaler. Exposes a pure `apply_recipe(raw_array) -> preprocessed_array` helper imported by `32_compute_structured_features.py` and (if run) `15_preprocess_signals.py`. No bulk signal bytes written. |
-| 15  | `15_preprocess_signals.py` | New (DEFERRED, Stage 9) | **Optional materializer.** Read raw HDF5, apply the **already-locked** recipe from script 14 (does not re-fit), write `data/processed/signals/lead2_preprocessed.h5` and `data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`. Pattern B; record filter params in HDF5 attrs (§3.3). Runs only if §12.2 resolves to "materialize." |
+| #   | Script                           | Status                  | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | -------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14  | `14_fit_preprocessing_recipe.py` | New                     | **Always runs (Stage 3 sub-step).** Stream the **train-split** rows of `lead2_raw.h5` + `twelve_lead_raw_shard_*.h5`, fit per-lead z-score scalers, and write `config/preprocessing_recipe.yaml` (filter params: 0.5 Hz baseline HP, 60 Hz notch, ~100 Hz low-pass, no resample) + `config/scalers/lead2_zscore_train.npz` and the 12-lead scaler. Exposes a pure `apply_recipe(raw_array) -> preprocessed_array` helper imported by `32_compute_structured_features.py` and (if run) `15_preprocess_signals.py`. No bulk signal bytes written. |
+| 15  | `15_preprocess_signals.py`       | New (DEFERRED, Stage 9) | **Optional materializer.** Read raw HDF5, apply the **already-locked** recipe from script 14 (does not re-fit), write `data/processed/signals/lead2_preprocessed.h5` and `data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`. Pattern B; record filter params in HDF5 attrs (§3.3). Runs only if §12.2 resolves to "materialize."                                                                                                                                                                                               |
 
 ### Phase 4 — image rendering
 
-| #     | Script                           | Status | Changes                                                                                                                                                                                                                                                                                                                                                                          |
-| ----- | -------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 20    | `20_render_clean_images.py`      | Modify | Pattern B writer. Each worker writes its own `data/processed/partial/clean_worker_{wid}.tar` of raw PNGs. Produces a second modality: **12-lead 3×4 grid + rhythm strip** at 25 mm/s × 10 mm/mV — written into a parallel tar set `data/processed/partial/clean_12lead_worker_{wid}.tar`. Minimize image footprint per user resolution.                                           |
-| 20b   | `20b_pack_images.py`             | New    | Offline packer. Re-shards partial tars into 100 canonical `data/processed/images/clean_shard_{000..099}.tar` and 50 canonical `data/processed/images/clean_12lead_shard_{000..049}.tar`. Builds `data/processed/images/clean_manifest.parquet` and `data/processed/images/clean_12lead_manifest.parquet` with per-blob SHA256, offset, length.                                  |
-| 21    | `21_generate_scanlike_images.py` | Modify | Pattern B writer. Worker reads from the canonical `clean_shard_*.tar` (so the renderer's output is decoupled), writes `data/processed/partial/scanlike_worker_{wid}.tar`.                                                                                                                                                                                                        |
-| 21b   | `21b_pack_scanlike.py`           | New    | Offline packer → 50 × `data/processed/images/scanlike_shard_{000..049}.tar` + `data/processed/images/scanlike_manifest.parquet`.                                                                                                                                                                                                                                                 |
-| 22–24 | regen helpers                    | Modify | Update path expectations to read from / write to the tar shards.                                                                                                                                                                                                                                                                                                                 |
+| #     | Script                           | Status | Changes                                                                                                                                                                                                                                                                                                                                        |
+| ----- | -------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 20    | `20_render_clean_images.py`      | Modify | Pattern B writer. Each worker writes its own `data/processed/partial/clean_worker_{wid}.tar` of raw PNGs. Produces a second modality: **12-lead 3×4 grid + rhythm strip** at 25 mm/s × 10 mm/mV — written into a parallel tar set `data/processed/partial/clean_12lead_worker_{wid}.tar`. Minimize image footprint per user resolution.        |
+| 20b   | `20b_pack_images.py`             | New    | Offline packer. Re-shards partial tars into 100 canonical `data/processed/images/clean_shard_{000..099}.tar` and 50 canonical `data/processed/images/clean_12lead_shard_{000..049}.tar`. Builds `data/processed/images/clean_manifest.parquet` and `data/processed/images/clean_12lead_manifest.parquet` with per-blob SHA256, offset, length. |
+| 21    | `21_generate_scanlike_images.py` | Modify | Pattern B writer. Worker reads from the canonical `clean_shard_*.tar` (so the renderer's output is decoupled), writes `data/processed/partial/scanlike_worker_{wid}.tar`.                                                                                                                                                                      |
+| 21b   | `21b_pack_scanlike.py`           | New    | Offline packer → 50 × `data/processed/images/scanlike_shard_{000..049}.tar` + `data/processed/images/scanlike_manifest.parquet`.                                                                                                                                                                                                               |
+| 22–24 | regen helpers                    | Modify | Update path expectations to read from / write to the tar shards.                                                                                                                                                                                                                                                                               |
 
 ### Phase 5 — QC + integrity (Pattern A)
 
-| #   | Script                              | Status | Changes                                                                                                                                                                                                                                                                                                                                                             |
-| --- | ----------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 30  | `30_qc.py`                          | Modify | Pattern A: workers return dicts (no per-study JSON). Main process accumulates with `FLUSH_EVERY=100_000` and writes `data/processed/qc.parquet`. Schema is the lighter §3.2 tri-modal triple.                                                                                                                                                                            |
-| 31  | `31_waveform_qc.py`                 | New    | Computes every column in §3.2 `data/processed/waveform_qc.parquet` table: decode, length, lead names, NaN/Inf, flatline, extreme amplitude, duplicate, SQI per lead, SQI tier, HR consistency, QRS consistency, report consistency. Reads from raw HDF5 (not per-study NPY). Pattern A writer.                                                                     |
-| 32  | `32_compute_structured_features.py` | New    | NeuroKit2 HRV + morphology + intervals + machine-measurement passthrough → `data/processed/structured_features.parquet`. CPU-heavy; Pattern A writer with chunked flush (`FLUSH_EVERY=10_000` due to bigger rows).                                                                                                                                                 |
-| 33  | `33_dataset_audits.py`              | New    | Produces the four audit reports (`split_audit.md`, `duplicate_audit.md`, `missingness_audit.md`, `leakage_audit.md`) from the consolidated parquet artifacts.                                                                                                                                                                                                       |
+| #   | Script                              | Status | Changes                                                                                                                                                                                                                                                                                        |
+| --- | ----------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 30  | `30_qc.py`                          | Modify | Pattern A: workers return dicts (no per-study JSON). Main process accumulates with `FLUSH_EVERY=100_000` and writes `data/processed/qc.parquet`. Schema is the lighter §3.2 tri-modal triple.                                                                                                  |
+| 31  | `31_waveform_qc.py`                 | New    | Computes every column in §3.2 `data/processed/waveform_qc.parquet` table: decode, length, lead names, NaN/Inf, flatline, extreme amplitude, duplicate, SQI per lead, SQI tier, HR consistency, QRS consistency, report consistency. Reads from raw HDF5 (not per-study NPY). Pattern A writer. |
+| 32  | `32_compute_structured_features.py` | New    | NeuroKit2 HRV + morphology + intervals + machine-measurement passthrough → `data/processed/structured_features.parquet`. CPU-heavy; Pattern A writer with chunked flush (`FLUSH_EVERY=10_000` due to bigger rows).                                                                             |
+| 33  | `33_dataset_audits.py`              | New    | Produces the four audit reports (`split_audit.md`, `duplicate_audit.md`, `missingness_audit.md`, `leakage_audit.md`) from the consolidated parquet artifacts.                                                                                                                                  |
 
 ### Phase 6 — EHR linkage (NEW stage; gated on §5 downloads)
 
-| #   | Script                     | Status | Changes                                                                                                                                                                                                                                                                                                                                                                               |
-| --- | -------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 40  | `40_load_ehr_tables.py`    | New    | Read MIMIC-IV Hosp + ED CSVs into parquet locally for fast joins: `data/raw/ehr_cache/admissions.parquet`, `patients.parquet`, `diagnoses_icd.parquet`, `d_icd_diagnoses.parquet`, `labevents.parquet`, `d_labitems.parquet`, `edstays.parquet`, `ed_diagnosis.parquet`, `triage.parquet`. Row-count + sha256 stamped into `config/dataset_versions.yaml`.                           |
-| 41  | `41_link_exact_overlap.py` | New    | §3.7.1 step 2. Output `data/processed/linkage/exact_hosp_candidates.parquet` + `exact_ed_candidates.parquet`.                                                                                                                                                                                                                                                                         |
-| 42  | `42_link_tolerance.py`     | New    | §3.7.1 step 3. Output `data/processed/linkage/tolerance_hosp_candidates.parquet` + `data/processed/linkage/tolerance_ed_candidates.parquet` for ±6 h / ±12 h / ±24 h / ±7 d.                                                                                                                                                                                                          |
-| 43  | `43_tie_break_link.py`     | New    | §3.7.1 step 6. Output `data/processed/linkage/linkage_final.parquet` + `candidate_links.parquet`.                                                                                                                                                                                                                                                                                     |
-| 44  | `44_label_availability.py` | New    | §3.7.1 step 4. Output `data/processed/linkage/label_availability.parquet` and the linkage feasibility report.                                                                                                                                                                                                                                                                         |
-| 45  | `45_decision_gate.py`      | New    | §3.7.2. Apply hard thresholds, write `config/decision.yaml`. Print a clear "Plan A / Hybrid / Plan B" determination.                                                                                                                                                                                                                                                                  |
+| #   | Script                     | Status | Changes                                                                                                                                                                                                                                                                                                                                                    |
+| --- | -------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 40  | `40_load_ehr_tables.py`    | New    | Read MIMIC-IV Hosp + ED CSVs into parquet locally for fast joins: `data/raw/ehr_cache/admissions.parquet`, `patients.parquet`, `diagnoses_icd.parquet`, `d_icd_diagnoses.parquet`, `labevents.parquet`, `d_labitems.parquet`, `edstays.parquet`, `ed_diagnosis.parquet`, `triage.parquet`. Row-count + sha256 stamped into `config/dataset_versions.yaml`. |
+| 41  | `41_link_exact_overlap.py` | New    | §3.7.1 step 2. Output `data/processed/linkage/exact_hosp_candidates.parquet` + `exact_ed_candidates.parquet`.                                                                                                                                                                                                                                              |
+| 42  | `42_link_tolerance.py`     | New    | §3.7.1 step 3. Output `data/processed/linkage/tolerance_hosp_candidates.parquet` + `data/processed/linkage/tolerance_ed_candidates.parquet` for ±6 h / ±12 h / ±24 h / ±7 d.                                                                                                                                                                               |
+| 43  | `43_tie_break_link.py`     | New    | §3.7.1 step 6. Output `data/processed/linkage/linkage_final.parquet` + `candidate_links.parquet`.                                                                                                                                                                                                                                                          |
+| 44  | `44_label_availability.py` | New    | §3.7.1 step 4. Output `data/processed/linkage/label_availability.parquet` and the linkage feasibility report.                                                                                                                                                                                                                                              |
+| 45  | `45_decision_gate.py`      | New    | §3.7.2. Apply hard thresholds, write `config/decision.yaml`. Print a clear "Plan A / Hybrid / Plan B" determination.                                                                                                                                                                                                                                       |
 
 ### Aux
 
@@ -766,12 +766,12 @@ full VRAM less a 1 GB margin (CUDA context + driver overhead).
 
 The pipeline is disk heavy and the current disk does not have much space so if you hit space constraints during any step of the phase 1 pipeline please free up space and restart the script. The scripts are all designed to be resumable and crash-tolerant so you won't lose progress. When you are freeing up disk space, please prioritize deleting products/all the images and npy files of the old pipeline first and do not touch anything the new pipeline has produced because the current pipeline is more important than the files created from the old one.
 
-| Knob                                  | Value                                                                                        |
-| ------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Working directory during packing      | Same drive as `data/processed/` (no cross-drive copies)                                           |
-| Free-space check before packer        | Refuse to run if free < (artifact size × 2) — we always need source + dest live during merge |
-| Cleanup of `data/processed/partial/` dirs | Only after the packer has verified row counts and SHA256-stamped the canonical artifact      |
-| Intermediate `.npy` / `.json` folders | Retained until §11.6 validation passes; then moved to cold storage (e.g., `data/archive/<timestamp>/`), not deleted blindly |
+| Knob                                      | Value                                                                                                                       |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Working directory during packing          | Same drive as `data/processed/` (no cross-drive copies)                                                                     |
+| Free-space check before packer            | Refuse to run if free < (artifact size × 2) — we always need source + dest live during merge                                |
+| Cleanup of `data/processed/partial/` dirs | Only after the packer has verified row counts and SHA256-stamped the canonical artifact                                     |
+| Intermediate `.npy` / `.json` folders     | Retained until §11.6 validation passes; then moved to cold storage (e.g., `data/archive/<timestamp>/`), not deleted blindly |
 
 ---
 
@@ -883,10 +883,10 @@ out_tar.close()
 
 ### 7.5 Parquet-specific safety
 
-| Constraint                         | Rule                                                                                                                                                       |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Single `ParquetWriter` per process | Always. Sharing a writer across processes via pickling does not work.                                                                                      |
-| Schema evolution                   | Never mutate a parquet file in place. Rewrite.                                                                                                             |
+| Constraint                         | Rule                                                                                                                                                            |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Single `ParquetWriter` per process | Always. Sharing a writer across processes via pickling does not work.                                                                                           |
+| Schema evolution                   | Never mutate a parquet file in place. Rewrite.                                                                                                                  |
 | Atomic publish                     | Write canonical artifact to `data/processed/qc.parquet.tmp` first; `os.replace(...)` to its final name once finished. Prevents half-written artifacts on crash. |
 
 ### 7.6 Tar-specific safety
@@ -938,10 +938,10 @@ counts, per-study error info — back to the main process via the pool.
 Workers communicate **detail logs** (exception tracebacks, per-study
 reasons) via one of the two transports in §8.3 or §8.4. Choose:
 
-| Transport | Use when | Trade-off |
-|--|--|--|
-| §8.3 Per-PID files | Default. Stages 3–8 of §9. High-throughput pipelines where workers produce few log lines per study, mostly warnings/errors. | Zero IPC overhead; aggregation is a single `cat` pass at the end. Lines from different workers are not globally time-ordered (they are time-ordered within a PID). |
-| §8.4 QueueHandler + QueueListener | When you need a single time-ordered log and worker volume is modest. Stages 1, 2, 10 (orchestration-heavy, low fan-out). | One unified log file; globally ordered. Adds an IPC hop per log record (≈ a few µs). Listener thread is a single point of failure — must be supervised. |
+| Transport                         | Use when                                                                                                                    | Trade-off                                                                                                                                                          |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| §8.3 Per-PID files                | Default. Stages 3–8 of §9. High-throughput pipelines where workers produce few log lines per study, mostly warnings/errors. | Zero IPC overhead; aggregation is a single `cat` pass at the end. Lines from different workers are not globally time-ordered (they are time-ordered within a PID). |
+| §8.4 QueueHandler + QueueListener | When you need a single time-ordered log and worker volume is modest. Stages 1, 2, 10 (orchestration-heavy, low fan-out).    | One unified log file; globally ordered. Adds an IPC hop per log record (≈ a few µs). Listener thread is a single point of failure — must be supervised.            |
 
 Both transports forbid every worker process from writing to the parent's
 stdout/stderr.
@@ -1009,7 +1009,7 @@ Hard rules for Transport B:
   may already have one from the parent and must be cleared first
   (`root.handlers.clear()`), otherwise warnings still escape to the
   terminal.
-- On Windows (this project's platform), `multiprocessing` uses *spawn*,
+- On Windows (this project's platform), `multiprocessing` uses _spawn_,
   so each worker re-imports the script. The initializer runs **once per
   worker process** even with spawn, which is exactly what we want.
 
@@ -1229,17 +1229,17 @@ def main(tasks):
 
 ### 8.12 Anti-patterns — explicitly forbidden
 
-| Anti-pattern | Why it breaks |
-|--|--|
-| Worker calls `print(...)` or `tqdm.write(...)` | Interleaves with other workers and shreds the main bar. |
-| Worker calls `logging.basicConfig(...)` | Reconfigures the root logger inherited from the parent → log lines escape to terminal. |
-| Two processes append to one log file | Partial-line interleaving on Windows; lock-free POSIX append works only on full lines smaller than `PIPE_BUF`, which we cannot guarantee. |
-| `queue.Queue` instead of `mp.Manager().Queue()` for Transport B | In-process only; worker records silently dropped. |
-| `StreamHandler(sys.stderr)` left active in worker | Inherited from parent → escapes to terminal even if no explicit `print`. |
-| f-strings inside `log.info(f"...")` | Formats eagerly under suppressed levels. Use `%`-style. |
-| `tqdm` bar with default `mininterval=0.1` under 50k+ tasks/min | Bar redraws faster than terminal can flush → tearing. Use `mininterval=0.5`. |
-| Forgetting `listener.stop()` (Transport B) | Tail of the log lost on script exit. |
-| Not redirecting fd 1/2 in worker | C-extension noise (libpng, h5py debug) still escapes to terminal. |
+| Anti-pattern                                                    | Why it breaks                                                                                                                             |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Worker calls `print(...)` or `tqdm.write(...)`                  | Interleaves with other workers and shreds the main bar.                                                                                   |
+| Worker calls `logging.basicConfig(...)`                         | Reconfigures the root logger inherited from the parent → log lines escape to terminal.                                                    |
+| Two processes append to one log file                            | Partial-line interleaving on Windows; lock-free POSIX append works only on full lines smaller than `PIPE_BUF`, which we cannot guarantee. |
+| `queue.Queue` instead of `mp.Manager().Queue()` for Transport B | In-process only; worker records silently dropped.                                                                                         |
+| `StreamHandler(sys.stderr)` left active in worker               | Inherited from parent → escapes to terminal even if no explicit `print`.                                                                  |
+| f-strings inside `log.info(f"...")`                             | Formats eagerly under suppressed levels. Use `%`-style.                                                                                   |
+| `tqdm` bar with default `mininterval=0.1` under 50k+ tasks/min  | Bar redraws faster than terminal can flush → tearing. Use `mininterval=0.5`.                                                              |
+| Forgetting `listener.stop()` (Transport B)                      | Tail of the log lost on script exit.                                                                                                      |
+| Not redirecting fd 1/2 in worker                                | C-extension noise (libpng, h5py debug) still escapes to terminal.                                                                         |
 
 ### 8.13 For sequential scripts
 
@@ -1311,19 +1311,19 @@ stage.
 
 Starting state: `data/processed/` ≈ 406 GB, D: free ≈ 195 GB.
 
-| Stage | What happens                                          | Wall-clock  | Delta `data/processed/` | Free after |
-| ----- | ----------------------------------------------------- | ----------- | ----------------------- | ---------- |
-| 0     | Foundation (version lock, access check, ECG metadata) | 30–60 min   | +0.5 GB                 | ≈ 194 GB   |
-| 1     | EHR linkage chain + decision gate                     | 30–90 min   | +13 GB (ehr_cache)      | ≈ 181 GB   |
-| 2     | Patient split (stratified)                            | 5 min       | ≈ +0                    | ≈ 181 GB   |
-| 3     | Signal extraction + pack (BIG) + lock recipe (3.B)    | 6–12 h      | +75 new −204 old (recipe KB) | ≈ 310 GB   |
-| 4     | Clean image rendering (both layouts)                  | 8–16 h      | +201 new −141 old       | ≈ 250 GB   |
-| 5     | Scanlike image rendering (both layouts)               | 4–8 h       | +104 new −68 old        | ≈ 214 GB   |
-| 6     | Tri-modal QC (parquet)                                | 30–60 min   | +0.05 −0.06             | ≈ 214 GB   |
-| 7     | Rich waveform-QC + structured features                | 4–8 h       | +10 GB                  | ≈ 204 GB   |
-| 8     | Signals-corrupted parquet                             | 1–2 h       | +1.5 −1.5               | ≈ 204 GB   |
-| 9     | Preprocessed signals (DEFERRED — see §12 open)        | (optional)  | +75 GB if materialized  | ≈ 129 GB   |
-| 10    | Index cleanup + canonical manifest + final audits     | 30–60 min   | +0.05                   | ≈ 204 GB   |
+| Stage | What happens                                          | Wall-clock | Delta `data/processed/`      | Free after |
+| ----- | ----------------------------------------------------- | ---------- | ---------------------------- | ---------- |
+| 0     | Foundation (version lock, access check, ECG metadata) | 30–60 min  | +0.5 GB                      | ≈ 194 GB   |
+| 1     | EHR linkage chain + decision gate                     | 30–90 min  | +13 GB (ehr_cache)           | ≈ 181 GB   |
+| 2     | Patient split (stratified)                            | 5 min      | ≈ +0                         | ≈ 181 GB   |
+| 3     | Signal extraction + pack (BIG) + lock recipe (3.B)    | 6–12 h     | +75 new −204 old (recipe KB) | ≈ 310 GB   |
+| 4     | Clean image rendering (both layouts)                  | 8–16 h     | +201 new −141 old            | ≈ 250 GB   |
+| 5     | Scanlike image rendering (both layouts)               | 4–8 h      | +104 new −68 old             | ≈ 214 GB   |
+| 6     | Tri-modal QC (parquet)                                | 30–60 min  | +0.05 −0.06                  | ≈ 214 GB   |
+| 7     | Rich waveform-QC + structured features                | 4–8 h      | +10 GB                       | ≈ 204 GB   |
+| 8     | Signals-corrupted parquet                             | 1–2 h      | +1.5 −1.5                    | ≈ 204 GB   |
+| 9     | Preprocessed signals (DEFERRED — see §12 open)        | (optional) | +75 GB if materialized       | ≈ 129 GB   |
+| 10    | Index cleanup + canonical manifest + final audits     | 30–60 min  | +0.05                        | ≈ 204 GB   |
 
 Peak transient usage during Stage 3 (extractor partials + new HDF5 +
 old NPY all live for a few minutes during the streaming-merge): leaves
@@ -1335,6 +1335,7 @@ this safe.
 
 > **Common rules** that apply to every stage below — do not restate
 > per stage:
+>
 > - Run scripts with CWD = `scripts/`.
 > - Every script lands its work behind a `try / except` that returns a
 >   structured result; on uncaught exception the worker logs to
@@ -1368,11 +1369,11 @@ filesystem rename only — no data is copied.
 
 **Scripts to author / modify (this stage):**
 
-| # | Script                       | Status | What it does                                                                                                                                          |
-| - | ---------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | `00_lock_versions.py`        | New    | Detect installed Python+lib versions; hash + count rows for every raw table; write `config/dataset_versions.yaml` per §3.1 schema.                    |
-| 2 | `00b_access_check.py`        | New    | Verify every raw file in §5.2 exists, validates against SHA256SUMS.txt, has rows in the §5.3 ranges. Write `outputs/audit_reports/access_check.md`.   |
-| 3 | `01_build_master_index.py`   | Modify | Output `data/processed/index/ecg_metadata.parquet`. Add columns: `report_lines: list<string>`, `T_machine`, `T_cardio` (nullable per §12 res. 4), `has_machine_measurements`, `has_machine_report_text`, `machine_hr_bpm`, `machine_qrs_ms`, `machine_qtc_ms`, `cart_id`, `filtering`, `bandwidth`. No imputation. |
+| #   | Script                     | Status | What it does                                                                                                                                                                                                                                                                                                       |
+| --- | -------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `00_lock_versions.py`      | New    | Detect installed Python+lib versions; hash + count rows for every raw table; write `config/dataset_versions.yaml` per §3.1 schema.                                                                                                                                                                                 |
+| 2   | `00b_access_check.py`      | New    | Verify every raw file in §5.2 exists, validates against SHA256SUMS.txt, has rows in the §5.3 ranges. Write `outputs/audit_reports/access_check.md`.                                                                                                                                                                |
+| 3   | `01_build_master_index.py` | Modify | Output `data/processed/index/ecg_metadata.parquet`. Add columns: `report_lines: list<string>`, `T_machine`, `T_cardio` (nullable per §12 res. 4), `has_machine_measurements`, `has_machine_report_text`, `machine_hr_bpm`, `machine_qrs_ms`, `machine_qtc_ms`, `cart_id`, `filtering`, `bandwidth`. No imputation. |
 
 **Inputs:** `data/raw/files/`, `data/raw/record_list.csv`,
 `data/raw/machine_measurements.csv`, `data/raw/waveform_note_links.csv`,
@@ -1389,6 +1390,7 @@ not a delete.
 **Disk delta:** +0.5 GB (the metadata parquet).
 
 **Validation:**
+
 - `config/dataset_versions.yaml` exists; every library imported anywhere
   in `scripts/phase1_dataset_generation/` is listed.
 - `access_check.md` PASS: every required file present, SHA256 verified,
@@ -1409,14 +1411,14 @@ release. Produces the linkage tier per study and the auto-chosen path.
 
 **Scripts to author (all new):**
 
-| # | Script                       | What it does                                                                                                                  |
-| - | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| 1 | `40_load_ehr_tables.py`      | Read `data/raw/mimic-iv-hosp-3.1/hosp/*.csv.gz` and `data/raw/mimic-iv-ed-2.2/ed/*.csv.gz` into `data/raw/ehr_cache/*.parquet` for fast joins. Stamp row counts into `dataset_versions.yaml`. |
-| 2 | `41_link_exact_overlap.py`   | Plan A/B §3.1 step 2 — `data/processed/linkage/exact_hosp_candidates.parquet`, `exact_ed_candidates.parquet`.                  |
-| 3 | `42_link_tolerance.py`       | §3.1 step 3 — `tolerance_*_candidates.parquet` for ±6 h / ±12 h / ±24 h / ±7 d.                                                |
-| 4 | `43_tie_break_link.py`       | §3.1 step 6 — `data/processed/linkage/linkage_final.parquet` + `candidate_links.parquet`.                                      |
-| 5 | `44_label_availability.py`   | §3.1 step 4 — `data/processed/linkage/label_availability.parquet` + `outputs/audit_reports/linkage_feasibility_report.md`.     |
-| 6 | `45_decision_gate.py`        | §3.7.2 — apply hard thresholds, write `config/decision.yaml` with chosen path.                                                 |
+| #   | Script                     | What it does                                                                                                                                                                                  |
+| --- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `40_load_ehr_tables.py`    | Read `data/raw/mimic-iv-hosp-3.1/hosp/*.csv.gz` and `data/raw/mimic-iv-ed-2.2/ed/*.csv.gz` into `data/raw/ehr_cache/*.parquet` for fast joins. Stamp row counts into `dataset_versions.yaml`. |
+| 2   | `41_link_exact_overlap.py` | Plan A/B §3.1 step 2 — `data/processed/linkage/exact_hosp_candidates.parquet`, `exact_ed_candidates.parquet`.                                                                                 |
+| 3   | `42_link_tolerance.py`     | §3.1 step 3 — `tolerance_*_candidates.parquet` for ±6 h / ±12 h / ±24 h / ±7 d.                                                                                                               |
+| 4   | `43_tie_break_link.py`     | §3.1 step 6 — `data/processed/linkage/linkage_final.parquet` + `candidate_links.parquet`.                                                                                                     |
+| 5   | `44_label_availability.py` | §3.1 step 4 — `data/processed/linkage/label_availability.parquet` + `outputs/audit_reports/linkage_feasibility_report.md`.                                                                    |
+| 6   | `45_decision_gate.py`      | §3.7.2 — apply hard thresholds, write `config/decision.yaml` with chosen path.                                                                                                                |
 
 **Inputs:** `data/processed/index/ecg_metadata.parquet`,
 `data/raw/mimic-iv-hosp-3.1/`, `data/raw/mimic-iv-ed-2.2/`.
@@ -1431,6 +1433,7 @@ release. Produces the linkage tier per study and the auto-chosen path.
 gzip CSVs they replace).
 
 **Validation:**
+
 - `linkage_final.parquet` row count == ECGs with at least L1 linkage.
 - Linkage tier distribution printed (counts of L3 / L2 / L1 / L0).
 - `decision.yaml` written with one of `{plan_a, hybrid, plan_b}`,
@@ -1449,9 +1452,9 @@ bucket and linkage tier so each split has a comparable mix.
 
 **Scripts to modify:**
 
-| # | Script                          | Status | What changes                                                                                                                                                                                  |
-| - | ------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | `02_create_patient_split.py`    | Modify | Ratio 70/10/20 (was 80/10/10). Stratify by `(hr_bucket, linkage_tier)`. Output `data/processed/splits_subject_level.parquet` + `data/processed/index/splits.json`. Hard-check zero subject overlap. |
+| #   | Script                       | Status | What changes                                                                                                                                                                                        |
+| --- | ---------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `02_create_patient_split.py` | Modify | Ratio 70/10/20 (was 80/10/10). Stratify by `(hr_bucket, linkage_tier)`. Output `data/processed/splits_subject_level.parquet` + `data/processed/index/splits.json`. Hard-check zero subject overlap. |
 
 **Inputs:** `ecg_metadata.parquet`, `linkage_final.parquet`.
 
@@ -1463,6 +1466,7 @@ bucket and linkage tier so each split has a comparable mix.
 **Disk delta:** ≈ 0.
 
 **Validation:**
+
 - Three patient sets disjoint: `len(set(train) ∩ set(val)) == 0`, etc.
 - Stratification table printed: per-stratum counts in each split.
 - Split ratio reported and within ±1 % of 70/10/20.
@@ -1476,11 +1480,11 @@ per-study `.npy` files.
 
 **Scripts to author / modify:**
 
-| # | Script                            | Status | What it does                                                                                                                                                                                  |
-| - | --------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | `10_extract_ecg_signals.py`       | Modify | Pattern B writer per §7.2. Each `ProcessPoolExecutor` worker writes its own `data/processed/partial/lead2_worker_{wid}.h5` and `partial/twelve_lead_worker_{wid}.h5`. Workers also return `signal_metadata` dicts to the main process. |
-| 2 | `10b_pack_signals.py`             | New    | **Streaming-merge** packer: for each worker partial, append its rows to the canonical HDF5 then `os.unlink` the partial. Output `signals/lead2_raw.h5` (1 file) + `signals/twelve_lead_raw_shard_{00..04}.h5` (5 shards by `study_id % 5`). Build per-row SHA256 in `signals/signals_manifest.parquet`. Stamp HDF5 attrs per §2.2. Same script materializes `data/processed/signal_metadata.parquet` from the workers' returned dicts. |
-| 3 | `14_fit_preprocessing_recipe.py`  | New    | **Sub-step 3.B (always runs).** After the pack, stream the **train-split** rows of `lead2_raw.h5` + `twelve_lead_raw_shard_*.h5`, fit per-lead z-score scalers, and write `config/preprocessing_recipe.yaml` + `config/scalers/lead2_zscore_train.npz` + the 12-lead scaler. Locks "the preprocessed signal" as a reproducible recipe (§3.3 item 1) so Stage 7's structured features never block on the optional Stage 9 materialization. No bulk signal bytes written. |
+| #   | Script                           | Status | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --- | -------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `10_extract_ecg_signals.py`      | Modify | Pattern B writer per §7.2. Each `ProcessPoolExecutor` worker writes its own `data/processed/partial/lead2_worker_{wid}.h5` and `partial/twelve_lead_worker_{wid}.h5`. Workers also return `signal_metadata` dicts to the main process.                                                                                                                                                                                                                                  |
+| 2   | `10b_pack_signals.py`            | New    | **Streaming-merge** packer: for each worker partial, append its rows to the canonical HDF5 then `os.unlink` the partial. Output `signals/lead2_raw.h5` (1 file) + `signals/twelve_lead_raw_shard_{00..04}.h5` (5 shards by `study_id % 5`). Build per-row SHA256 in `signals/signals_manifest.parquet`. Stamp HDF5 attrs per §2.2. Same script materializes `data/processed/signal_metadata.parquet` from the workers' returned dicts.                                  |
+| 3   | `14_fit_preprocessing_recipe.py` | New    | **Sub-step 3.B (always runs).** After the pack, stream the **train-split** rows of `lead2_raw.h5` + `twelve_lead_raw_shard_*.h5`, fit per-lead z-score scalers, and write `config/preprocessing_recipe.yaml` + `config/scalers/lead2_zscore_train.npz` + the 12-lead scaler. Locks "the preprocessed signal" as a reproducible recipe (§3.3 item 1) so Stage 7's structured features never block on the optional Stage 9 materialization. No bulk signal bytes written. |
 
 **Sub-step ordering.** 3.A = extract + pack (`10`, `10b`). 3.B = fit
 recipe (`14`), which needs both the packed raw HDF5 (3.A) and the train
@@ -1498,6 +1502,7 @@ bulk writes) and produces only KB-scale config.
 `config/scalers/lead2_zscore_train.npz` (+ 12-lead scaler).
 
 **Deletes (after validation):**
+
 - `data/processed/signals_lead2/` (~16 GB)
 - `data/processed/signals_12lead/` (~187 GB)
 - `data/processed/signal_metadata/` (~76 MB)
@@ -1506,6 +1511,7 @@ bulk writes) and produces only KB-scale config.
 **Disk delta:** +75 GB new −204 GB old = **−129 GB net**.
 
 **Validation:**
+
 - `lead2_raw.h5` row count == `ecg_metadata.parquet` row count minus
   records with `decode_ok=False`.
 - `twelve_lead_raw_shard_{00..04}.h5` row counts sum to the same number.
@@ -1535,10 +1541,10 @@ size.
 
 **Scripts to author / modify:**
 
-| # | Script                              | Status | What it does                                                                                                                                                                                                                                                                                                                                       |
-| - | ----------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | `20_render_clean_images.py`         | Modify | Pattern B. Each worker writes two private tars: `partial/clean_lead2_worker_{wid}.tar` (existing 12×2.5 in PNG @ 300 DPI) and `partial/clean_12lead_worker_{wid}.tar` (new 3×4 grid + rhythm strip @ 25 mm/s × 10 mm/mV; **low DPI (~100) + PNG `optimize=True, compress_level=9`** to hit ≤80 KB/image target).                                  |
-| 2 | `20b_pack_images.py`                | New    | Streaming-merge packer per §7.3. For each layout: write canonical `images/clean_{layout}_shard_{NNN}.tar` ordered by `study_id`; embed `MANIFEST.json` as first tar member; capture `offset` via `tar.fileobj.tell()` BEFORE `addfile`; produce `images/clean_{layout}_manifest.parquet` with per-blob `sha256`. Delete partials. |
+| #   | Script                      | Status | What it does                                                                                                                                                                                                                                                                                                                      |
+| --- | --------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `20_render_clean_images.py` | Modify | Pattern B. Each worker writes two private tars: `partial/clean_lead2_worker_{wid}.tar` (existing 12×2.5 in PNG @ 300 DPI) and `partial/clean_12lead_worker_{wid}.tar` (new 3×4 grid + rhythm strip @ 25 mm/s × 10 mm/mV; **low DPI (~100) + PNG `optimize=True, compress_level=9`** to hit ≤80 KB/image target).                  |
+| 2   | `20b_pack_images.py`        | New    | Streaming-merge packer per §7.3. For each layout: write canonical `images/clean_{layout}_shard_{NNN}.tar` ordered by `study_id`; embed `MANIFEST.json` as first tar member; capture `offset` via `tar.fileobj.tell()` BEFORE `addfile`; produce `images/clean_{layout}_manifest.parquet` with per-blob `sha256`. Delete partials. |
 
 **Inputs:** `data/processed/signals/lead2_raw.h5`,
 `data/processed/signals/twelve_lead_raw_shard_*.h5`,
@@ -1554,6 +1560,7 @@ size.
 **Disk delta:** +201 GB new − 141 GB old = **+60 GB net**.
 
 **Validation:**
+
 - For both layouts: per-shard `MANIFEST.json` round-trips and equals
   the parquet manifest for that shard.
 - Every manifest row has non-null `offset, length, sha256`; `offset`
@@ -1576,10 +1583,10 @@ both clean image layouts.
 
 **Scripts to author / modify:**
 
-| # | Script                              | Status | What it does                                                                                                                                                                                                       |
-| - | ----------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1 | `21_generate_scanlike_images.py`    | Modify | Read clean tar shards (Stage 4 output) via `tarfile.open(...).extractfile(name)`. Pattern B writer: per-worker `partial/scanlike_{layout}_worker_{wid}.tar`. Seed `cv2.RNG` deterministically from `study_id`.       |
-| 2 | `21b_pack_scanlike.py`              | New    | Same streaming-merge packer skeleton as `20b_`. Output `images/scanlike_lead2_shard_{000..049}.tar` + `images/scanlike_12lead_shard_{000..017}.tar` + their manifests with per-blob sha256.                          |
+| #   | Script                           | Status | What it does                                                                                                                                                                                                   |
+| --- | -------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `21_generate_scanlike_images.py` | Modify | Read clean tar shards (Stage 4 output) via `tarfile.open(...).extractfile(name)`. Pattern B writer: per-worker `partial/scanlike_{layout}_worker_{wid}.tar`. Seed `cv2.RNG` deterministically from `study_id`. |
+| 2   | `21b_pack_scanlike.py`           | New    | Same streaming-merge packer skeleton as `20b_`. Output `images/scanlike_lead2_shard_{000..049}.tar` + `images/scanlike_12lead_shard_{000..017}.tar` + their manifests with per-blob sha256.                    |
 
 **Inputs:** `data/processed/images/clean_lead2_*` and
 `clean_12lead_*` tars + manifests.
@@ -1595,6 +1602,7 @@ both clean image layouts.
 **Disk delta:** +104 GB new − 68 GB old = **+36 GB net**.
 
 **Validation:**
+
 - Determinism check: pick 10 study_ids; for each, re-run the scanlike
   transform from scratch on the same clean PNG and verify byte-identical
   output (catches any non-determinism introduced by NumPy/OpenCV
@@ -1614,9 +1622,9 @@ narrow; the rich waveform-QC happens in Stage 7).
 
 **Scripts to author / modify:**
 
-| # | Script               | Status | What it does                                                                                                                                                                                                                                                                                                                  |
-| - | -------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | `30_qc.py`           | Modify | Pattern A per §7.1. Workers read `lead2_raw.h5[study_id]` + check both image-tar manifests + read `T_machine` from `ecg_metadata.parquet`. Workers return dicts; main process accumulates with `FLUSH_EVERY=100_000` to `qc.part_{NNNN}.parquet`, then concatenates to `data/processed/qc.parquet`. |
+| #   | Script     | Status | What it does                                                                                                                                                                                                                                                                                        |
+| --- | ---------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `30_qc.py` | Modify | Pattern A per §7.1. Workers read `lead2_raw.h5[study_id]` + check both image-tar manifests + read `T_machine` from `ecg_metadata.parquet`. Workers return dicts; main process accumulates with `FLUSH_EVERY=100_000` to `qc.part_{NNNN}.parquet`, then concatenates to `data/processed/qc.parquet`. |
 
 **Inputs:** `ecg_metadata.parquet`, `signals/lead2_raw.h5`,
 `images/clean_lead2_manifest.parquet`,
@@ -1631,6 +1639,7 @@ narrow; the rich waveform-QC happens in Stage 7).
 **Disk delta:** ≈ 0.
 
 **Validation:**
+
 - `qc.parquet` row count == `ecg_metadata.parquet` row count exactly.
 - For 100 random rows: each field matches the corresponding old
   `qc/{id}.json` file (which still exists pre-delete).
@@ -1648,10 +1657,10 @@ QC + cross-source consistency, §3.2) and `structured_features.parquet`
 
 **Scripts to author (all new):**
 
-| # | Script                                | What it does                                                                                                                                                                                                                                                                                                                                |
-| - | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | `31_waveform_qc.py`                   | Pattern A. Read `lead2_raw.h5[i]` + `twelve_lead_raw_shard_*.h5` + machine measurements; compute every column in §3.2 (per-lead SQI via NeuroKit2 `ecg_quality`, HR consistency, QRS consistency, flatline, extreme amplitude, duplicate detection via SHA256 of `lead_II[::10]`); workers return dicts; main writes `waveform_qc.parquet`. |
-| 2 | `32_compute_structured_features.py`   | Pattern A with smaller `FLUSH_EVERY=10_000` (bigger rows). Read raw signal, **apply the locked preprocessing recipe on-the-fly** via `apply_recipe()` from `14_fit_preprocessing_recipe.py` (§3.3 item 1 / §3.4) — i.e. compute features on the *preprocessed* view without reading any materialized `lead2_preprocessed.h5`. Run NeuroKit2 HRV / morphology / intervals, passthrough machine measurements; write `structured_features.parquet`. **Does not depend on Stage 9.** |
+| #   | Script                              | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `31_waveform_qc.py`                 | Pattern A. Read `lead2_raw.h5[i]` + `twelve_lead_raw_shard_*.h5` + machine measurements; compute every column in §3.2 (per-lead SQI via NeuroKit2 `ecg_quality`, HR consistency, QRS consistency, flatline, extreme amplitude, duplicate detection via SHA256 of `lead_II[::10]`); workers return dicts; main writes `waveform_qc.parquet`.                                                                                                                                      |
+| 2   | `32_compute_structured_features.py` | Pattern A with smaller `FLUSH_EVERY=10_000` (bigger rows). Read raw signal, **apply the locked preprocessing recipe on-the-fly** via `apply_recipe()` from `14_fit_preprocessing_recipe.py` (§3.3 item 1 / §3.4) — i.e. compute features on the _preprocessed_ view without reading any materialized `lead2_preprocessed.h5`. Run NeuroKit2 HRV / morphology / intervals, passthrough machine measurements; write `structured_features.parquet`. **Does not depend on Stage 9.** |
 
 **Inputs:** `signals/lead2_raw.h5`, `signals/twelve_lead_raw_shard_*.h5`,
 `ecg_metadata.parquet`, `config/preprocessing_recipe.yaml`,
@@ -1666,6 +1675,7 @@ locked in Stage 3 sub-step 3.B.
 **Disk delta:** +10 GB.
 
 **Validation:**
+
 - `waveform_qc.parquet` row count == `ecg_metadata.parquet` row count.
 - SQI tier distribution printed (`high / medium / low` counts).
 - HR-consistency mismatch count printed (expected ≤ 5 % of records).
@@ -1685,9 +1695,9 @@ parquet. Fix the `hash()` non-determinism bug (§3.11) in the same pass.
 
 **Scripts to modify:**
 
-| # | Script                                                              | Status | What changes                                                                                                                                                                                                                                                                                                                                                                                                  |
-| - | ------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | `phase2_tasks_benchmark_and_paper/05_task_B2_noise_robustness.py`   | Modify | Output target → `data/processed/signals_corrupted.parquet` (columns per §2). 2 K anchors (per §12 res. 3) × 8 corruptions × 5 SNRs = 80 K rows. **Replace `hash(...)` with `hashlib.sha256(...).digest()[:4]` per §3.11.** Pattern A writer with `FLUSH_EVERY=10_000`. |
+| #   | Script                                                            | Status | What changes                                                                                                                                                                                                                                                           |
+| --- | ----------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `phase2_tasks_benchmark_and_paper/05_task_B2_noise_robustness.py` | Modify | Output target → `data/processed/signals_corrupted.parquet` (columns per §2). 2 K anchors (per §12 res. 3) × 8 corruptions × 5 SNRs = 80 K rows. **Replace `hash(...)` with `hashlib.sha256(...).digest()[:4]` per §3.11.** Pattern A writer with `FLUSH_EVERY=10_000`. |
 
 **Inputs:** `signals/lead2_raw.h5`, `splits_subject_level.parquet`
 (test split is the anchor pool).
@@ -1700,6 +1710,7 @@ parquet. Fix the `hash()` non-determinism bug (§3.11) in the same pass.
 **Disk delta:** ≈ 0.
 
 **Validation:**
+
 - Row count: 80,000 ± small slack (some anchors may fail length check).
 - Re-run determinism: pick 10 `(study_id, corruption, snr_db)` triples
   and regenerate from `lead2_raw.h5`; assert byte-identical with
@@ -1714,7 +1725,7 @@ separate modalities." That mandate is **already satisfied by the recipe
 locked in Stage 3 sub-step 3.B** (`config/preprocessing_recipe.yaml` +
 train-fit scalers): raw is untouched, and the preprocessed modality is a
 fully-specified, reproducible view. Stage 9 is therefore **only** the
-question of whether to *also persist* that view as pre-baked bytes:
+question of whether to _also persist_ that view as pre-baked bytes:
 
 - **9.A — Materialize:** run `15_preprocess_signals.py` to build
   `signals/lead2_preprocessed.h5` +
@@ -1743,12 +1754,12 @@ modality manifest, and the four required audit reports.
 
 **Scripts to modify / author:**
 
-| # | Script                              | Status | What changes                                                                                                                                                          |
-| - | ----------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | `03_add_measurements_to_index.py`   | Modify | Read `ecg_metadata.parquet` + machine measurements; add missing-flag columns per measurement. Output `data/processed/index/ecg_metadata_with_measurements.parquet`.   |
-| 2 | `04_cleanup_master_index.py`        | Modify | Read `qc.parquet` and `waveform_qc.parquet`; apply tri-modal pass filter; output `data/processed/index/ecg_metadata_clean.parquet` + `ecg_metadata_clean_with_measurements.parquet`. |
-| 3 | `05_build_manifest_and_splits.py`   | Modify | Build canonical `data/processed/modality_manifest.parquet` per §2.1 schema (one row per `(study_id, modality_kind)` for every modality container).                    |
-| 4 | `33_dataset_audits.py`              | New    | Produce all four audit reports per §3.8: `split_audit.md`, `duplicate_audit.md`, `missingness_audit.md`, `leakage_audit.md` (the last reads `config/task_input_policy.yaml`). |
+| #   | Script                            | Status | What changes                                                                                                                                                                         |
+| --- | --------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `03_add_measurements_to_index.py` | Modify | Read `ecg_metadata.parquet` + machine measurements; add missing-flag columns per measurement. Output `data/processed/index/ecg_metadata_with_measurements.parquet`.                  |
+| 2   | `04_cleanup_master_index.py`      | Modify | Read `qc.parquet` and `waveform_qc.parquet`; apply tri-modal pass filter; output `data/processed/index/ecg_metadata_clean.parquet` + `ecg_metadata_clean_with_measurements.parquet`. |
+| 3   | `05_build_manifest_and_splits.py` | Modify | Build canonical `data/processed/modality_manifest.parquet` per §2.1 schema (one row per `(study_id, modality_kind)` for every modality container).                                   |
+| 4   | `33_dataset_audits.py`            | New    | Produce all four audit reports per §3.8: `split_audit.md`, `duplicate_audit.md`, `missingness_audit.md`, `leakage_audit.md` (the last reads `config/task_input_policy.yaml`).        |
 
 **Inputs:** every Phase-1 artifact built so far.
 
@@ -1765,6 +1776,7 @@ be regenerated when Phase 2 builders run against the new artifacts).
 **Disk delta:** ≈ 0.
 
 **Validation (also the final "Phase 1 done" check):**
+
 - All four audit reports written; every report has a `STATUS: PASS`
   header line.
 - `modality_manifest.parquet` row count == `n_studies × n_modality_kinds`
@@ -1786,7 +1798,7 @@ the same content to stdout in a single block so the user can copy-paste
 it to the reviewer. The report contains **exactly these eight numbered
 sections** in this order:
 
-```
+```txt
 # Stage <N> — <stage name> — report
 
 ## 1. Files created
@@ -1858,18 +1870,18 @@ The reviewer's job is **review only — not rewrite the code**.
 
 For every stage report, check:
 
-| Area                          | Specifically look for                                                                                                                              |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Missing requirements          | Every script listed in §9.X for this stage is present in §1 or §2 of the report. Every output file in §9.X is in §1 of the report.                  |
-| Spec violations               | Output schemas match §2.1 / §3.2 / §3.4 column lists. HDF5 chunk shape matches §6.2. Compression matches §7.4. Stamps match §2.2.                  |
-| Race conditions               | Multi-process code follows §7.1 (Pattern A) or §7.2 (Pattern B); workers do not share write targets; manifest offsets recorded only by packer.     |
-| Resume / recovery violations  | `<final>.tmp` + `os.replace` atomic publish per §7.5. Pattern A `part_*.parquet` cleanup. Idempotent re-run: re-running a stage on existing output is a no-op or safely overwrites. |
-| Logging violations            | Full §8.14 checklist (terminal not garbled, one tqdm bar, log format regex matches, no `print(` / `basicConfig(` in worker code, worker logs archived, listener stopped for Transport B, `logging_redirect_tqdm()` used, `mininterval >= 0.5`, fd 1/2 redirected in worker initializer). Transport A vs B choice documented per §8.2. |
-| Incorrect schemas             | Column types match this doc (int64 vs string, nullable vs required). `modality_kind` values are from the closed enum in §2.1.                       |
-| Missing audit outputs         | If §9.X promises an audit report, it's in §1 of the report and has a PASS/FAIL header.                                                              |
-| Path mismatches               | All paths are `data/raw/...` or `data/processed/...` per §2.4 — no leftover `processed/` root-level paths, no leftover `data/files/` root-level.   |
-| Windows compatibility issues  | No POSIX-only constructs (`os.symlink`, fork-only multiprocessing patterns, max-path-260-character risks for deeply nested partials).               |
-| Resource policy violations    | `MAX_WORKERS` formula matches §6.1. `MAX_RAM_GB` is computed dynamically per §6.2 (not hardcoded 16). `FLUSH_EVERY` matches §6.2.                  |
+| Area                         | Specifically look for                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Missing requirements         | Every script listed in §9.X for this stage is present in §1 or §2 of the report. Every output file in §9.X is in §1 of the report.                                                                                                                                                                                                    |
+| Spec violations              | Output schemas match §2.1 / §3.2 / §3.4 column lists. HDF5 chunk shape matches §6.2. Compression matches §7.4. Stamps match §2.2.                                                                                                                                                                                                     |
+| Race conditions              | Multi-process code follows §7.1 (Pattern A) or §7.2 (Pattern B); workers do not share write targets; manifest offsets recorded only by packer.                                                                                                                                                                                        |
+| Resume / recovery violations | `<final>.tmp` + `os.replace` atomic publish per §7.5. Pattern A `part_*.parquet` cleanup. Idempotent re-run: re-running a stage on existing output is a no-op or safely overwrites.                                                                                                                                                   |
+| Logging violations           | Full §8.14 checklist (terminal not garbled, one tqdm bar, log format regex matches, no `print(` / `basicConfig(` in worker code, worker logs archived, listener stopped for Transport B, `logging_redirect_tqdm()` used, `mininterval >= 0.5`, fd 1/2 redirected in worker initializer). Transport A vs B choice documented per §8.2. |
+| Incorrect schemas            | Column types match this doc (int64 vs string, nullable vs required). `modality_kind` values are from the closed enum in §2.1.                                                                                                                                                                                                         |
+| Missing audit outputs        | If §9.X promises an audit report, it's in §1 of the report and has a PASS/FAIL header.                                                                                                                                                                                                                                                |
+| Path mismatches              | All paths are `data/raw/...` or `data/processed/...` per §2.4 — no leftover `processed/` root-level paths, no leftover `data/files/` root-level.                                                                                                                                                                                      |
+| Windows compatibility issues | No POSIX-only constructs (`os.symlink`, fork-only multiprocessing patterns, max-path-260-character risks for deeply nested partials).                                                                                                                                                                                                 |
+| Resource policy violations   | `MAX_WORKERS` formula matches §6.1. `MAX_RAM_GB` is computed dynamically per §6.2 (not hardcoded 16). `FLUSH_EVERY` matches §6.2.                                                                                                                                                                                                     |
 
 ### 11.2 Severity classification
 
@@ -1888,7 +1900,7 @@ Every finding the reviewer raises is labelled with one of:
 
 ### 11.3 Finding format (one per issue, in this exact shape)
 
-```
+```txt
 ## <SEVERITY>: <one-line title>
 
 **Spec section:** <quote the exact source-of-truth section, e.g. "§7.3 — Manifest is the packer's job, not the worker's">
@@ -1900,8 +1912,8 @@ Every finding the reviewer raises is labelled with one of:
 
 ### 11.4 Rules for the reviewer
 
-- **Do not rewrite code.** The fix instructions describe *what to
-  change*, not *here is the new code*.
+- **Do not rewrite code.** The fix instructions describe _what to
+  change_, not _here is the new code_.
 - **Only review.** Don't add new requirements that aren't in the source
   of truth. If a missing thing is genuinely needed, flag it as a
   proposal in a separate section, not as a finding against the stage.
@@ -1926,14 +1938,13 @@ Every finding the reviewer raises is labelled with one of:
 
 ### 12.2 New open question (blocks Stage 9 only)
 
-5. **Preprocessed signals — also materialize, or apply the recipe at read time?**
+1. **Preprocessed signals — also materialize, or apply the recipe at read time?**
    Plan A/B §4.4 ("raw and preprocessed as separate modalities, never
    overwrite raw") is **already satisfied** by the preprocessing recipe +
    train-fit scalers locked in **Stage 3 sub-step 3.B** — that is now a
-   *resolved* part of the plan, not an open question, and structured
+   _resolved_ part of the plan, not an open question, and structured
    features (Stage 7) consume it on-the-fly. The only thing still open is
-   whether to *additionally* persist the preprocessed view as bytes:
-
+   whether to _additionally_ persist the preprocessed view as bytes:
    - **5.A — Materialize (Stage 9.A):** run `15_preprocess_signals.py` to
      apply the already-locked recipe and write
      `signals/lead2_preprocessed.h5` + 5 × `twelve_lead_preprocessed_shard_*.h5`.

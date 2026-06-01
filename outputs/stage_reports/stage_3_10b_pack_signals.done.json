@@ -1,0 +1,37 @@
+{
+  "script": "10b_pack_signals",
+  "dataset_version": "v2.0.0",
+  "created_at_iso": "2026-06-01T01:37:32Z",
+  "elapsed_seconds": 17158.169988632202,
+  "stats": {
+    "expected_rows": 800035,
+    "lead2_rows": 800035,
+    "lead2_attrs": {
+      "dataset_version": "v2.0.0",
+      "created_at_iso": "2026-05-31T20:51:34Z",
+      "modality_kind": "raw_lead2",
+      "n_studies": "800035",
+      "chunk_shape": "[64, 5000]",
+      "compression": "gzip-4",
+      "script_commit_hash": "7e83abb"
+    },
+    "shard_rows": {
+      "0": 160449,
+      "1": 160165,
+      "2": 160538,
+      "3": 159638,
+      "4": 159245
+    },
+    "shard_rows_sum": 800035,
+    "shard_mod_ok": {
+      "0": true,
+      "1": true,
+      "2": true,
+      "3": true,
+      "4": true
+    },
+    "manifest_rows": 1600070,
+    "signal_metadata_rows": 800035,
+    "passed": true
+  }
+}

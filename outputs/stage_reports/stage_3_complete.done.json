@@ -1,0 +1,90 @@
+{
+  "stage": 3,
+  "script": "14_fit_preprocessing_recipe",
+  "dataset_version": "v2.0.0",
+  "created_at_iso": "2026-06-01T03:09:32Z",
+  "elapsed_seconds": 1143.0275325775146,
+  "stats": {
+    "validation": {
+      "index_rows": 800035,
+      "lead2_rows": 800035,
+      "decoded_failures": 0,
+      "shard_rows": {
+        "0": 160449,
+        "1": 160165,
+        "2": 160538,
+        "3": 159638,
+        "4": 159245
+      },
+      "shard_rows_sum": 800035,
+      "shard_mod_ok": {
+        "0": true,
+        "1": true,
+        "2": true,
+        "3": true,
+        "4": true
+      },
+      "manifest_rows": 1600070,
+      "signal_metadata_rows": 800035,
+      "lead2_attrs": {
+        "dataset_version": "v2.0.0",
+        "created_at_iso": "2026-05-31T20:51:34Z",
+        "modality_kind": "raw_lead2",
+        "n_studies": "800035",
+        "chunk_shape": "[64, 5000]",
+        "compression": "gzip-4",
+        "script_commit_hash": "7e83abb"
+      },
+      "twelve_attrs": {
+        "dataset_version": "v2.0.0",
+        "created_at_iso": "2026-05-31T22:02:52Z",
+        "modality_kind": "raw_12lead",
+        "n_studies": "160449",
+        "chunk_shape": "[64, 5000]",
+        "compression": "gzip-4",
+        "script_commit_hash": "7e83abb"
+      }
+    },
+    "spotcheck": {
+      "status": "PASS",
+      "checked": 99,
+      "matched": 99,
+      "skipped": 1,
+      "skip_reasons": {
+        "EOFError": 1
+      },
+      "legacy_dir": "processed/signals_lead2"
+    },
+    "recipe": {
+      "paths_exist": true,
+      "params_present": true,
+      "scaler_split_ok": true,
+      "train_subject_overlap_with_val_test": 0
+    },
+    "roundtrip": {
+      "lead2_checked": 100,
+      "lead2_deterministic": 100,
+      "lead2_finite": 100,
+      "twelve_checked": 5,
+      "twelve_deterministic": 5,
+      "twelve_finite": 5
+    },
+    "deleted": [
+      {
+        "path": "processed/signal_metadata",
+        "file_count": 781230,
+        "bytes": 79708082
+      },
+      {
+        "path": "processed/signals_12lead",
+        "file_count": 800031,
+        "bytes": 196615360384
+      },
+      {
+        "path": "processed/signals_lead2",
+        "file_count": 800033,
+        "bytes": 16472663136
+      }
+    ]
+  }
+}

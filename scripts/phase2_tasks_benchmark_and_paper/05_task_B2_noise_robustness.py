@@ -1,6 +1,20 @@
 """
-task_B2.py — Noise-Robustness Curriculum Dataset (Plan B, Task 2)
+task_B2.py — Plan B, Task 2 (Noise-Robustness Benchmark, Phase 2 only)
 
+SPLIT NOTICE (per PIPELINE_SOURCE_OF_TRUTH.md §3.11, §9.3 Stage 8, §13):
+The corruption-dataset generation half of this script has moved to
+Phase 1: see scripts/phase1_dataset_generation/50_build_signals_corrupted.py,
+which writes data/processed/signals_corrupted.parquet.
+
+After Phase 1 regen this Phase 2 script keeps ONLY the benchmark task /
+evaluation / metrics half (jsonl, eval regimes, AUC, etc.) and reads
+the corrupted signals from the consolidated parquet via the modality
+manifest — it no longer regenerates them.
+
+The legacy text below documents the original combined behavior and is
+retained for reference until the rewrite lands.
+
+---
 Selects a clean anchor subset (waveform_ok=True, test split) and generates
 corrupted versions at fixed SNR levels for 8 corruption families.
 

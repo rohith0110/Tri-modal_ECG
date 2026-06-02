@@ -108,10 +108,12 @@ simultaneously, so each stage builds the new artifact, validates it
 against a SHA256 spot-check of the old, then deletes the old folder
 immediately.
 
-**One unresolved decision** (§12.5, blocks Stage 9 only):
-- **Preprocessed-signal modality — materialize or on-the-fly?** Both
-  satisfy Plan A/B §4.4. Materialize = +75 GB; on-the-fly via locked
-  recipe = ~0 GB. Stages 0–8 don't block on this.
+**Preprocessed-signal modality — RESOLVED, mandatory materialization**
+(§12.1 item 5). Plan A/B §4.4 requires raw and preprocessed signals as
+separate on-disk modalities, so recipe-only / on-the-fly preprocessing
+does not satisfy the final Phase 1 dataset. Stage 9 is therefore
+mandatory: `15_preprocess_signals.py` writes `signals/lead2_preprocessed.h5`
+and `twelve_lead_preprocessed_shard_{00..04}.h5` (+75 GB).
 
 ---
 
@@ -123,11 +125,13 @@ immediately.
 | `data/processed/` (old per-study) | 406 GB |
 | `data/raw/` (after Hosp+ED added) | 100 GB |
 
-Final state after Phase 1 regen will be ~310 GB in `data/processed/`
-(without materializing preprocessed signals). The 10 stages all fit
-within disk budget thanks to delete-as-you-go — peak free space hits
-~46 GB during Stage 3 packing, then climbs back to >200 GB free for the
-remaining stages.
+Final state after Phase 1 regen will be ~385 GB in `data/processed/`
+(including the mandatory materialized preprocessed signals from Stage 9,
+which add +75 GB on top of the ~310 GB raw + image + QC layer). The
+10 stages all fit within disk budget thanks to delete-as-you-go — peak
+free space hits ~46 GB during Stage 3 packing, then climbs back to
+>200 GB free for the middle stages, and ends at ~129 GB free after the
+mandatory Stage 9 materialization.
 
 ---
 

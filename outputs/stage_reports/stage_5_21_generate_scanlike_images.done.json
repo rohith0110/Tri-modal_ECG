@@ -1,0 +1,18 @@
+{
+  "stage": 5,
+  "script": "21_generate_scanlike_images",
+  "dataset_version": "v2.0.0",
+  "created_at_iso": "2026-06-02T10:37:39Z",
+  "elapsed_seconds": 8560.094641923904,
+  "stats": {
+    "assigned": 800035,
+    "existing": 0,
+    "ok": 800035,
+    "skipped": 0,
+    "error": 0,
+    "lead2_bytes": 41044987308,
+    "twelve_bytes": 66162023661,
+    "task_count": 800035,
+    "worker_archive": "D:\\Coding\\MU\\Tri-Modal_ECG\\scripts\\phase1_dataset_generation\\logs\\21_generate_scanlike_images\\archive_20260602_160739"
+  }
+}

@@ -76,8 +76,8 @@ true source of truth and are never touched.
 | ---------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `qc/` 651 K × JSON                       | **A-2** parquet only; delete JSONs                       | `data/processed/qc.parquet`                                                                                                                                                                                                     | Truth-doc literal §5.5 path violated; content preserved.                                                                                                 |
 | `signal_metadata/` 781 K × JSON          | **B-1** parquet only                                     | `data/processed/signal_metadata.parquet`                                                                                                                                                                                        | Truth doc doesn't pin a path here.                                                                                                                       |
-| `signals_lead2/` 800 K × NPY (15.7 GB)   | **C-2** HDF5 only; delete `.npy` folder after validation | `data/processed/signals/lead2_raw.h5` + (Stage 9 optional) `lead2_preprocessed.h5`                                                                                                                                              | One file per modality kind.                                                                                                                              |
-| `signals_12lead/` 800 K × NPY (187.5 GB) | **C-2** HDF5 only; delete `.npy` folder after validation | `data/processed/signals/twelve_lead_raw_shard_{00..04}.h5` (~5 shards × ~40 GB) + manifest                                                                                                                                      | Sharded for transfer; preprocessed twin added in Stage 9 if materialized.                                                                                |
+| `signals_lead2/` 800 K × NPY (15.7 GB)   | **C-2** HDF5 only; delete `.npy` folder after validation | `data/processed/signals/lead2_raw.h5` **and** `data/processed/signals/lead2_preprocessed.h5` (Stage 9, mandatory)                                                                                                               | Two HDF5 files: raw + preprocessed, both shipped as separate modalities per Plan A/B §4.4.                                                               |
+| `signals_12lead/` 800 K × NPY (187.5 GB) | **C-2** HDF5 only; delete `.npy` folder after validation | `data/processed/signals/twelve_lead_raw_shard_{00..04}.h5` (~5 shards × ~40 GB) **and** `twelve_lead_preprocessed_shard_{00..04}.h5` (Stage 9, mandatory) + manifest                                                            | Sharded for transfer; preprocessed twin is required, not optional.                                                                                       |
 | `signals_corrupted/` 80 K × NPY (1.5 GB) | **D-3** single parquet                                   | `data/processed/signals_corrupted.parquet` (columns: `study_id, corruption_type, snr_db, signal[5000] float32`)                                                                                                                 | Keep persisted (not regenerate on the fly). 2 K anchors × 8 corruptions × 5 SNRs ≈ 80 K rows ≈ 1.6 GB. Plan A/B is silent on N; 2 K anchors is resolved. |
 | `images_clean/` 800 K × PNG (140.8 GB)   | **E-1 / fewer shards** — **both layouts**                | `data/processed/images/clean_lead2_shard_{000..099}.tar` (~100 shards × ~1.4 GB) + `images/clean_lead2_manifest.parquet` **AND** `clean_12lead_shard_{000..029}.tar` (low-DPI/quality) + `images/clean_12lead_manifest.parquet` | Per §12 resolution: render both Lead-II strip AND 12-lead 3×4 grid; minimize 12-lead size with low DPI and high JPEG/PNG compression.                    |
 | `images_scanlike/` 800 K × JPG (68.2 GB) | **F-1 / fewer shards** — **both layouts**                | `data/processed/images/scanlike_lead2_shard_{000..049}.tar` + `scanlike_lead2_manifest.parquet` **AND** `scanlike_12lead_shard_{000..017}.tar` + `scanlike_12lead_manifest.parquet`                                             | Always shipped (Truth doc §5.4 D2 mandates and `30_qc.py` reads it). Same shape as clean; both layouts.                                                  |
@@ -141,9 +141,9 @@ data/
 │   ├── signal_metadata.parquet                         # was signal_metadata/   (781K → 1)
 │   ├── signals/
 │   │   ├── lead2_raw.h5                                # was signals_lead2/   (800K → 1)
-│   │   ├── lead2_preprocessed.h5                       # NEW — Plan A/B §4.4
+│   │   ├── lead2_preprocessed.h5                       # Stage 9 MANDATORY — Plan A/B §4.4 separate modality
 │   │   ├── twelve_lead_raw_shard_{00..04}.h5           # was signals_12lead/  (800K → 5)
-│   │   ├── twelve_lead_preprocessed_shard_{00..04}.h5  # NEW
+│   │   ├── twelve_lead_preprocessed_shard_{00..04}.h5  # Stage 9 MANDATORY
 │   │   └── signals_manifest.parquet                    # study_id -> (file, row)
 │   ├── signals_corrupted.parquet                       # was signals_corrupted/ (80K → 1)
 │   ├── images/                                         # both layouts per §12 resolution
@@ -157,14 +157,15 @@ data/
 │   │   └── scanlike_12lead_manifest.parquet
 │   ├── structured_features.parquet                     # NEW — Plan A/B §4.5
 │   ├── splits_subject_level.parquet
-│   ├── modality_manifest.parquet                       # canonical lookup
-│   └── task_jsonl/                                     # Phase 2 outputs (unchanged)
-│       ├── taskA_verification.jsonl
-│       ├── taskB_temporal_grounding.jsonl
-│       ├── taskC_plausibility.jsonl
-│       ├── taskB1_measurement_blind.jsonl
-│       ├── taskB2_noise_robustness.jsonl
-│       └── taskB5_contradiction_detection.jsonl
+│   └── modality_manifest.parquet                       # canonical lookup
+│
+│   # NOTE: data/processed/task_jsonl/ (taskA_verification.jsonl,
+│   # taskB_temporal_grounding.jsonl, taskC_plausibility.jsonl,
+│   # taskB1_measurement_blind.jsonl, taskB2_noise_robustness.jsonl,
+│   # taskB5_contradiction_detection.jsonl) are STALE PHASE-2 OUTPUTS
+│   # left over from the pre-regen pipeline. They are NOT part of the
+│   # final Phase 1 tree. Phase 2's first action must be to delete and
+│   # rebuild them against the new manifest.
 └── raw/                                                # Raw datasets (previously directly under data/)
     ├── files/                                          # MIMIC-IV-ECG waveforms
     ├── record_list.csv
@@ -330,31 +331,33 @@ A second signal modality must exist with the recommended filter chain:
 | Resampling              | none (keep 500 Hz)                                              | `original_fs`, `target_fs`                              |
 | Normalization           | per-lead z-score, scaler fit on **train split only**            | `scaler_type=zscore_per_lead`, `scaler_fit_split=train` |
 
-**Recipe vs. materialization — two separable artifacts.** The filter
-chain above decomposes into two things, and only the first is mandatory:
+**Recipe + materialization — both are mandatory.** The filter chain
+above is operationalized as two artifacts, **both of which Phase 1
+ships**:
 
-1. **The preprocessing recipe (always produced).** A small, version-locked
-   config — `config/preprocessing_recipe.yaml` (filter params) plus the
-   per-lead z-score scalers fit on the **train split only**
-   (`config/scalers/lead2_zscore_train.npz` and the 12-lead twin). This is
-   a few kilobytes and is **always** produced (in Stage 3, once raw
-   signals and the train split both exist). It is the canonical definition
-   of "the preprocessed signal," and every consumer that needs preprocessed
-   samples can reproduce them deterministically by applying it to the raw
-   HDF5 on-the-fly.
-2. **The materialized preprocessed signals (optional, Stage 9).** The
-   on-disk `data/processed/signals/lead2_preprocessed.h5` and
-   `data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`
-   (same schema as the raw twins; manifest gets `modality_kind=preprocessed_*`
-   rows). This is +75 GB of redundant bytes whose only purpose is to ship
-   the preprocessed modality as a pre-baked container. Whether to
-   materialize is the open decision in §12.2; **nothing in Phase 1 depends
-   on it** because the recipe (item 1) already makes preprocessed samples
-   reproducible.
+1. **The preprocessing recipe (Stage 3 sub-step 3.B — mandatory
+   provenance/config).** A small, version-locked config —
+   `config/preprocessing_recipe.yaml` (filter params) plus the per-lead
+   z-score scalers fit on the **train split only**
+   (`config/scalers/lead2_zscore_train.npz` and the 12-lead twin). A few
+   kilobytes; produced in Stage 3 once raw signals and the train split
+   both exist. This is the canonical, reproducible definition of "the
+   preprocessed signal."
+2. **The materialized preprocessed signals (Stage 9 — mandatory final
+   modality).** The on-disk `data/processed/signals/lead2_preprocessed.h5`
+   and `data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`
+   (same schema as the raw twins). `data/processed/modality_manifest.parquet`
+   gets one row per study for `modality_kind=preprocessed_lead2` and
+   `modality_kind=preprocessed_12lead`. Adds ~+75 GB to the final Phase 1
+   dataset.
 
-Plan A/B §4.4's "raw and preprocessed as separate modalities, never
-overwrite raw" is satisfied by item 1 alone: raw stays untouched, and the
-preprocessed modality is a distinct, fully-specified, reproducible view.
+Plan A/B §4.4's "raw and preprocessed signal as separate modalities,
+never overwrite raw" requires **both** the raw and the preprocessed
+modalities to be present as distinct, on-disk containers in the final
+Phase 1 dataset. The recipe (item 1) alone is provenance only — it is
+not, by itself, a shipped modality. Stage 9 is therefore mandatory and
+not deferred. Recipe-only / virtual / on-the-fly preprocessing does
+**not** satisfy the final Phase 1 dataset.
 
 ### 3.4 Missing: structured features (Plan A/B §4.5)
 
@@ -370,15 +373,13 @@ columns include at minimum:
 - SQI: `sqi_high / sqi_med / sqi_low` (per-lead and aggregate)
 - Machine measurements: `machine_rr_ms, machine_qrs_onset, machine_qrs_end, machine_p_axis, machine_qrs_axis, machine_t_axis, cart_id, filtering, bandwidth`
 
-This is computed from the **preprocessed** signal — but via the locked
+This is computed from the **preprocessed** signal via the locked
 preprocessing recipe (§3.3 item 1) applied **on-the-fly to the raw HDF5**
-at compute time, **not** by reading a materialized `lead2_preprocessed.h5`.
-The dependency is therefore on `config/preprocessing_recipe.yaml` + the
-train-fit scalers (locked in Stage 3), not on the optional Stage 9
-materialization. This is what keeps `structured_features.parquet` — a
-Plan A/B–mandated artifact — producible in Stage 7 regardless of whether
-Stage 9 ever runs. Heavy compute (NeuroKit2 is ~1–3 s per ECG).
-Parallelize per §8.
+at compute time. The dependency is on `config/preprocessing_recipe.yaml`
++ the train-fit scalers (locked in Stage 3), so Stage 7 can run before
+Stage 9 materialization completes. (Stage 9 still ships the materialized
+preprocessed signals to disk as a mandatory separate modality per
+§3.3.) Heavy compute (NeuroKit2 is ~1–3 s per ECG). Parallelize per §8.
 
 ### 3.5 Missing: split ratio is wrong (Plan A/B §4.7 vs Truth doc §5.2)
 
@@ -527,7 +528,14 @@ change. Listed here for completeness of the audit.
 
 ### 3.11 Pre-existing bug: `hash()` non-determinism
 
-`05_task_B2_noise_robustness.py` line:
+The legacy `phase2_tasks_benchmark_and_paper/05_task_B2_noise_robustness.py`
+contained both the corruption-dataset generator **and** the Plan B B2
+benchmark task/eval. In Phase 1 the corruption-dataset half is split out
+into a new dedicated Phase 1 script — `50_build_signals_corrupted.py` —
+which only writes `signals_corrupted.parquet` (no eval / metrics /
+jsonl). The benchmark-task half stays in Phase 2.
+
+The old line in the legacy script:
 
 ```python
 seed_key = abs(hash((int(row.study_id), corruption, snr_db))) % (2**31)
@@ -536,7 +544,7 @@ seed_key = abs(hash((int(row.study_id), corruption, snr_db))) % (2**31)
 Python's built-in `hash()` is **non-deterministic across processes**
 unless `PYTHONHASHSEED` is set at interpreter startup. This was hidden by
 the fact that the corrupted files were persisted and not regenerated.
-Once `signals_corrupted.parquet` is rebuilt per decision D-3, fix at
+The new Phase 1 script `50_build_signals_corrupted.py` must fix this at
 source:
 
 ```python
@@ -580,25 +588,33 @@ script; "**New**" = author a new script.
 | 10  | `10_extract_ecg_signals.py` | Modify | Pattern B writer (see §7.2). Each ProcessPoolExecutor worker writes a private partial HDF5 (`data/processed/partial/lead2_worker_{wid}.h5` and `data/processed/partial/twelve_lead_worker_{wid}.h5`). Worker also returns a `signal_metadata` dict to the main process.                                                              |
 | 10b | `10b_pack_signals.py`       | New    | Offline packer. Consumes the `data/processed/partial/*.h5` files and writes the canonical `data/processed/signals/lead2_raw.h5` plus `data/processed/signals/twelve_lead_raw_shard_{00..04}.h5` (5 shards). Builds `data/processed/signals/signals_manifest.parquet` and stamps HDF5 with §2.2 attrs. Deletes `partial/` on success. |
 
-### Phase 3 — preprocessing recipe + (optional) preprocessed signals
+### Phase 3 — preprocessing recipe + preprocessed signals (both mandatory)
 
-The preprocessing concern splits in two (§3.3): the **recipe** (always
-produced, in Stage 3) and the **materialized signals** (optional, Stage 9).
+The preprocessing concern splits in two artifacts (§3.3), **both
+mandatory**: the **recipe** (produced in Stage 3 sub-step 3.B as
+provenance/config) and the **materialized signals** (written in Stage 9
+as a shipped modality).
 
 | #   | Script                           | Status                  | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | --- | -------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 14  | `14_fit_preprocessing_recipe.py` | New                     | **Always runs (Stage 3 sub-step).** Stream the **train-split** rows of `lead2_raw.h5` + `twelve_lead_raw_shard_*.h5`, fit per-lead z-score scalers, and write `config/preprocessing_recipe.yaml` (filter params: 0.5 Hz baseline HP, 60 Hz notch, ~100 Hz low-pass, no resample) + `config/scalers/lead2_zscore_train.npz` and the 12-lead scaler. Exposes a pure `apply_recipe(raw_array) -> preprocessed_array` helper imported by `32_compute_structured_features.py` and (if run) `15_preprocess_signals.py`. No bulk signal bytes written. |
-| 15  | `15_preprocess_signals.py`       | New (DEFERRED, Stage 9) | **Optional materializer.** Read raw HDF5, apply the **already-locked** recipe from script 14 (does not re-fit), write `data/processed/signals/lead2_preprocessed.h5` and `data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`. Pattern B; record filter params in HDF5 attrs (§3.3). Runs only if §12.2 resolves to "materialize."                                                                                                                                                                                               |
+| 15  | `15_preprocess_signals.py`       | New (Stage 9, mandatory) | **Mandatory materializer.** Read raw HDF5, apply the **already-locked** recipe from script 14 (does not re-fit), write `data/processed/signals/lead2_preprocessed.h5` and `data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`. Pattern B; record filter params in HDF5 attrs (§3.3). Also writes `preprocessed_lead2` and `preprocessed_12lead` rows into `data/processed/modality_manifest.parquet`. Required for Plan A/B §4.4 compliance.                                                                                  |
 
 ### Phase 4 — image rendering
 
 | #     | Script                           | Status | Changes                                                                                                                                                                                                                                                                                                                                        |
 | ----- | -------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 20    | `20_render_clean_images.py`      | Modify | Pattern B writer. Each worker writes its own `data/processed/partial/clean_worker_{wid}.tar` of raw PNGs. Produces a second modality: **12-lead 3×4 grid + rhythm strip** at 25 mm/s × 10 mm/mV — written into a parallel tar set `data/processed/partial/clean_12lead_worker_{wid}.tar`. Minimize image footprint per user resolution.        |
-| 20b   | `20b_pack_images.py`             | New    | Offline packer. Re-shards partial tars into 100 canonical `data/processed/images/clean_shard_{000..099}.tar` and 50 canonical `data/processed/images/clean_12lead_shard_{000..049}.tar`. Builds `data/processed/images/clean_manifest.parquet` and `data/processed/images/clean_12lead_manifest.parquet` with per-blob SHA256, offset, length. |
-| 21    | `21_generate_scanlike_images.py` | Modify | Pattern B writer. Worker reads from the canonical `clean_shard_*.tar` (so the renderer's output is decoupled), writes `data/processed/partial/scanlike_worker_{wid}.tar`.                                                                                                                                                                      |
-| 21b   | `21b_pack_scanlike.py`           | New    | Offline packer → 50 × `data/processed/images/scanlike_shard_{000..049}.tar` + `data/processed/images/scanlike_manifest.parquet`.                                                                                                                                                                                                               |
+| 20b   | `20b_pack_images.py`             | New    | Offline packer. Re-shards partial tars into 100 canonical `data/processed/images/clean_lead2_shard_{000..099}.tar` and 30 canonical `data/processed/images/clean_12lead_shard_{000..029}.tar`. Builds `data/processed/images/clean_lead2_manifest.parquet` and `data/processed/images/clean_12lead_manifest.parquet` with per-blob SHA256, offset, length. |
+| 21    | `21_generate_scanlike_images.py` | Modify | Pattern B writer. Workers read from canonical Stage 4 clean tar shards via `tarfile.open(...).extractfile(name)` and write private `data/processed/partial/scanlike_lead2_worker_{wid}.tar` and `data/processed/partial/scanlike_12lead_worker_{wid}.tar`. |
+| 21b   | `21b_pack_scanlike.py`           | New    | Offline packer → 50 × `data/processed/images/scanlike_lead2_shard_{000..049}.tar` + `scanlike_lead2_manifest.parquet` and 18 × `data/processed/images/scanlike_12lead_shard_{000..017}.tar` + `scanlike_12lead_manifest.parquet`. |
 | 22–24 | regen helpers                    | Modify | Update path expectations to read from / write to the tar shards.                                                                                                                                                                                                                                                                               |
+
+### Phase 4b — Corruption dataset (Pattern A)
+
+| #   | Script                          | Status | Changes                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | ------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 50  | `50_build_signals_corrupted.py` | New    | Phase 1 corruption-dataset writer. Reads `signals/lead2_raw.h5` + `splits_subject_level.parquet` (test split anchors); for each of 2 000 anchors × 8 corruption families × 5 SNR levels, generates a corrupted signal with deterministic `hashlib.sha256`-seeded RNG (§3.11) and writes one row to `data/processed/signals_corrupted.parquet` (schema in §2). **No JSONL, no metrics, no eval** — those stay in Phase 2's `05_task_B2_noise_robustness.py`. Pattern A with `FLUSH_EVERY=10_000`. |
 
 ### Phase 5 — QC + integrity (Pattern A)
 
@@ -1297,8 +1313,9 @@ stage.
 - Rich waveform-QC and structured features (Stage 7) depend on raw
   signals (NeuroKit2 reads `lead2_raw.h5`). Structured features
   additionally depend on the **locked preprocessing recipe** (Stage 3
-  sub-step) — they apply it on-the-fly to raw, so they do **not** depend
-  on the optional Stage 9 materialization.
+  sub-step) — they apply it on-the-fly to raw, so Stage 7 can run before
+  Stage 9 even though Stage 9 (the mandatory materialization) still must
+  ship as part of the final Phase 1 dataset.
 - The preprocessing recipe + train-fit scalers (Stage 3 sub-step) depend
   on raw signals (Stage 3 pack) **and** the patient split (Stage 2,
   scalers are fit on the train split only). This is why the recipe is
@@ -1322,8 +1339,8 @@ Starting state: `data/processed/` ≈ 406 GB, D: free ≈ 195 GB.
 | 6     | Tri-modal QC (parquet)                                | 30–60 min  | +0.05 −0.06                  | ≈ 214 GB   |
 | 7     | Rich waveform-QC + structured features                | 4–8 h      | +10 GB                       | ≈ 204 GB   |
 | 8     | Signals-corrupted parquet                             | 1–2 h      | +1.5 −1.5                    | ≈ 204 GB   |
-| 9     | Preprocessed signals (DEFERRED — see §12 open)        | (optional) | +75 GB if materialized       | ≈ 129 GB   |
-| 10    | Index cleanup + canonical manifest + final audits     | 30–60 min  | +0.05                        | ≈ 204 GB   |
+| 9     | Preprocessed signals (MANDATORY)                      | 2–4 h      | +75 GB                       | ≈ 129 GB   |
+| 10    | Index cleanup + canonical manifest + final audits     | 30–60 min  | +0.05                        | ≈ 129 GB   |
 
 Peak transient usage during Stage 3 (extractor partials + new HDF5 +
 old NPY all live for a few minutes during the streaming-merge): leaves
@@ -1425,7 +1442,8 @@ release. Produces the linkage tier per study and the auto-chosen path.
 
 **Outputs:** `data/raw/ehr_cache/*.parquet`,
 `data/processed/linkage/*.parquet`, `config/decision.yaml`,
-`outputs/audit_reports/linkage_feasibility_report.md`.
+`outputs/audit_reports/linkage_feasibility_report.md`,
+`outputs/audit_reports/linkage_audit.md`.
 
 **Deletes:** none.
 
@@ -1442,6 +1460,11 @@ gzip CSVs they replace).
 - 20 random successful linkages + 20 random failed/ambiguous linkages
   printed in the output summary for manual audit (Plan A/B Appendix A
   step A10).
+- `outputs/audit_reports/linkage_audit.md` exists with: L3/L2/L1/L0
+  counts, ambiguous-link counts, boundary cases (e.g. ECGs exactly on
+  admission/discharge boundary, multiple overlapping hadm_ids), and 20
+  manual-audit examples. This audit must be present **before** the
+  decision gate locks Plan A/B/Hybrid in `config/decision.yaml`.
 
 ---
 
@@ -1484,7 +1507,7 @@ per-study `.npy` files.
 | --- | -------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | `10_extract_ecg_signals.py`      | Modify | Pattern B writer per §7.2. Each `ProcessPoolExecutor` worker writes its own `data/processed/partial/lead2_worker_{wid}.h5` and `partial/twelve_lead_worker_{wid}.h5`. Workers also return `signal_metadata` dicts to the main process.                                                                                                                                                                                                                                  |
 | 2   | `10b_pack_signals.py`            | New    | **Streaming-merge** packer: for each worker partial, append its rows to the canonical HDF5 then `os.unlink` the partial. Output `signals/lead2_raw.h5` (1 file) + `signals/twelve_lead_raw_shard_{00..04}.h5` (5 shards by `study_id % 5`). Build per-row SHA256 in `signals/signals_manifest.parquet`. Stamp HDF5 attrs per §2.2. Same script materializes `data/processed/signal_metadata.parquet` from the workers' returned dicts.                                  |
-| 3   | `14_fit_preprocessing_recipe.py` | New    | **Sub-step 3.B (always runs).** After the pack, stream the **train-split** rows of `lead2_raw.h5` + `twelve_lead_raw_shard_*.h5`, fit per-lead z-score scalers, and write `config/preprocessing_recipe.yaml` + `config/scalers/lead2_zscore_train.npz` + the 12-lead scaler. Locks "the preprocessed signal" as a reproducible recipe (§3.3 item 1) so Stage 7's structured features never block on the optional Stage 9 materialization. No bulk signal bytes written. |
+| 3   | `14_fit_preprocessing_recipe.py` | New    | **Sub-step 3.B (always runs).** After the pack, stream the **train-split** rows of `lead2_raw.h5` + `twelve_lead_raw_shard_*.h5`, fit per-lead z-score scalers, and write `config/preprocessing_recipe.yaml` + `config/scalers/lead2_zscore_train.npz` + the 12-lead scaler. Locks "the preprocessed signal" as a reproducible recipe (§3.3 item 1) so Stage 7's structured features can run before Stage 9's mandatory materialization. No bulk signal bytes written. |
 
 **Sub-step ordering.** 3.A = extract + pack (`10`, `10b`). 3.B = fit
 recipe (`14`), which needs both the packed raw HDF5 (3.A) and the train
@@ -1565,12 +1588,10 @@ size.
   the parquet manifest for that shard.
 - Every manifest row has non-null `offset, length, sha256`; `offset`
   monotonically increasing within each shard.
-- **Spot check (Lead-II only):** 100 random PNG byte-strings extracted
-  from new tar shards match SHA256 of an independent fixed-scale
-  re-render from `data/processed/signals/lead2_raw.h5`; legacy
-  `images_clean/{id}.png` byte equality is **not** expected because the
-  old renderer used per-record 99th-percentile amplitude normalization,
-  which is methodologically invalid for voltage-preserving ECG images.
+- Clean-image render sanity: sampled Lead-II PNGs decode successfully,
+  have the expected fixed strip geometry, and preserve the fixed mV scale;
+  sampled 12-lead PNGs decode successfully and use the expected low-DPI
+  3×4 grid plus rhythm-strip layout.
 - 12-lead grid: render 8 example studies and embed them in the output
   summary so the reviewer can eyeball clinical correctness
   (3×4 layout, rhythm strip, paper-speed grid visible, no patient ID
@@ -1610,9 +1631,6 @@ both clean image layouts.
   transform from scratch on the same clean PNG and verify byte-identical
   output (catches any non-determinism introduced by NumPy/OpenCV
   upgrades).
-- **Spot check (Lead-II only):** 100 random JPG byte-strings from new
-  tar match SHA256 of corresponding old
-  `data/processed/images_scanlike/{id}.jpg`.
 - Manifest invariants same as Stage 4.
 
 ---
@@ -1663,7 +1681,7 @@ QC + cross-source consistency, §3.2) and `structured_features.parquet`
 | #   | Script                              | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | --- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | `31_waveform_qc.py`                 | Pattern A. Read `lead2_raw.h5[i]` + `twelve_lead_raw_shard_*.h5` + machine measurements; compute every column in §3.2 (per-lead SQI via NeuroKit2 `ecg_quality`, HR consistency, QRS consistency, flatline, extreme amplitude, duplicate detection via SHA256 of `lead_II[::10]`); workers return dicts; main writes `waveform_qc.parquet`.                                                                                                                                      |
-| 2   | `32_compute_structured_features.py` | Pattern A with smaller `FLUSH_EVERY=10_000` (bigger rows). Read raw signal, **apply the locked preprocessing recipe on-the-fly** via `apply_recipe()` from `14_fit_preprocessing_recipe.py` (§3.3 item 1 / §3.4) — i.e. compute features on the _preprocessed_ view without reading any materialized `lead2_preprocessed.h5`. Run NeuroKit2 HRV / morphology / intervals, passthrough machine measurements; write `structured_features.parquet`. **Does not depend on Stage 9.** |
+| 2   | `32_compute_structured_features.py` | Pattern A with smaller `FLUSH_EVERY=10_000` (bigger rows). Read raw signal, **apply the locked preprocessing recipe on-the-fly** via `apply_recipe()` from `14_fit_preprocessing_recipe.py` (§3.3 item 1 / §3.4) — i.e. compute features on the _preprocessed_ view via the recipe so Stage 7 can run before Stage 9's mandatory materialization. Run NeuroKit2 HRV / morphology / intervals, passthrough machine measurements; write `structured_features.parquet`. |
 
 **Inputs:** `signals/lead2_raw.h5`, `signals/twelve_lead_raw_shard_*.h5`,
 `ecg_metadata.parquet`, `config/preprocessing_recipe.yaml`,
@@ -1696,11 +1714,11 @@ locked in Stage 3 sub-step 3.B.
 **Purpose.** Replace the 80 K per-corruption `.npy` files with one
 parquet. Fix the `hash()` non-determinism bug (§3.11) in the same pass.
 
-**Scripts to modify:**
+**Scripts to author (Phase 1):**
 
-| #   | Script                                                            | Status | What changes                                                                                                                                                                                                                                                           |
-| --- | ----------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `phase2_tasks_benchmark_and_paper/05_task_B2_noise_robustness.py` | Modify | Output target → `data/processed/signals_corrupted.parquet` (columns per §2). 2 K anchors (per §12 res. 3) × 8 corruptions × 5 SNRs = 80 K rows. **Replace `hash(...)` with `hashlib.sha256(...).digest()[:4]` per §3.11.** Pattern A writer with `FLUSH_EVERY=10_000`. |
+| #   | Script                                                | Status | What it does                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | ----------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `phase1_dataset_generation/50_build_signals_corrupted.py` | New    | **Phase 1 corruption-dataset writer.** Output target → `data/processed/signals_corrupted.parquet` (columns per §2). 2 K anchors (per §12 res. 3) × 8 corruptions × 5 SNRs = 80 K rows. Uses `hashlib.sha256` deterministic seed per §3.11. Pattern A writer with `FLUSH_EVERY=10_000`. **Writes the corruption dataset only — no JSONL, no eval, no metrics**; the Plan B B2 benchmark task/eval stays in Phase 2. |
 
 **Inputs:** `signals/lead2_raw.h5`, `splits_subject_level.parquet`
 (test split is the anchor pool).
@@ -1721,32 +1739,60 @@ parquet. Fix the `hash()` non-determinism bug (§3.11) in the same pass.
 
 ---
 
-#### Stage 9 — Preprocessed signals: materialize-or-not (DEFERRED — see §12 open decision)
+#### Stage 9 — Preprocessed signals (MANDATORY — materialize to disk)
 
 **Purpose.** Plan A/B §4.4 mandates "raw and preprocessed signal as
-separate modalities." That mandate is **already satisfied by the recipe
-locked in Stage 3 sub-step 3.B** (`config/preprocessing_recipe.yaml` +
-train-fit scalers): raw is untouched, and the preprocessed modality is a
-fully-specified, reproducible view. Stage 9 is therefore **only** the
-question of whether to _also persist_ that view as pre-baked bytes:
+separate modalities. Never overwrite raw data." The Phase 1 dataset
+must therefore ship the preprocessed signals as **actual on-disk
+containers**, not as a recipe applied on the fly. The recipe locked in
+Stage 3 sub-step 3.B is provenance/config; Stage 9 is the modality
+itself.
 
-- **9.A — Materialize:** run `15_preprocess_signals.py` to build
-  `signals/lead2_preprocessed.h5` +
-  `signals/twelve_lead_preprocessed_shard_{00..04}.h5` by applying the
-  **already-locked** recipe (it does not re-fit). Adds `preprocessed_*`
-  rows to the modality manifest. Disk +75 GB. Worth it only if read
-  latency at training time matters more than 75 GB.
-- **9.B — Do not materialize:** ship nothing extra. The recipe + scalers
-  already exist from Stage 3, and `read_modality(study_id, "preprocessed_lead2")`
-  reads raw and applies the recipe at read time (~few ms). Disk ≈ 0.
+**Pre-conditions.** Stage 8 has passed validation and its old artifact
+folder (`data/processed/signals_corrupted/`) has been deleted. Stages
+3–8's old per-study folders have all been cleaned up so the +75 GB of
+new preprocessed HDF5s fits.
 
-**Note:** this is no longer "recipe vs. materialize" — the recipe exists
-either way. It is purely "spend 75 GB to pre-bake, or apply at read
-time." Nothing upstream (Stage 7 structured features included) blocks on
-this choice.
+**Scripts to author:**
 
-**This is an open decision (§12.2).** Do not run `15_preprocess_signals.py`
-until the user picks 9.A or 9.B. Under 9.B, Stage 9 is a no-op.
+| #   | Script                     | Status | What it does                                                                                                                                                                                                                                                                                                                                                                |
+| --- | -------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `15_preprocess_signals.py` | New    | Read raw HDF5 (`signals/lead2_raw.h5` + `twelve_lead_raw_shard_{00..04}.h5`), apply the **already-locked** recipe + train-fit scalers from Stage 3 sub-step 3.B (does **not** re-fit anything), write `signals/lead2_preprocessed.h5` + `signals/twelve_lead_preprocessed_shard_{00..04}.h5`. Pattern B; record filter params + scaler-fit provenance in HDF5 attrs (§3.3). |
+
+**Inputs:** `data/processed/signals/lead2_raw.h5`,
+`data/processed/signals/twelve_lead_raw_shard_{00..04}.h5`,
+`config/preprocessing_recipe.yaml`,
+`config/scalers/lead2_zscore_train.npz` (+ 12-lead scaler).
+
+**Outputs:**
+`data/processed/signals/lead2_preprocessed.h5`,
+`data/processed/signals/twelve_lead_preprocessed_shard_{00..04}.h5`,
+new `preprocessed_lead2` and `preprocessed_12lead` rows in
+`data/processed/modality_manifest.parquet` (written in Stage 10 when the
+canonical manifest is built; Stage 9 writes its rows into the
+per-shard signals manifest and stamps each HDF5 file with §2.2 attrs).
+
+**Deletes:** none.
+
+**Disk delta:** **+75 GB**.
+
+**Validation:**
+
+- `lead2_preprocessed.h5` row count == `lead2_raw.h5` row count.
+- `twelve_lead_preprocessed_shard_{00..04}.h5` row counts sum to
+  `twelve_lead_raw_shard_*.h5` row counts.
+- HDF5 root attrs include `dataset_version`, `created_at_iso`,
+  `modality_kind=preprocessed_{lead2,12lead}`, `n_studies`,
+  `chunk_shape=(64, 5000)`, `compression`, `script_commit_hash`, **plus**
+  the filter params (`hp_cutoff_hz`, `notch_freq_hz=60`, `lp_cutoff_hz`,
+  `original_fs=500`, `target_fs=500`) and `scaler_type=zscore_per_lead`,
+  `scaler_fit_split=train`.
+- Pre-flight: `config/preprocessing_recipe.yaml` + the train-fit scalers
+  exist (Stage 3 sub-step 3.B). Halt if missing.
+- Spot check: 100 random studies — `apply_recipe(raw_array)` recomputed
+  in-memory matches the bytes read from `lead2_preprocessed.h5`
+  byte-for-byte.
+- No values are NaN/Inf in 100 random rows.
 
 ---
 
@@ -1761,7 +1807,7 @@ modality manifest, and the four required audit reports.
 | --- | --------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1   | `03_add_measurements_to_index.py` | Modify | Read `ecg_metadata.parquet` + machine measurements; add missing-flag columns per measurement. Output `data/processed/index/ecg_metadata_with_measurements.parquet`.                  |
 | 2   | `04_cleanup_master_index.py`      | Modify | Read `qc.parquet` and `waveform_qc.parquet`; apply tri-modal pass filter; output `data/processed/index/ecg_metadata_clean.parquet` + `ecg_metadata_clean_with_measurements.parquet`. |
-| 3   | `05_build_manifest_and_splits.py` | Modify | Build canonical `data/processed/modality_manifest.parquet` per §2.1 schema (one row per `(study_id, modality_kind)` for every modality container).                                   |
+| 3   | `05_build_manifest_and_splits.py` | Modify | Build canonical `data/processed/modality_manifest.parquet` per §2.1 schema (one row per `(study_id, modality_kind)` for every modality container, including the mandatory `preprocessed_lead2` and `preprocessed_12lead` modalities from Stage 9).                                                                          |
 | 4   | `33_dataset_audits.py`            | New    | Produce all four audit reports per §3.8: `split_audit.md`, `duplicate_audit.md`, `missingness_audit.md`, `leakage_audit.md` (the last reads `config/task_input_policy.yaml`).        |
 
 **Inputs:** every Phase-1 artifact built so far.
@@ -1772,9 +1818,15 @@ modality manifest, and the four required audit reports.
 `data/processed/modality_manifest.parquet`,
 `outputs/audit_reports/{split,duplicate,missingness,leakage}_audit.md`.
 
-**Deletes:** none new (existing `processed/index/` files are rewritten
-in place; old Phase-2 `task_jsonl/` files are left untouched — they'll
-be regenerated when Phase 2 builders run against the new artifacts).
+**Deletes:** none new. Existing `data/processed/index/` files are
+rewritten in place. The stale `data/processed/task_jsonl/` directory
+(legacy Phase 2 outputs from before the regen — `taskA_verification.jsonl`,
+`taskB_temporal_grounding.jsonl`, `taskC_plausibility.jsonl`,
+`taskB1_measurement_blind.jsonl`, `taskB2_noise_robustness.jsonl`,
+`taskB5_contradiction_detection.jsonl`) is **not** part of the final
+Phase 1 tree. Stage 10 leaves it on disk untouched so the user can
+inspect it; Phase 2's first action is to delete and rebuild it against
+the new manifest.
 
 **Disk delta:** ≈ 0.
 
@@ -1930,36 +1982,15 @@ Every finding the reviewer raises is labelled with one of:
 
 ---
 
-## 12. Resolved decisions + one new open question
+## 12. Resolved decisions
 
 ### 12.1 Resolved
 
-1. **Powerline notch frequency:** Locked to 60 Hz (MIMIC-IV-ECG is US-recorded). Baked into the preprocessing recipe locked in **Stage 3 sub-step 3.B**; used on-the-fly by Stage 7 structured features and, if run, by the Stage 9 materializer.
+1. **Powerline notch frequency:** Locked to 60 Hz (MIMIC-IV-ECG is US-recorded). Baked into the preprocessing recipe locked in **Stage 3 sub-step 3.B**; used on-the-fly by Stage 7 structured features and by the mandatory Stage 9 materializer.
 2. **Image rendering layouts:** Keep BOTH Lead-II strip and 12-lead 3×4 grid + rhythm strip. 12-lead grid must use low DPI (~100) and high PNG `compress_level=9` / low JPEG quality to minimize on-disk footprint. Applied in Stages 4–5.
-3. **`signals_corrupted` anchor size:** Keep 2 000 anchors × 8 corruptions × 5 SNRs ≈ 80 000 rows. Applied in Stage 8.
+3. **`signals_corrupted` anchor size:** Keep 2 000 anchors × 8 corruptions × 5 SNRs ≈ 80 000 rows. Applied in Stage 8 via the new Phase 1 script `50_build_signals_corrupted.py` (the Plan B B2 benchmark task/eval stays in Phase 2).
 4. **Cardiologist `T_cardio` text:** Ingest from `data/raw/waveform_note_links.csv`, store as nullable `T_cardio` column in `ecg_metadata.parquet`. Do not gate any main-paper task on it. Applied in Stage 0.
-
-### 12.2 New open question (blocks Stage 9 only)
-
-1. **Preprocessed signals — also materialize, or apply the recipe at read time?**
-   Plan A/B §4.4 ("raw and preprocessed as separate modalities, never
-   overwrite raw") is **already satisfied** by the preprocessing recipe +
-   train-fit scalers locked in **Stage 3 sub-step 3.B** — that is now a
-   _resolved_ part of the plan, not an open question, and structured
-   features (Stage 7) consume it on-the-fly. The only thing still open is
-   whether to _additionally_ persist the preprocessed view as bytes:
-   - **5.A — Materialize (Stage 9.A):** run `15_preprocess_signals.py` to
-     apply the already-locked recipe and write
-     `signals/lead2_preprocessed.h5` + 5 × `twelve_lead_preprocessed_shard_*.h5`.
-     **Disk cost: +75 GB** on top of the ~204 GB Phase-1 end state. Buys
-     lower read latency at training time.
-   - **5.B — Don't materialize (Stage 9.B):** ship nothing extra;
-     `read_modality(study_id, "preprocessed_lead2")` applies the recipe to
-     raw at read time (~few-ms overhead per signal). Disk cost: ~0.
-
-   Either way the recipe already exists, so this is a pure storage-vs-latency
-   trade, not a compliance question. Stages 0–8 do not block on it; only the
-   optional Stage 9 materializer does. Decide before running Stage 9.
+5. **Preprocessed signals — materialize to disk (mandatory).** Plan A/B §4.4 ("raw and preprocessed as separate modalities, never overwrite raw") is satisfied only when both modalities exist as on-disk containers, not when one is a recipe applied at read time. Stage 9 is therefore mandatory and runs `15_preprocess_signals.py` to write `signals/lead2_preprocessed.h5` + `twelve_lead_preprocessed_shard_{00..04}.h5` (+75 GB). The recipe locked in Stage 3 sub-step 3.B remains as provenance/config. `preprocessed_lead2` and `preprocessed_12lead` are first-class rows in `data/processed/modality_manifest.parquet`.
 
 ---
 
@@ -1968,7 +1999,8 @@ Every finding the reviewer raises is labelled with one of:
 Out of scope for this document, but tracked so it's not forgotten:
 
 - All Plan A/B §5 tasks (Plan A: A1–A6) and §6 tasks (Plan B: B1–B6) builders need rewriting to consume the new consolidated artifacts via the §2.1 manifest. The existing scripts under `scripts/phase2_tasks_benchmark_and_paper/` are mostly file-system readers (open `data/processed/signals_lead2/{id}.npy`); each needs a one-line switch to `read_modality(study_id, 'raw_lead2')`.
+- `phase2_tasks_benchmark_and_paper/05_task_B2_noise_robustness.py` keeps **only** the benchmark task/eval half (jsonl, metrics, evaluation regimes). The corruption-dataset half has been split out into Phase 1's new `50_build_signals_corrupted.py` and now ships as `data/processed/signals_corrupted.parquet` — the Phase 2 B2 script reads it from the manifest rather than regenerating signals.
 - §7 paper evidence matrix (figures, tables, ablations) — unchanged from current state.
 - §8 supplement materials — unchanged.
 - §9 reproducibility deliverables — Phase-1 share is fully covered by this document; the Phase-2 share is added when Phase 2 runs.
-- Stale Phase-2 outputs already present in `data/processed/task_jsonl/` (e.g. `taskA_verification.jsonl`, `taskB_temporal_grounding.jsonl`, …) were generated from the old per-study modalities and are wrong after the Phase-1 regen. Phase 2's first action should be: delete the stale JSONLs, then re-run the task builders against the new manifest.
+- **Stale Phase-2 outputs already on disk in `data/processed/task_jsonl/`** (`taskA_verification.jsonl`, `taskB_temporal_grounding.jsonl`, `taskC_plausibility.jsonl`, `taskB1_measurement_blind.jsonl`, `taskB2_noise_robustness.jsonl`, `taskB5_contradiction_detection.jsonl`) were generated from the old per-study modalities and are wrong after the Phase-1 regen. They are **NOT** part of the final Phase 1 tree. Phase 2's first action must be: delete the stale `task_jsonl/` directory, then re-run the task builders against the new manifest.

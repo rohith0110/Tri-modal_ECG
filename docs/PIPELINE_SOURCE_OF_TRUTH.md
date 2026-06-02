@@ -404,7 +404,7 @@ Two image modalities going forward:
 
 | Modality                      | Layout                                        | Used for                                            |
 | ----------------------------- | --------------------------------------------- | --------------------------------------------------- |
-| `image_clean_lead2` (current) | single Lead II strip, 12×2.5 in               | Truth-doc Track 1 / MVP tasks A, B, C               |
+| `image_clean_lead2` (current) | single Lead II strip, 12×2.5 in, fixed mV scale with no per-record amplitude normalization | Truth-doc Track 1 / MVP tasks A, B, C               |
 | `image_clean_12lead` (NEW)    | 3×4 grid + rhythm strip, paper-speed-grounded | Plan A/B Track 2 + cross-modal verification (B4/B6) |
 
 Same idea for `image_scanlike_*`. Store both. The image manifest gets a
@@ -1543,7 +1543,7 @@ size.
 
 | #   | Script                      | Status | What it does                                                                                                                                                                                                                                                                                                                      |
 | --- | --------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `20_render_clean_images.py` | Modify | Pattern B. Each worker writes two private tars: `partial/clean_lead2_worker_{wid}.tar` (existing 12×2.5 in PNG @ 300 DPI) and `partial/clean_12lead_worker_{wid}.tar` (new 3×4 grid + rhythm strip @ 25 mm/s × 10 mm/mV; **low DPI (~100) + PNG `optimize=True, compress_level=9`** to hit ≤80 KB/image target).                  |
+| 1   | `20_render_clean_images.py` | Modify | Pattern B. Each worker writes two private tars: `partial/clean_lead2_worker_{wid}.tar` (12×2.5 in PNG @ 300 DPI, fixed mV scale, fixed clipping, **no per-record amplitude normalization**) and `partial/clean_12lead_worker_{wid}.tar` (new 3×4 grid + rhythm strip @ 25 mm/s × 10 mm/mV; **low DPI (~100) + PNG `optimize=True, compress_level=9`** to hit ≤80 KB/image target).                  |
 | 2   | `20b_pack_images.py`        | New    | Streaming-merge packer per §7.3. For each layout: write canonical `images/clean_{layout}_shard_{NNN}.tar` ordered by `study_id`; embed `MANIFEST.json` as first tar member; capture `offset` via `tar.fileobj.tell()` BEFORE `addfile`; produce `images/clean_{layout}_manifest.parquet` with per-blob `sha256`. Delete partials. |
 
 **Inputs:** `data/processed/signals/lead2_raw.h5`,
@@ -1566,8 +1566,11 @@ size.
 - Every manifest row has non-null `offset, length, sha256`; `offset`
   monotonically increasing within each shard.
 - **Spot check (Lead-II only):** 100 random PNG byte-strings extracted
-  from new tar shards match SHA256 of corresponding old
-  `data/processed/images_clean/{id}.png`.
+  from new tar shards match SHA256 of an independent fixed-scale
+  re-render from `data/processed/signals/lead2_raw.h5`; legacy
+  `images_clean/{id}.png` byte equality is **not** expected because the
+  old renderer used per-record 99th-percentile amplitude normalization,
+  which is methodologically invalid for voltage-preserving ECG images.
 - 12-lead grid: render 8 example studies and embed them in the output
   summary so the reviewer can eyeball clinical correctness
   (3×4 layout, rhythm strip, paper-speed grid visible, no patient ID

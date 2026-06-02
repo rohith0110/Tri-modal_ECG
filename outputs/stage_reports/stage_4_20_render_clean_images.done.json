@@ -1,0 +1,18 @@
+{
+  "stage": 4,
+  "script": "20_render_clean_images",
+  "dataset_version": "v2.0.0",
+  "created_at_iso": "2026-06-01T16:56:37Z",
+  "elapsed_seconds": 28082.893913030624,
+  "stats": {
+    "assigned": 800035,
+    "existing": 0,
+    "ok": 800035,
+    "skipped": 0,
+    "error": 0,
+    "lead2_bytes": 18393741362,
+    "twelve_bytes": 8838031162,
+    "task_count": 800035,
+    "worker_archive": "D:\\Coding\\MU\\Tri-Modal_ECG\\scripts\\phase1_dataset_generation\\logs\\20_render_clean_images\\archive_20260601_222637"
+  }
+}

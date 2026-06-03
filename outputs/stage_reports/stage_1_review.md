@@ -31,11 +31,11 @@ This supersedes the prior HALT review. All four findings from that review were a
 **Source-level checks against the on-disk scripts:**
 - `43_tie_break_link.add_candidate_tiers` and `select_final`: sort key is exactly `["study_id", "abs_tie_minutes", "link_type_priority", "id_priority", "conditional_hosp_priority", "source_stable_priority"]` with all `ascending=True`. `conditional_hosp_priority` is derived as `(source == "hosp") & hadm_id.notna() & stay_id.notna()` → 0 else 1, which is the spec-defined "hospital wins over ED **if both `hadm_id` and `stay_id` exist**" applied only after the primary spec keys. `source_stable_priority` is purely a final deterministic tiebreaker after the spec keys are exhausted. ✅
 - `42_link_tolerance.tolerance_candidates`: `MAX_TOLERANCE_MINUTES = 10_080`; per-ECG candidate scan is `np.flatnonzero((data["ends"] >= t - 7d) & (data["starts"] <= t + 7d))`, so every overlap-eligible interval is emitted (not just two neighbors). ✅
-- `44_label_availability.load_key_labs` reads `config/key_labs.yaml` via `yaml.safe_load` and returns the same five-lab set used in the first run; `45_decision_gate` re-reads the same file and copies it into `decision.yaml.key_labs`. ✅
+- `44_label_availability.load_key_labs` reads `config/key_labs.yaml` via `yaml.safe_load` and returns the current seven-lab set: K, Na, creatinine, troponin, lactate, Ca, and Mg. `45_decision_gate` re-reads the same file and copies it into `decision.yaml.key_labs`. ✅
 - `_stage1_common.setup_main_logger`: only `RotatingFileHandler(main.log)` + `StreamHandler(sys.stderr)` are attached. The function still unlinks an old `all.log` if present (defensive cleanup) but no longer creates one. ✅
 
 **On-disk artifact checks:**
-- `config/decision.yaml.frozen_at = 2026-05-31T17:54:40Z`, `chosen_path = plan_a`, all four `threshold_pass` flags true, `key_labs` block present and matches `key_labs.yaml`. ✅
+- `config/decision.yaml.frozen_at = 2026-06-03T08:53:27Z`, `chosen_path = plan_a`, all four `threshold_pass` flags true, `key_labs` block present and matches `key_labs.yaml`. ✅
 - `linkage_final.parquet` rows == 785,761; `label_availability.parquet` rows == 800,035; 800,035 − 785,761 = 14,274 = L0. ✅
 - New tier distribution: L3 468,176 / L2 79,651 / L1 237,934 / L0 14,274. The L3 count is unchanged (exact matches are unaffected by the tie-break ordering or tolerance breadth fixes); L2 increased by 259 (+0.03 pp) and L1 decreased by the same 259 — consistent with the broader tolerance scan now finding ≤24 h matches for some ECGs that previously got an offset > 24 h L1 binding (or no tolerance match at all). ✅
 - EHR cache row counts unchanged from first run; all nine match §5.3. ✅
@@ -47,7 +47,7 @@ This supersedes the prior HALT review. All four findings from that review were a
 |-------------------------------------------------|-------------|----------------------------|------|
 | Clean linkage (L3/L2) ≥ 30 %                    | 30 %        | 547,827 / 800,035 = 68.48 % | ✅  |
 | Plan A: L3-or-high-confidence-L2 ICD ≥ 40 %     | 40 %        | 547,671 / 800,035 = 68.46 % | ✅  |
-| Plan A: any key lab within ±24 h ≥ 20 %         | 20 %        | 608,968 / 800,035 = 76.12 % | ✅  |
+| Plan A: any key lab within ±24 h ≥ 20 %         | 20 %        | 609,402 / 800,035 = 76.17 % | ✅  |
 | Plan A: risk outcomes ≥ 1000 OR ≥ 1 %           | 1000 or 1 % | 101,276 (12.66 %)          | ✅  |
 
 All four Plan-A sub-conditions hold; `chosen_path = plan_a` is correctly derived. Margins are 17–46 percentage points above the bars, so the small per-row binding changes from the fixes cannot move the decision.
@@ -89,8 +89,9 @@ Per-candidate tier mapping in `add_candidate_tiers` unchanged (exact → L3; tol
 
 ## G. Label Availability
 
-- ICD availability, key-lab ±6h/±24h (per-lab + aggregate), mortality observability, in-hospital mortality, 30-day mortality, readmission eligibility, and 30-day readmission positive are all computed; column types nullable boolean where appropriate. ✅
-- Key-lab itemid set is read from `config/key_labs.yaml` at runtime (G-MINOR-1 fix verified at source). The rerun log line `loaded key labs from D:\…\config\key_labs.yaml names=K,Na,creatinine,troponin,lactate` confirms wiring. ✅
+- ICD availability, key-lab ±6h/±24h (per-lab + aggregate), mortality observability, in-hospital mortality, 30-day mortality, readmission eligibility, and 30-day readmission positive are all computed; column types nullable boolean where appropriate. The label parquet now includes `lab_Ca_within_6h`, `lab_Ca_within_24h`, `lab_Mg_within_6h`, and `lab_Mg_within_24h`. ✅
+- Key-lab itemid set is read from `config/key_labs.yaml` at runtime (G-MINOR-1 fix verified at source). The rerun log line `loaded key labs from D:\…\config\key_labs.yaml names=K,Na,creatinine,troponin,lactate,Ca,Mg` confirms wiring. ✅
+- Ca and Mg L3 ±24h coverage clears the A3 prerequisite: Ca 354,943 / 468,176 = 75.81%; Mg 361,665 / 468,176 = 77.25%. ✅
 - 20 + 20 manual audit examples written to both the log and the markdown report. Random states fixed (41/42) for determinism. ✅
 
 ## H. Decision Gate
@@ -122,4 +123,4 @@ None. All four prior findings are resolved with on-disk source-level verificatio
 
 # REVIEW VERDICT: PASS — proceed to Stage 2
 
-The MAJOR tie-break ordering violation in `43_tie_break_link.py` is fixed: the sort key now starts with `abs_tie_minutes`, then `link_type_priority`, then `id_priority`, with the hospital-over-ED preference applied only conditionally (both ids populated) and only as a later tiebreaker — matching §3.7.1 step 6 verbatim. The three MINOR findings are also resolved: tolerance candidate generation now scans every interval within ±7 days (+4,561 additional persisted candidates); key-lab itemids are version-locked in `config/key_labs.yaml` and mirrored into `decision.yaml`; `setup_main_logger` writes only `main.log` per §8.13. Every spec-mandated Stage 1 artifact is on disk, EHR cache row counts exactly match §5.3, the four Plan A thresholds are independently verifiable (68.48 %, 68.46 %, 76.12 %, 12.66 %) and `chosen_path = plan_a` is correctly derived. Stage 1 is complete and spec-compliant.
+The MAJOR tie-break ordering violation in `43_tie_break_link.py` is fixed: the sort key now starts with `abs_tie_minutes`, then `link_type_priority`, then `id_priority`, with the hospital-over-ED preference applied only conditionally (both ids populated) and only as a later tiebreaker — matching §3.7.1 step 6 verbatim. The three MINOR findings are also resolved: tolerance candidate generation now scans every interval within ±7 days (+4,561 additional persisted candidates); key-lab itemids are version-locked in `config/key_labs.yaml` and mirrored into `decision.yaml`; `setup_main_logger` writes only `main.log` per §8.13. Every spec-mandated Stage 1 artifact is on disk, EHR cache row counts exactly match §5.3, the four Plan A thresholds are independently verifiable (68.48 %, 68.46 %, 76.17 %, 12.66 %) and `chosen_path = plan_a` is correctly derived. Stage 1 is complete and spec-compliant.

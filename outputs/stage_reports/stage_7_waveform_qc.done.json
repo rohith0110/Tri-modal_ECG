@@ -1,0 +1,209 @@
+{
+  "stage": 7,
+  "script": "31_waveform_qc",
+  "dataset_version": "v2.0.0",
+  "created_at_iso": "2026-06-02T23:13:26Z",
+  "elapsed_seconds": 18628.628310203552,
+  "stats": {
+    "compute": {
+      "metadata_rows": 800035,
+      "resume_completed_rows": 0,
+      "pending_rows": 800035,
+      "written_parts": [
+        "data/processed/waveform_qc.part_0000.parquet",
+        "data/processed/waveform_qc.part_0001.parquet",
+        "data/processed/waveform_qc.part_0002.parquet",
+        "data/processed/waveform_qc.part_0003.parquet",
+        "data/processed/waveform_qc.part_0004.parquet",
+        "data/processed/waveform_qc.part_0005.parquet",
+        "data/processed/waveform_qc.part_0006.parquet",
+        "data/processed/waveform_qc.part_0007.parquet",
+        "data/processed/waveform_qc.part_0008.parquet"
+      ],
+      "final_rows": 800035
+    },
+    "validation": {
+      "metadata_rows": 800035,
+      "waveform_qc_rows": 800035,
+      "duplicate_study_id_count": 0,
+      "missing_study_id_count": 0,
+      "extra_study_id_count": 0,
+      "missing_required_columns": [],
+      "decode_ok_distribution": {
+        "True": 800035
+      },
+      "length_ok_distribution": {
+        "True": 800035
+      },
+      "lead_count_ok_distribution": {
+        "True": 800035
+      },
+      "lead_names_ok_distribution": {
+        "True": 800035
+      },
+      "nan_inf_flag_count": 10558,
+      "flatline_lead_flag_count": 39623,
+      "extreme_amplitude_flag_count": 994,
+      "sqi_tier_distribution": {
+        "high": 798774,
+        "low": 730,
+        "medium": 531
+      },
+      "hr_mismatch_count": 30872,
+      "hr_mismatch_pct": 3.858831176136044,
+      "qrs_mismatch_count": 664162,
+      "qrs_mismatch_pct": 83.0166180229615,
+      "duplicate_group_count": 228,
+      "duplicate_group_size_distribution": {
+        "600": 1,
+        "3": 5,
+        "2": 222
+      },
+      "report_consistency_flag_count": 5119,
+      "abnormal_examples": [
+        {
+          "study_id": 40000143,
+          "decode_ok": true,
+          "nan_inf_flag": false,
+          "flatline_lead_flag": true,
+          "extreme_amplitude_flag": false,
+          "notes": "flatline_lead"
+        },
+        {
+          "study_id": 40000384,
+          "decode_ok": true,
+          "nan_inf_flag": false,
+          "flatline_lead_flag": true,
+          "extreme_amplitude_flag": false,
+          "notes": "flatline_lead"
+        },
+        {
+          "study_id": 40000731,
+          "decode_ok": true,
+          "nan_inf_flag": false,
+          "flatline_lead_flag": true,
+          "extreme_amplitude_flag": true,
+          "notes": "flatline_lead;extreme_amplitude"
+        },
+        {
+          "study_id": 40001269,
+          "decode_ok": true,
+          "nan_inf_flag": false,
+          "flatline_lead_flag": true,
+          "extreme_amplitude_flag": false,
+          "notes": "flatline_lead"
+        },
+        {
+          "study_id": 40001297,
+          "decode_ok": true,
+          "nan_inf_flag": true,
+          "flatline_lead_flag": false,
+          "extreme_amplitude_flag": false,
+          "notes": "nan_or_inf"
+        },
+        {
+          "study_id": 40001366,
+          "decode_ok": true,
+          "nan_inf_flag": false,
+          "flatline_lead_flag": true,
+          "extreme_amplitude_flag": false,
+          "notes": "flatline_lead"
+        },
+        {
+          "study_id": 40001479,
+          "decode_ok": true,
+          "nan_inf_flag": false,
+          "flatline_lead_flag": false,
+          "extreme_amplitude_flag": true,
+          "notes": "extreme_amplitude"
+        },
+        {
+          "study_id": 40001566,
+          "decode_ok": true,
+          "nan_inf_flag": false,
+          "flatline_lead_flag": false,
+          "extreme_amplitude_flag": true,
+          "notes": "extreme_amplitude"
+        },
+        {
+          "study_id": 40001657,
+          "decode_ok": true,
+          "nan_inf_flag": false,
+          "flatline_lead_flag": true,
+          "extreme_amplitude_flag": false,
+          "notes": "flatline_lead"
+        },
+        {
+          "study_id": 40001748,
+          "decode_ok": true,
+          "nan_inf_flag": false,
+          "flatline_lead_flag": true,
+          "extreme_amplitude_flag": false,
+          "notes": "flatline_lead"
+        }
+      ],
+      "metadata": {
+        "pandas": "{\"index_columns\": [], \"column_indexes\": [], \"columns\": [{\"name\": \"study_id\", \"field_name\": \"study_id\", \"pandas_type\": \"int64\", \"numpy_type\": \"int64\", \"metadata\": null}, {\"name\": \"subject_id\", \"field_name\": \"subject_id\", \"pandas_type\": \"int64\", \"numpy_type\": \"int64\", \"metadata\": null}, {\"name\": \"decode_ok\", \"field_name\": \"decode_ok\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"length_ok\", \"field_name\": \"length_ok\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"lead_count_ok\", \"field_name\": \"lead_count_ok\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"lead_names_ok\", \"field_name\": \"lead_names_ok\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"nan_inf_flag\", \"field_name\": \"nan_inf_flag\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"flatline_lead_flag\", \"field_name\": \"flatline_lead_flag\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"flatline_leads\", \"field_name\": \"flatline_leads\", \"pandas_type\": \"list[unicode]\", \"numpy_type\": \"object\", \"metadata\": null}, {\"name\": \"extreme_amplitude_flag\", \"field_name\": \"extreme_amplitude_flag\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"duplicate_waveform_flag\", \"field_name\": \"duplicate_waveform_flag\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"duplicate_group_id\", \"field_name\": \"duplicate_group_id\", \"pandas_type\": \"int64\", \"numpy_type\": \"float64\", \"metadata\": null}, {\"name\": \"sqi_per_lead\", \"field_name\": \"sqi_per_lead\", \"pandas_type\": \"list[float32]\", \"numpy_type\": \"object\", \"metadata\": null}, {\"name\": \"sqi_aggregate\", \"field_name\": \"sqi_aggregate\", \"pandas_type\": \"float32\", \"numpy_type\": \"float32\", \"metadata\": null}, {\"name\": \"sqi_tier\", \"field_name\": \"sqi_tier\", \"pandas_type\": \"unicode\", \"numpy_type\": \"object\", \"metadata\": null}, {\"name\": \"waveform_hr_bpm\", \"field_name\": \"waveform_hr_bpm\", \"pandas_type\": \"float32\", \"numpy_type\": \"float32\", \"metadata\": null}, {\"name\": \"machine_hr_bpm\", \"field_name\": \"machine_hr_bpm\", \"pandas_type\": \"float32\", \"numpy_type\": \"float32\", \"metadata\": null}, {\"name\": \"hr_consistency_flag\", \"field_name\": \"hr_consistency_flag\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"waveform_qrs_ms\", \"field_name\": \"waveform_qrs_ms\", \"pandas_type\": \"float32\", \"numpy_type\": \"float32\", \"metadata\": null}, {\"name\": \"machine_qrs_ms\", \"field_name\": \"machine_qrs_ms\", \"pandas_type\": \"float32\", \"numpy_type\": \"float32\", \"metadata\": null}, {\"name\": \"qrs_consistency_flag\", \"field_name\": \"qrs_consistency_flag\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"report_consistency_flag\", \"field_name\": \"report_consistency_flag\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"image_clean_ok\", \"field_name\": \"image_clean_ok\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"image_scanlike_ok\", \"field_name\": \"image_scanlike_ok\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"text_ok\", \"field_name\": \"text_ok\", \"pandas_type\": \"bool\", \"numpy_type\": \"bool\", \"metadata\": null}, {\"name\": \"notes\", \"field_name\": \"notes\", \"pandas_type\": \"unicode\", \"numpy_type\": \"object\", \"metadata\": null}], \"attributes\": {}, \"creator\": {\"library\": \"pyarrow\", \"version\": \"23.0.1\"}, \"pandas_version\": \"2.3.3\"}",
+        "dataset_version": "v2.0.0",
+        "created_at_iso": "2026-06-02T23:13:23Z",
+        "modality_kind": "waveform_qc",
+        "n_rows": "800035",
+        "script_commit_hash": "d07888c"
+      }
+    },
+    "cleanup": {
+      "removed": [
+        "data/processed/waveform_qc.part_0000.parquet",
+        "data/processed/waveform_qc.part_0001.parquet",
+        "data/processed/waveform_qc.part_0002.parquet",
+        "data/processed/waveform_qc.part_0003.parquet",
+        "data/processed/waveform_qc.part_0004.parquet",
+        "data/processed/waveform_qc.part_0005.parquet",
+        "data/processed/waveform_qc.part_0006.parquet",
+        "data/processed/waveform_qc.part_0007.parquet",
+        "data/processed/waveform_qc.part_0008.parquet"
+      ],
+      "remaining": [],
+      "status": "PASS"
+    },
+    "disk_before_gib": 411.5114440917969,
+    "disk_after_gib": 411.4619674682617,
+    "log_status": {
+      "aggregate_log": "scripts/phase1_dataset_generation/logs/31_waveform_qc/aggregate.log",
+      "all_log": "scripts/phase1_dataset_generation/logs/31_waveform_qc/all.log",
+      "archive_dir": "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326",
+      "archived_worker_logs": [
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_12020.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_12320.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_12940.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_14684.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_15844.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_16144.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_19800.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_21460.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_2208.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_22224.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_22492.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_28832.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_30620.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_3132.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_32544.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_33204.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_33992.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_35868.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_36396.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_37672.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_38372.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_39104.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_41056.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_41312.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_42464.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_43160.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_43204.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_44144.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_44644.log",
+        "scripts/phase1_dataset_generation/logs/31_waveform_qc/archive_20260603_044326/worker_44736.log"
+      ]
+    }
+  }
+}

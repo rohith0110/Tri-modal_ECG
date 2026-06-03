@@ -1,15 +1,15 @@
 # Stage 1 — EHR linkage chain + decision gate — report
 
 ## 1. Files created
-- `config/decision.yaml`  (826 B, sha256 9ed5463593da)
-- `config/key_labs.yaml`  (547 B, sha256 4853aa5834b1)
-- `outputs/audit_reports/linkage_feasibility_report.md`  (6.4 KB, sha256 83abe66dbe8e)
+- `config/decision.yaml`  (870 B, sha256 c9eab3eb243a)
+- `config/key_labs.yaml`  (685 B, sha256 8332b83b8294)
+- `outputs/audit_reports/linkage_feasibility_report.md`  (6.4 KB, sha256 d0b3302fea89)
 - `scripts/phase1_dataset_generation/_stage1_common.py`  (5.6 KB, sha256 28196eeafba2)
 - `scripts/phase1_dataset_generation/40_load_ehr_tables.py`  (7.3 KB, sha256 db8fa6f6382f)
 - `scripts/phase1_dataset_generation/41_link_exact_overlap.py`  (4.1 KB, sha256 ac8b156c4829)
 - `scripts/phase1_dataset_generation/42_link_tolerance.py`  (7.2 KB, sha256 104cf3a406a7)
 - `scripts/phase1_dataset_generation/43_tie_break_link.py`  (5.9 KB, sha256 7ac3ab49178d)
-- `scripts/phase1_dataset_generation/44_label_availability.py`  (14.9 KB, sha256 320a7586f6d9)
+- `scripts/phase1_dataset_generation/44_label_availability.py`  (14.8 KB, sha256 a25637f76451)
 - `scripts/phase1_dataset_generation/45_decision_gate.py`  (4.0 KB, sha256 e65e1e59be2a)
 - `data/raw/ehr_cache/admissions.parquet`  (13.5 MB, sha256 60a6637e9d88)
 - `data/raw/ehr_cache/d_icd_diagnoses.parquet`  (1.9 MB, sha256 ef0d3d0ce9ca)
@@ -23,7 +23,7 @@
 - `data/processed/linkage/candidate_links.parquet`  (29.0 MB, sha256 733a046e3824)
 - `data/processed/linkage/exact_ed_candidates.parquet`  (10.7 MB, sha256 19b93c790d11)
 - `data/processed/linkage/exact_hosp_candidates.parquet`  (13.5 MB, sha256 7a71add0c62f)
-- `data/processed/linkage/label_availability.parquet`  (19.7 MB, sha256 e5c125c803bd)
+- `data/processed/linkage/label_availability.parquet`  (20.1 MB, sha256 32310059bdab)
 - `data/processed/linkage/linkage_final.parquet`  (29.8 MB, sha256 6a24e1dc14ca)
 - `data/processed/linkage/tolerance_ed_candidates.parquet`  (803.5 KB, sha256 bdb279f03b4b)
 - `data/processed/linkage/tolerance_hosp_candidates.parquet`  (6.1 MB, sha256 98f9ad56bb4f)
@@ -40,7 +40,7 @@
 - EHR cache column projection  ::  The cache keeps the columns needed for linkage, labels, and feasibility decisions rather than copying unused EHR columns. This preserves row counts and temporal/label fields while reducing disk from the raw gzip footprint; `labevents.parquet` keeps `labevent_id`, `subject_id`, `hadm_id`, `itemid`, `charttime`, `valuenum`, and `valueuom`.
 - Tolerance candidate breadth  ::  `42_link_tolerance.py` now scans and persists every interval for the subject whose nearest edge is within ±7 days, rather than only two searchsorted neighbors. This addresses D-MINOR-1 and keeps all viable tolerance candidates available before tie-breaking.
 - Tie-breaking order  ::  `43_tie_break_link.py` now sorts by smallest `|ecg_time - midpoint|`, then exact over tolerance, then lowest id. The hospital-over-ED preference is only a later conditional tiebreaker for rows where both `hadm_id` and `stay_id` are populated, with a final stable source key only for deterministic ordering after the spec keys are exhausted.
-- Key-lab definition  ::  The Stage 1 key-lab item IDs now live in `config/key_labs.yaml` and are copied into `config/decision.yaml`. This keeps the Plan A key-lab threshold input version-locked outside Python code while preserving the five-lab set used in the first run: potassium, sodium, creatinine, troponin, and lactate.
+- Key-lab definition  ::  The Stage 1 key-lab item IDs now live in `config/key_labs.yaml` and are copied into `config/decision.yaml`. This keeps the Plan A key-lab threshold input version-locked outside Python code. The active set is potassium, sodium, creatinine, troponin, lactate, calcium, and magnesium.
 - L1 and L0 handling  ::  `linkage_final.parquet` contains L3, L2, and L1 only, matching the validation rule that its row count equals ECGs with at least L1 linkage. `label_availability.parquet` contains all ECGs and adds L0 rows so prevalence and decision thresholds use the complete study denominator.
 - Decision denominator  ::  Plan A thresholds are computed over all 800,035 ECGs, not only linked ECGs. This is conservative and prevents Plan A from passing by silently excluding L0 or weakly linked records.
 
@@ -1214,24 +1214,25 @@ def main() -> None:
         "stay_id",
         "offset_minutes",
         "icd_available",
-        "lab_K_within_6h",
-        "lab_K_within_24h",
-        "lab_Na_within_6h",
-        "lab_Na_within_24h",
-        "lab_creatinine_within_6h",
-        "lab_creatinine_within_24h",
-        "lab_troponin_within_6h",
-        "lab_troponin_within_24h",
-        "lab_lactate_within_6h",
-        "lab_lactate_within_24h",
-        "any_key_lab_within_6h",
-        "any_key_lab_within_24h",
-        "mortality_observable",
-        "in_hospital_mortality_positive",
-        "mortality_30d_positive",
-        "readmission_eligible",
-        "readmission_30d_positive",
     ]
+    for lab in key_labs:
+        output_cols.extend(
+            [
+                f"lab_{lab}_within_6h",
+                f"lab_{lab}_within_24h",
+            ]
+        )
+    output_cols.extend(
+        [
+            "any_key_lab_within_6h",
+            "any_key_lab_within_24h",
+            "mortality_observable",
+            "in_hospital_mortality_positive",
+            "mortality_30d_positive",
+            "readmission_eligible",
+            "readmission_30d_positive",
+        ]
+    )
     labels_out = labels[output_cols].copy()
     write_parquet_atomic(labels_out, LINKAGE_DIR / "label_availability.parquet", "linkage_label_availability")
     report = make_report(labels_out, successful, failed, key_labs)
@@ -1364,7 +1365,7 @@ if __name__ == "__main__":
 - `decision.yaml` written with one of `{plan_a, hybrid, plan_b}`, `threshold_pass`, and `frozen_at`: PASS — `chosen_path: plan_a`; all four threshold flags are true; `frozen_at: 2026-05-31T17:54:40Z`.
 - Tables L1-L4 of the feasibility report exist and are populated: PASS — `outputs/audit_reports/linkage_feasibility_report.md` contains Table L1 cache counts, Table L2 tier distribution, Table L3 label availability, Table L4 decision threshold inputs, key-lab configuration, Figure L1, and manual audit examples.
 - 20 random successful linkages + 20 random failed/ambiguous linkages printed in the output summary: PASS — `44_label_availability.py` logged 20 `manual_success` rows and 20 `manual_failed_or_ambiguous` rows; the same examples are included in the feasibility report.
-- Decision gate thresholds: PASS — clean L3/L2 linkage 547,827 / 800,035 (68.48%); L3/L2 ICD coverage 547,671 / 800,035 (68.46%); key lab within +/-24h 608,968 / 800,035 (76.12%); max risk-outcome positives 101,276 (12.66%).
+- Decision gate thresholds: PASS — clean L3/L2 linkage 547,827 / 800,035 (68.48%); L3/L2 ICD coverage 547,671 / 800,035 (68.46%); key lab within +/-24h 609,402 / 800,035 (76.17%); max risk-outcome positives 101,276 (12.66%).
 - Parquet metadata stamping: PASS — Stage 1 parquets include `dataset_version=v2.0.0`, `created_at_iso`, `modality_kind`, `n_rows`, and `script_commit_hash` schema metadata.
 - Logging-hygiene checklist (every bullet from §8.14):
   - [x] Terminal showed one tqdm bar at a time, no worker interleaving. Evidence: final successful rerun used sequential scripts; tqdm appeared only in `40_load_ehr_tables.py`, `42_link_tolerance.py`, and `44_label_availability.py`, each from the main process.
@@ -1436,35 +1437,35 @@ if __name__ == "__main__":
     ```
     `scripts/phase1_dataset_generation/logs/44_label_availability/main.log` first 5:
     ```text
-    2026-05-31 23:22:12 INFO    pid=59648  main | starting 44_label_availability
-    2026-05-31 23:22:12 INFO    pid=59648  main | loaded key labs from D:\Coding\MU\Tri-Modal_ECG\config\key_labs.yaml names=K,Na,creatinine,troponin,lactate
-    2026-05-31 23:24:38 INFO    pid=59648  main | scanned key lab events rows=14207068
-    2026-05-31 23:24:39 INFO    pid=59648  main | manual audit successful linkages follows
-    2026-05-31 23:24:39 INFO    pid=59648  main | manual_success study_id=45445758 tier=L3 source=ed offset=0.0
+    2026-06-03 14:16:29 INFO    pid=39052  main | starting 44_label_availability
+    2026-06-03 14:16:29 INFO    pid=39052  main | loaded key labs from D:\Coding\MU\Tri-Modal_ECG\config\key_labs.yaml names=K,Na,creatinine,troponin,lactate,Ca,Mg
+    2026-06-03 14:19:41 INFO    pid=39052  main | scanned key lab events rows=20481517
+    2026-06-03 14:19:41 INFO    pid=39052  main | manual audit successful linkages follows
+    2026-06-03 14:19:41 INFO    pid=39052  main | manual_success study_id=45445758 tier=L3 source=ed offset=0.0
     ```
     `scripts/phase1_dataset_generation/logs/44_label_availability/main.log` last 5:
     ```text
-    2026-05-31 23:24:39 INFO    pid=59648  main | manual_failed_or_ambiguous study_id=48109493 tier=L1 source=None offset=nan
-    2026-05-31 23:24:39 INFO    pid=59648  main | manual_failed_or_ambiguous study_id=44599933 tier=L1 source=None offset=nan
-    2026-05-31 23:24:39 INFO    pid=59648  main | wrote label_availability rows=800035
-    2026-05-31 23:24:39 INFO    pid=59648  main | wrote linkage feasibility report
-    2026-05-31 23:24:39 INFO    pid=59648  main | done 44_label_availability elapsed_seconds=146.9
+    2026-06-03 14:19:41 INFO    pid=39052  main | manual_failed_or_ambiguous study_id=48109493 tier=L1 source=None offset=nan
+    2026-06-03 14:19:41 INFO    pid=39052  main | manual_failed_or_ambiguous study_id=44599933 tier=L1 source=None offset=nan
+    2026-06-03 14:19:42 INFO    pid=39052  main | wrote label_availability rows=800035
+    2026-06-03 14:19:42 INFO    pid=39052  main | wrote linkage feasibility report
+    2026-06-03 14:19:42 INFO    pid=39052  main | done 44_label_availability elapsed_seconds=193.1
     ```
     `scripts/phase1_dataset_generation/logs/45_decision_gate/main.log` first 5:
     ```text
-    2026-05-31 23:24:40 INFO    pid=52624  main | starting 45_decision_gate
-    2026-05-31 23:24:40 INFO    pid=52624  main | decision chosen_path=plan_a
-    2026-05-31 23:24:40 INFO    pid=52624  main | threshold clean_linkage_pct=0.6848
-    2026-05-31 23:24:40 INFO    pid=52624  main | threshold l3_l2_icd_pct=0.6846
-    2026-05-31 23:24:40 INFO    pid=52624  main | threshold key_lab_24h_pct=0.7612
+    2026-06-03 14:23:26 INFO    pid=44668  main | starting 45_decision_gate
+    2026-06-03 14:23:27 INFO    pid=44668  main | decision chosen_path=plan_a
+    2026-06-03 14:23:27 INFO    pid=44668  main | threshold clean_linkage_pct=0.6848
+    2026-06-03 14:23:27 INFO    pid=44668  main | threshold l3_l2_icd_pct=0.6846
+    2026-06-03 14:23:27 INFO    pid=44668  main | threshold key_lab_24h_pct=0.7617
     ```
     `scripts/phase1_dataset_generation/logs/45_decision_gate/main.log` last 5:
     ```text
-    2026-05-31 23:24:40 INFO    pid=52624  main | threshold l3_l2_icd_pct=0.6846
-    2026-05-31 23:24:40 INFO    pid=52624  main | threshold key_lab_24h_pct=0.7612
-    2026-05-31 23:24:40 INFO    pid=52624  main | threshold risk_positive_count=101276 risk_positive_pct=0.1266
-    2026-05-31 23:24:40 INFO    pid=52624  main | wrote D:\Coding\MU\Tri-Modal_ECG\config\decision.yaml
-    2026-05-31 23:24:40 INFO    pid=52624  main | done 45_decision_gate elapsed_seconds=0.3
+    2026-06-03 14:23:27 INFO    pid=44668  main | threshold l3_l2_icd_pct=0.6846
+    2026-06-03 14:23:27 INFO    pid=44668  main | threshold key_lab_24h_pct=0.7617
+    2026-06-03 14:23:27 INFO    pid=44668  main | threshold risk_positive_count=101276 risk_positive_pct=0.1266
+    2026-06-03 14:23:27 INFO    pid=44668  main | wrote D:\Coding\MU\Tri-Modal_ECG\config\decision.yaml
+    2026-06-03 14:23:27 INFO    pid=44668  main | done 45_decision_gate elapsed_seconds=0.3
     ```
   - [x] `grep -n "print(" <script>.py` output pasted (must be empty inside worker()).
     ```text
@@ -1501,6 +1502,6 @@ cd D:\Coding\MU\Tri-Modal_ECG
 .\ecg_env\Scripts\python.exe -c "from pathlib import Path; t=Path('outputs/audit_reports/linkage_feasibility_report.md').read_text(); print({s:(s in t) for s in ['Table L1','Table L2','Table L3','Table L4','Figure L1','Key-lab configuration']})"
 
 ## 8. Assumptions requiring user confirmation
-- Key labs beyond potassium  ::  The five-lab set is now pinned in `config/key_labs.yaml` and mirrored in `config/decision.yaml`. If the reviewer or user wants a different key-lab set, update that config and rerun `44_label_availability.py` and `45_decision_gate.py`.
+- Key labs beyond potassium  ::  The seven-lab set is now pinned in `config/key_labs.yaml` and mirrored in `config/decision.yaml`: K, Na, creatinine, troponin, lactate, Ca, and Mg. If the reviewer or user wants a different key-lab set, update that config and rerun `44_label_availability.py` and `45_decision_gate.py`.
 - `ecg_time` joined from `record_list.csv`  ::  This preserves Stage 0 output unchanged while enabling Stage 1 temporal linkage. If Stage 0 is later revised to add `ecg_time` into `ecg_metadata.parquet`, the Stage 1 join can be simplified without changing linkage semantics.
 - Cache is column-projected  ::  EHR cache parquets contain Stage 1 required columns, not every raw column from every Hosp/ED CSV. If downstream Stage 2 tasks need additional EHR columns, `40_load_ehr_tables.py` should be extended before those tasks are built.

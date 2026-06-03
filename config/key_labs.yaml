@@ -30,3 +30,13 @@ key_labs:
       - 50813
       - 52442
       - 53154
+  Ca:
+    label: "Calcium"
+    itemids:
+      - 50808
+      - 50893
+      - 51624
+  Mg:
+    label: "Magnesium"
+    itemids:
+      - 50960

@@ -29,8 +29,8 @@
 |---|---:|---:|
 | ICD available on L3/L2 | 547,671 | 68.46% |
 | ICD available any tier | 547,671 | 68.46% |
-| Any key lab within +/-6h | 540,177 | 67.52% |
-| Any key lab within +/-24h | 608,968 | 76.12% |
+| Any key lab within +/-6h | 540,910 | 67.61% |
+| Any key lab within +/-24h | 609,402 | 76.17% |
 | Mortality observable | 494,411 | 61.80% |
 | 30d mortality positive | 34,044 | 4.26% |
 | 30d readmission eligible | 486,459 | 60.80% |
@@ -42,13 +42,13 @@
 |---|---:|
 | Clean L3/L2 linkage | 547,827 (68.48%) |
 | L3/L2 ICD coverage | 547,671 (68.46%) |
-| Key lab within +/-24h | 608,968 (76.12%) |
+| Key lab within +/-24h | 609,402 (76.17%) |
 | Max risk-outcome positives | 101,276 |
 | Max risk-outcome prevalence | 12.66% |
 
 ## Key-lab configuration
 
-`config/key_labs.yaml` defines: K, Na, creatinine, troponin, lactate.
+`config/key_labs.yaml` defines: K, Na, creatinine, troponin, lactate, Ca, Mg.
 
 ## Figure L1 - Linkage tier distribution
 

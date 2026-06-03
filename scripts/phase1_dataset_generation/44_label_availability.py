@@ -330,24 +330,25 @@ def main() -> None:
         "stay_id",
         "offset_minutes",
         "icd_available",
-        "lab_K_within_6h",
-        "lab_K_within_24h",
-        "lab_Na_within_6h",
-        "lab_Na_within_24h",
-        "lab_creatinine_within_6h",
-        "lab_creatinine_within_24h",
-        "lab_troponin_within_6h",
-        "lab_troponin_within_24h",
-        "lab_lactate_within_6h",
-        "lab_lactate_within_24h",
-        "any_key_lab_within_6h",
-        "any_key_lab_within_24h",
-        "mortality_observable",
-        "in_hospital_mortality_positive",
-        "mortality_30d_positive",
-        "readmission_eligible",
-        "readmission_30d_positive",
     ]
+    for lab in key_labs:
+        output_cols.extend(
+            [
+                f"lab_{lab}_within_6h",
+                f"lab_{lab}_within_24h",
+            ]
+        )
+    output_cols.extend(
+        [
+            "any_key_lab_within_6h",
+            "any_key_lab_within_24h",
+            "mortality_observable",
+            "in_hospital_mortality_positive",
+            "mortality_30d_positive",
+            "readmission_eligible",
+            "readmission_30d_positive",
+        ]
+    )
     labels_out = labels[output_cols].copy()
     write_parquet_atomic(labels_out, LINKAGE_DIR / "label_availability.parquet", "linkage_label_availability")
     report = make_report(labels_out, successful, failed, key_labs)

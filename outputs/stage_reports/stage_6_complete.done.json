@@ -1,0 +1,120 @@
+{
+  "stage": 6,
+  "script": "30_qc",
+  "dataset_version": "v2.0.0",
+  "created_at_iso": "2026-06-02T15:46:19Z",
+  "elapsed_seconds": 936.6414885520935,
+  "stats": {
+    "compute_stats": {
+      "resume_completed_rows": 0,
+      "pending_rows": 800035,
+      "written_parts": [
+        "data/processed/qc.part_0000.parquet",
+        "data/processed/qc.part_0001.parquet",
+        "data/processed/qc.part_0002.parquet",
+        "data/processed/qc.part_0003.parquet",
+        "data/processed/qc.part_0004.parquet",
+        "data/processed/qc.part_0005.parquet",
+        "data/processed/qc.part_0006.parquet",
+        "data/processed/qc.part_0007.parquet",
+        "data/processed/qc.part_0008.parquet"
+      ],
+      "final_rows": 800035
+    },
+    "signal_stats": {
+      "hdf5_rows": 800035,
+      "unique_study_ids": 800035,
+      "duplicate_study_id_count": 0
+    },
+    "manifest_stats": {
+      "clean_lead2": {
+        "path": "data/processed/images/clean_lead2_manifest.parquet",
+        "row_count": 800035,
+        "unique_study_id_count": 800035,
+        "duplicate_study_id_count": 0,
+        "missing_study_count": 0,
+        "extra_study_count": 0
+      },
+      "scanlike_lead2": {
+        "path": "data/processed/images/scanlike_lead2_manifest.parquet",
+        "row_count": 800035,
+        "unique_study_id_count": 800035,
+        "duplicate_study_id_count": 0,
+        "missing_study_count": 0,
+        "extra_study_count": 0
+      },
+      "clean_12lead": {
+        "path": "data/processed/images/clean_12lead_manifest.parquet",
+        "row_count": 800035,
+        "unique_study_id_count": 800035,
+        "duplicate_study_id_count": 0,
+        "missing_study_count": 0,
+        "extra_study_count": 0
+      },
+      "scanlike_12lead": {
+        "path": "data/processed/images/scanlike_12lead_manifest.parquet",
+        "row_count": 800035,
+        "unique_study_id_count": 800035,
+        "duplicate_study_id_count": 0,
+        "missing_study_count": 0,
+        "extra_study_count": 0
+      }
+    },
+    "text_stats": {
+      "text_ok_true": 800034,
+      "text_ok_false": 1,
+      "missing_t_machine": 0,
+      "empty_whitespace_t_machine": 1
+    },
+    "row_coverage": {
+      "ecg_metadata_row_count": 800035,
+      "qc_parquet_row_count": 800035,
+      "duplicate_study_id_count": 0,
+      "missing_study_id_count": 0,
+      "extra_study_id_count": 0
+    },
+    "row_coverage_status": "PASS",
+    "waveform_status": "PASS",
+    "manifest_status": "PASS",
+    "waveform_false_explanation": "all metadata studies had a corresponding Lead-II HDF5 study_id",
+    "field_distribution": {
+      "waveform_ok_true": 800035,
+      "waveform_ok_false": 0,
+      "image_ok_true": 800035,
+      "image_ok_false": 0,
+      "text_ok_true": 800034,
+      "text_ok_false": 1
+    },
+    "old_json_validation": {
+      "command": "..\\ecg_env\\Scripts\\python.exe phase1_dataset_generation\\30_qc.py # internal 100-row old-json validation",
+      "old_qc_dir": "processed/qc",
+      "old_qc_dir_existed_during_validation": true,
+      "old_json_available_count": 651437,
+      "sampled_count": 100,
+      "match_count": 100,
+      "mismatch_count": 0,
+      "missing_old_json_count": 0,
+      "mismatched_study_ids": [],
+      "mismatch_details_first_20": [],
+      "final_verdict": "PASS"
+    },
+    "parquet_metadata": {
+      "dataset_version": "v2.0.0",
+      "created_at_iso": "2026-06-02T15:31:14Z",
+      "modality_kind": "tri_modal_qc",
+      "n_rows": "800035",
+      "script_commit_hash": "d07888c"
+    },
+    "metadata_validation": {
+      "metadata": {
+        "dataset_version": "v2.0.0",
+        "created_at_iso": "2026-06-02T15:31:14Z",
+        "modality_kind": "tri_modal_qc",
+        "n_rows": "800035",
+        "script_commit_hash": "d07888c"
+      },
+      "missing_keys": [],
+      "status": "PASS"
+    }
+  }
+}

@@ -1,5 +1,5 @@
 # Stage 1 EHR linkage decision gate
-frozen_at: "2026-05-31T17:54:40Z"
+frozen_at: "2026-06-03T08:53:27Z"
 chosen_path: "plan_a"
 threshold_pass:
   clean_linkage_ge_30pct: true
@@ -12,8 +12,8 @@ threshold_values:
   clean_linkage_pct: 0.68475379
   l3_l2_icd_count: 547671
   l3_l2_icd_pct: 0.68455880
-  key_lab_24h_count: 608968
-  key_lab_24h_pct: 0.76117670
+  key_lab_24h_count: 609402
+  key_lab_24h_pct: 0.76171917
   risk_positive_count: 101276
   risk_positive_pct: 0.12658946
 linkage_distribution:
@@ -28,3 +28,5 @@ key_labs:
   creatinine: [50912, 52546]
   troponin: [51002, 51003, 52642]
   lactate: [50813, 52442, 53154]
+  Ca: [50808, 50893, 51624]
+  Mg: [50960]

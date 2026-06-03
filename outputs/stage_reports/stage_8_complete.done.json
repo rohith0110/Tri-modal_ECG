@@ -1,0 +1,9 @@
+{
+  "stage": 8,
+  "status": "PASS",
+  "completed_at_iso": "2026-06-03T09:35:29Z",
+  "output": "data/processed/signals_corrupted.parquet",
+  "rows": 79920,
+  "expected_rows": 80000,
+  "validation_failures": []
+}

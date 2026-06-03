@@ -1,0 +1,28 @@
+{
+  "stage": 9,
+  "status": "PASS",
+  "completed_at_iso": "2026-06-03T17:15:39Z",
+  "dataset_version": "v2.0.0",
+  "elapsed_seconds": 23148.976458787918,
+  "outputs": {
+    "lead2": "data/processed/signals/lead2_preprocessed.h5",
+    "twelve_lead": [
+      "data/processed/signals/twelve_lead_preprocessed_shard_00.h5",
+      "data/processed/signals/twelve_lead_preprocessed_shard_01.h5",
+      "data/processed/signals/twelve_lead_preprocessed_shard_02.h5",
+      "data/processed/signals/twelve_lead_preprocessed_shard_03.h5",
+      "data/processed/signals/twelve_lead_preprocessed_shard_04.h5"
+    ],
+    "manifest": "data/processed/signals/preprocessed_signals_manifest.parquet"
+  },
+  "row_counts": {
+    "lead2": 800035,
+    "twelve": {
+      "0": 160449,
+      "1": 160165,
+      "2": 160538,
+      "3": 159638,
+      "4": 159245
+    }
+  }
+}

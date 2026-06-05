@@ -15,7 +15,6 @@
 !/.gitignore
 !/.gitattributes
 !/config/
-!/docs/
 !/scripts/
 !/paper/
 !/report_assets/

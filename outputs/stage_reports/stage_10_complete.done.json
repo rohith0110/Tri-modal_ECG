@@ -1,0 +1,14 @@
+{
+  "audit_paths": {
+    "duplicate": "outputs/audit_reports/duplicate_audit.md",
+    "leakage": "outputs/audit_reports/leakage_audit.md",
+    "linkage": "outputs/audit_reports/linkage_audit.md",
+    "missingness": "outputs/audit_reports/missingness_audit.md",
+    "split": "outputs/audit_reports/split_audit.md"
+  },
+  "completed_at_iso": "2026-06-05T04:23:23Z",
+  "dataset_version": "v2.0.0",
+  "report_path": "outputs/stage_reports/stage_10_report.md",
+  "stage": 10,
+  "status": "PASS"
+}

@@ -1,0 +1,72 @@
+{
+  "duplicate_study_ids_clean": 0,
+  "duplicate_study_ids_clean_with_measurements": 0,
+  "ecg_metadata_clean_rows": 749112,
+  "ecg_metadata_clean_with_measurements_rows": 749112,
+  "ecg_metadata_rows": 800035,
+  "ecg_metadata_with_measurements_rows": 800035,
+  "excluded_by_image_ok_false": 0,
+  "excluded_by_text_ok_false": 1,
+  "excluded_by_waveform_ok_false": 0,
+  "excluded_by_waveform_qc_criteria": 50922,
+  "exclusion_reason_counts": {
+    "exclude_decode_ok_false": 0,
+    "exclude_duplicate_waveform_flag_true": 1059,
+    "exclude_extreme_amplitude_flag_true": 994,
+    "exclude_flatline_lead_flag_true": 39623,
+    "exclude_image_ok_false": 0,
+    "exclude_lead_count_ok_false": 0,
+    "exclude_lead_names_ok_false": 0,
+    "exclude_length_ok_false": 0,
+    "exclude_nan_inf_flag_true": 10558,
+    "exclude_text_ok_false": 1,
+    "exclude_waveform_ok_false": 0
+  },
+  "final_retained_percentage": 93.63490347297305,
+  "index_vs_clean_explanation": "ecg_metadata_clean is the subset of ecg_metadata that passes qc.parquet narrow tri-modal completeness and waveform_qc.parquet hard waveform-quality criteria. Low SQI tier is retained as an analysis flag rather than used as a Stage 10A exclusion.",
+  "link_tier_null_count": 0,
+  "linkage_tier_source": "data/processed/linkage/label_availability.parquet",
+  "measurement_missing_flag_column_count": 9,
+  "measurement_missing_flag_columns_preserved": [
+    "rr_interval_missing",
+    "p_onset_missing",
+    "p_end_missing",
+    "qrs_onset_missing",
+    "qrs_end_missing",
+    "t_end_missing",
+    "p_axis_missing",
+    "qrs_axis_missing",
+    "t_axis_missing"
+  ],
+  "output_paths": [
+    "data/processed/index/ecg_metadata_clean.parquet",
+    "data/processed/index/ecg_metadata_clean_with_measurements.parquet"
+  ],
+  "overlap_among_exclusion_reasons_count": 1294,
+  "qc_parquet_rows": 800035,
+  "split_null_count": 0,
+  "split_source": "data/processed/splits_subject_level.parquet",
+  "subject_split_overlap": {
+    "overlaps": {
+      "train_test": 0,
+      "train_val": 0,
+      "val_test": 0
+    },
+    "status": "PASS"
+  },
+  "top_exclusion_reason_combinations_binary": {
+    "00000000001": 324,
+    "00000000010": 701,
+    "00000000011": 6,
+    "00000000100": 38339,
+    "00000000101": 711,
+    "00000000110": 280,
+    "00000000111": 3,
+    "00000001000": 10264,
+    "00000001010": 4,
+    "00000001100": 275,
+    "00000001101": 15,
+    "00100000000": 1
+  },
+  "waveform_qc_parquet_rows": 800035
+}

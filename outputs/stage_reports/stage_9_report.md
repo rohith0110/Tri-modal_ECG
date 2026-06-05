@@ -1,7 +1,7 @@
 # Stage 9 - Materialized preprocessed signals - report
 
 ## 1. Files created
-- `scripts/phase1_dataset_generation/15_preprocess_signals.py`  (45.3 KB, sha256 5773d82bb6be)
+- `scripts/phase1_dataset_generation/15_preprocess_signals.py`  (62.2 KB, sha256 fd87ae3bb8d9)
 - `data/processed/signals/lead2_preprocessed.h5`  (11.9 GB, sha256 804fdfb31f94)
 - `data/processed/signals/twelve_lead_preprocessed_shard_00.h5`  (28.5 GB, sha256 39aa4e0f8d6f)
 - `data/processed/signals/twelve_lead_preprocessed_shard_01.h5`  (28.4 GB, sha256 976b5ec96261)
@@ -1110,6 +1110,12 @@ def _build_report(
     sizes = _output_sizes()
     total_output_gib = sum(sizes.values()) / 1024**3
     disk_delta_gib = preflight["disk_free_gib"] - disk_after_gib
+    preprocessed_shard_rows = {shard: info["rows"] for shard, info in validation["twelve_infos"].items()}
+    twelve_missing_attrs = {shard: info["missing_attrs"] for shard, info in validation["twelve_infos"].items()}
+    twelve_output_sizes_gib = {
+        shard: round(sizes.get(relative(SIGNALS_DIR / TWELVE_OUT_TEMPLATE.format(shard=shard)), 0) / 1024**3, 2)
+        for shard in range(N_TWELVE_SHARDS)
+    }
     report_status = "PASS" if validation["passed"] and not cleanup["remaining_stage9_temp_files"] else "FAIL"
     manifest_line = (
         f"- `{relative(MODALITY_MANIFEST)}`  ({_fmt_size(MODALITY_MANIFEST)}, sha256 {sha256_file(MODALITY_MANIFEST)[:12]})"
@@ -1121,13 +1127,14 @@ def _build_report(
         f"# Stage 9 - {STAGE_NAME} - report",
         "",
         "## 1. Files created",
+        _file_line(SCRIPT_PATH),
         _file_line(LEAD2_OUT),
         *[_file_line(SIGNALS_DIR / TWELVE_OUT_TEMPLATE.format(shard=shard)) for shard in range(N_TWELVE_SHARDS)],
         manifest_line,
         done_line,
         "",
         "## 2. Files modified",
-        f"- `scripts/phase1_dataset_generation/15_preprocess_signals.py`  ::  added the Pattern B Stage 9 preprocessed-signal materializer and validator (sha256 {sha256_file(SCRIPT_PATH)[:12]})",
+        "- none",
         "",
         "## 3. Files / folders deleted",
         "- none  ::  no old folder deletion was expected and no old folder deletion was performed",
@@ -1151,9 +1158,9 @@ def _build_report(
         f"- Output existence: {'PASS' if validation['output_existence_ok'] else 'FAIL'}; `lead2_preprocessed.h5` plus all five `twelve_lead_preprocessed_shard_*.h5` files are present.",
         f"- Row counts: {'PASS' if validation['row_counts_ok'] else 'FAIL'}; raw Lead-II={preflight['lead2_rows']:,}; preprocessed Lead-II={validation['lead2_info']['rows']:,}; raw 12-lead total={preflight['raw_twelve_total']:,}; preprocessed 12-lead total={sum(info['rows'] for info in validation['twelve_infos'].values()):,}.",
         f"- Per-shard raw row counts: {preflight['raw_shard_rows']}.",
-        f"- Per-shard preprocessed row counts: {{shard: info['rows'] for shard, info in validation['twelve_infos'].items()}} = { {shard: info['rows'] for shard, info in validation['twelve_infos'].items()} }.",
+        f"- Per-shard preprocessed row counts: {preprocessed_shard_rows}.",
         f"- Row-count mismatches: {'none' if validation['row_counts_ok'] else 'detected'}; shard assignment verification: {'PASS' if all(validation['shard_assignment'].values()) else 'FAIL'} {validation['shard_assignment']}.",
-        f"- Required HDF5 attrs verification: {'PASS' if validation['metadata_ok'] else 'FAIL'}; Lead-II missing attrs={validation['lead2_info']['missing_attrs']}; 12-lead missing attrs={{shard: info['missing_attrs'] for shard, info in validation['twelve_infos'].items()}}.",
+        f"- Required HDF5 attrs verification: {'PASS' if validation['metadata_ok'] else 'FAIL'}; Lead-II missing attrs={validation['lead2_info']['missing_attrs']}; 12-lead missing attrs={twelve_missing_attrs}.",
         f"- Shape/dtype sampled validation: {'PASS' if validation['shape_dtype_ok'] and validation['samples']['shape_ok_count'] == validation['samples']['sampled_count'] and validation['samples']['dtype_ok_count'] == validation['samples']['sampled_count'] else 'FAIL'}; Lead-II shape={validation['lead2_info']['signal_shape']}; Lead-II dtype={validation['lead2_info']['signal_dtype']}; sampled shape_ok={validation['samples']['shape_ok_count']}/{validation['samples']['sampled_count']}; dtype_ok={validation['samples']['dtype_ok_count']}/{validation['samples']['sampled_count']}; finite_ok={validation['samples']['finite_ok_count']}/{validation['samples']['sampled_count']}.",
         f"- Raw preservation evidence: {'PASS' if validation['raw_preserved'] else 'FAIL'}; raw input file size/mtime snapshots were identical before and after Stage 9.",
         f"- Determinism validation command executed: `{validation['samples']['validation_command']}`.",
@@ -1161,7 +1168,7 @@ def _build_report(
         f"- Determinism sampled details: {validation['samples']['details']}.",
         f"- Manifest validation: {'PASS' if validation['manifest']['passed'] else 'FAIL'}; path `{validation['manifest']['path']}`; preprocessed_lead2 rows={validation['manifest']['lead2_rows']:,}; preprocessed_12lead rows={validation['manifest']['twelve_rows']:,}; duplicates={validation['manifest']['duplicate_count']}; missing Lead-II study_ids={validation['manifest']['missing_lead2_study_ids']}; missing 12-lead study_ids={validation['manifest']['missing_twelve_study_ids']}; sha256_missing={validation['manifest']['sha256_missing']}; container_path_missing={validation['manifest']['container_path_missing']}; container_row_missing={validation['manifest']['container_row_missing']}; offsets_null={validation['manifest']['container_offset_null']}; lengths_null={validation['manifest']['container_length_null']}.",
         f"- Parquet/HDF5 metadata verification: PASS; Lead-II attrs={validation['lead2_info']['attrs']}; shard00 attrs={validation['twelve_infos'][0]['attrs']}.",
-        f"- Disk usage: Lead-II output={sizes.get(relative(LEAD2_OUT), 0) / 1024**3:.2f} GiB; per-shard 12-lead output={{shard: sizes.get(relative(SIGNALS_DIR / TWELVE_OUT_TEMPLATE.format(shard=shard)), 0) for shard in range(N_TWELVE_SHARDS)}}; total Stage 9 output size={total_output_gib:.2f} GiB; disk increase during stage={disk_delta_gib:.2f} GiB.",
+        f"- Disk usage: Lead-II output={sizes.get(relative(LEAD2_OUT), 0) / 1024**3:.2f} GiB; per-shard 12-lead output GiB={twelve_output_sizes_gib}; total Stage 9 output size={total_output_gib:.2f} GiB; disk increase during stage={disk_delta_gib:.2f} GiB.",
         f"- Free disk before Stage 9: {preflight['disk_free_gib']:.1f} GiB.",
         f"- Free disk after Stage 9: {disk_after_gib:.1f} GiB.",
         f"- Cleanup status: {'PASS' if not cleanup['remaining_stage9_temp_files'] else 'FAIL'}; no old folder deletion was expected; no old folder deletion was performed; removed_partials={cleanup['removed_partials']}; removed_tmp={cleanup['removed_tmp']}; remaining_stage9_temp_files={cleanup['remaining_stage9_temp_files']}.",
@@ -1263,9 +1270,9 @@ if __name__ == "__main__":
 - Output existence: PASS; `lead2_preprocessed.h5` plus all five `twelve_lead_preprocessed_shard_*.h5` files are present.
 - Row counts: PASS; raw Lead-II=800,035; preprocessed Lead-II=800,035; raw 12-lead total=800,035; preprocessed 12-lead total=800,035.
 - Per-shard raw row counts: {0: 160449, 1: 160165, 2: 160538, 3: 159638, 4: 159245}.
-- Per-shard preprocessed row counts: {shard: info['rows'] for shard, info in validation['twelve_infos'].items()} = {0: 160449, 1: 160165, 2: 160538, 3: 159638, 4: 159245}.
+- Per-shard preprocessed row counts: {0: 160449, 1: 160165, 2: 160538, 3: 159638, 4: 159245}.
 - Row-count mismatches: none; shard assignment verification: PASS {0: True, 1: True, 2: True, 3: True, 4: True}.
-- Required HDF5 attrs verification: PASS; Lead-II missing attrs=[]; 12-lead missing attrs={shard: info['missing_attrs'] for shard, info in validation['twelve_infos'].items()}.
+- Required HDF5 attrs verification: PASS; Lead-II missing attrs=[]; 12-lead missing attrs={0: [], 1: [], 2: [], 3: [], 4: []}.
 - Shape/dtype sampled validation: PASS; Lead-II shape=(800035, 5000); Lead-II dtype=float32; sampled shape_ok=100/100; dtype_ok=100/100; finite_ok=100/100.
 - Raw preservation evidence: PASS; raw input file size/mtime snapshots were identical before and after Stage 9.
 - Determinism validation command executed: `internal validation in 15_preprocess_signals.py::_validate_samples`.
@@ -1273,7 +1280,7 @@ if __name__ == "__main__":
 - Determinism sampled details: [{'study_id': 40051017, 'lead2_match': True, 'twelve_match': True, 'lead2_shape': (5000,), 'twelve_shape': (5000, 12), 'dtype_ok': True, 'finite': True}, {'study_id': 40237231, 'lead2_match': True, 'twelve_match': True, 'lead2_shape': (5000,), 'twelve_shape': (5000, 12), 'dtype_ok': True, 'finite': True}, {'study_id': 40390075, 'lead2_match': True, 'twelve_match': True, 'lead2_shape': (5000,), 'twelve_shape': (5000, 12), 'dtype_ok': True, 'finite': True}, {'study_id': 40394009, 'lead2_match': True, 'twelve_match': True, 'lead2_shape': (5000,), 'twelve_shape': (5000, 12), 'dtype_ok': True, 'finite': True}, {'study_id': 40414272, 'lead2_match': True, 'twelve_match': True, 'lead2_shape': (5000,), 'twelve_shape': (5000, 12), 'dtype_ok': True, 'finite': True}, {'study_id': 40547828, 'lead2_match': True, 'twelve_match': True, 'lead2_shape': (5000,), 'twelve_shape': (5000, 12), 'dtype_ok': True, 'finite': True}, {'study_id': 40668982, 'lead2_match': True, 'twelve_match': True, 'lead2_shape': (5000,), 'twelve_shape': (5000, 12), 'dtype_ok': True, 'finite': True}, {'study_id': 40756926, 'lead2_match': True, 'twelve_match': True, 'lead2_shape': (5000,), 'twelve_shape': (5000, 12), 'dtype_ok': True, 'finite': True}, {'study_id': 40911496, 'lead2_match': True, 'twelve_match': True, 'lead2_shape': (5000,), 'twelve_shape': (5000, 12), 'dtype_ok': True, 'finite': True}, {'study_id': 41012275, 'lead2_match': True, 'twelve_match': True, 'lead2_shape': (5000,), 'twelve_shape': (5000, 12), 'dtype_ok': True, 'finite': True}].
 - Manifest validation: PASS; path `data/processed/signals/preprocessed_signals_manifest.parquet`; preprocessed_lead2 rows=800,035; preprocessed_12lead rows=800,035; duplicates=0; missing Lead-II study_ids=0; missing 12-lead study_ids=0; sha256_missing=0; container_path_missing=0; container_row_missing=0; offsets_null=True; lengths_null=True.
 - Parquet/HDF5 metadata verification: PASS; Lead-II attrs={'chunk_shape': '[64, 5000]', 'compression': 'gzip-4', 'created_at_iso': '2026-06-03T10:49:55Z', 'dataset_version': 'v2.0.0', 'filter_lib_version': '1.17.1', 'hp_cutoff_hz': '0.5', 'hp_order': '4', 'lead_order': '["II"]', 'lp_cutoff_hz': '100.0', 'lp_order': '4', 'modality_kind': 'preprocessed_lead2', 'n_studies': '800035', 'notch_freq_hz': '60.0', 'notch_q_factor': '30.0', 'original_fs': '500.0', 'recipe_sha256': '3926703de1b720021a0793d5ea08d6969975e9e00ba9b207d21408bc1e95afa5', 'scaler_fit_split': 'train', 'scaler_sha256': '{"lead2": "0a6dbabcf3db04061e01361a921dca178f6884ee6299a4be9e8a029f91fa3cd3", "twelve_lead": "17a00bf7fc883ce4376c15df4ad570ffc3c2b5ccb9bde6a2c6a97bea0c1cf4ba"}', 'scaler_type': 'zscore_per_lead', 'script_commit_hash': 'f637f54', 'target_fs': '500.0'}; shard00 attrs={'chunk_shape': '[64, 5000]', 'compression': 'gzip-4', 'created_at_iso': '2026-06-03T10:49:55Z', 'dataset_version': 'v2.0.0', 'filter_lib_version': '1.17.1', 'hp_cutoff_hz': '0.5', 'hp_order': '4', 'lead_order': '["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]', 'lp_cutoff_hz': '100.0', 'lp_order': '4', 'modality_kind': 'preprocessed_12lead', 'n_studies': '160449', 'notch_freq_hz': '60.0', 'notch_q_factor': '30.0', 'original_fs': '500.0', 'recipe_sha256': '3926703de1b720021a0793d5ea08d6969975e9e00ba9b207d21408bc1e95afa5', 'scaler_fit_split': 'train', 'scaler_sha256': '{"lead2": "0a6dbabcf3db04061e01361a921dca178f6884ee6299a4be9e8a029f91fa3cd3", "twelve_lead": "17a00bf7fc883ce4376c15df4ad570ffc3c2b5ccb9bde6a2c6a97bea0c1cf4ba"}', 'scaler_type': 'zscore_per_lead', 'script_commit_hash': 'f637f54', 'target_fs': '500.0'}.
-- Disk usage: Lead-II output=11.85 GiB; per-shard 12-lead output={shard: sizes.get(relative(SIGNALS_DIR / TWELVE_OUT_TEMPLATE.format(shard=shard)), 0) for shard in range(N_TWELVE_SHARDS)}; total Stage 9 output size=153.77 GiB; disk increase during stage=-3.39 GiB.
+- Disk usage: Lead-II output=11.85 GiB; per-shard 12-lead output GiB={0: 28.45, 1: 28.37, 2: 28.46, 3: 28.28, 4: 28.22}; total Stage 9 output size=153.77 GiB; disk increase during stage=-3.39 GiB.
 - Free disk before Stage 9: 253.3 GiB.
 - Free disk after Stage 9: 256.7 GiB.
 - Cleanup status: PASS; no old folder deletion was expected; no old folder deletion was performed; removed_partials=30; removed_tmp=0; remaining_stage9_temp_files=[].

@@ -1080,6 +1080,12 @@ def _build_report(
     sizes = _output_sizes()
     total_output_gib = sum(sizes.values()) / 1024**3
     disk_delta_gib = preflight["disk_free_gib"] - disk_after_gib
+    preprocessed_shard_rows = {shard: info["rows"] for shard, info in validation["twelve_infos"].items()}
+    twelve_missing_attrs = {shard: info["missing_attrs"] for shard, info in validation["twelve_infos"].items()}
+    twelve_output_sizes_gib = {
+        shard: round(sizes.get(relative(SIGNALS_DIR / TWELVE_OUT_TEMPLATE.format(shard=shard)), 0) / 1024**3, 2)
+        for shard in range(N_TWELVE_SHARDS)
+    }
     report_status = "PASS" if validation["passed"] and not cleanup["remaining_stage9_temp_files"] else "FAIL"
     manifest_line = (
         f"- `{relative(MODALITY_MANIFEST)}`  ({_fmt_size(MODALITY_MANIFEST)}, sha256 {sha256_file(MODALITY_MANIFEST)[:12]})"
@@ -1091,13 +1097,14 @@ def _build_report(
         f"# Stage 9 - {STAGE_NAME} - report",
         "",
         "## 1. Files created",
+        _file_line(SCRIPT_PATH),
         _file_line(LEAD2_OUT),
         *[_file_line(SIGNALS_DIR / TWELVE_OUT_TEMPLATE.format(shard=shard)) for shard in range(N_TWELVE_SHARDS)],
         manifest_line,
         done_line,
         "",
         "## 2. Files modified",
-        f"- `scripts/phase1_dataset_generation/15_preprocess_signals.py`  ::  added the Pattern B Stage 9 preprocessed-signal materializer and validator (sha256 {sha256_file(SCRIPT_PATH)[:12]})",
+        "- none",
         "",
         "## 3. Files / folders deleted",
         "- none  ::  no old folder deletion was expected and no old folder deletion was performed",
@@ -1121,9 +1128,9 @@ def _build_report(
         f"- Output existence: {'PASS' if validation['output_existence_ok'] else 'FAIL'}; `lead2_preprocessed.h5` plus all five `twelve_lead_preprocessed_shard_*.h5` files are present.",
         f"- Row counts: {'PASS' if validation['row_counts_ok'] else 'FAIL'}; raw Lead-II={preflight['lead2_rows']:,}; preprocessed Lead-II={validation['lead2_info']['rows']:,}; raw 12-lead total={preflight['raw_twelve_total']:,}; preprocessed 12-lead total={sum(info['rows'] for info in validation['twelve_infos'].values()):,}.",
         f"- Per-shard raw row counts: {preflight['raw_shard_rows']}.",
-        f"- Per-shard preprocessed row counts: {{shard: info['rows'] for shard, info in validation['twelve_infos'].items()}} = { {shard: info['rows'] for shard, info in validation['twelve_infos'].items()} }.",
+        f"- Per-shard preprocessed row counts: {preprocessed_shard_rows}.",
         f"- Row-count mismatches: {'none' if validation['row_counts_ok'] else 'detected'}; shard assignment verification: {'PASS' if all(validation['shard_assignment'].values()) else 'FAIL'} {validation['shard_assignment']}.",
-        f"- Required HDF5 attrs verification: {'PASS' if validation['metadata_ok'] else 'FAIL'}; Lead-II missing attrs={validation['lead2_info']['missing_attrs']}; 12-lead missing attrs={{shard: info['missing_attrs'] for shard, info in validation['twelve_infos'].items()}}.",
+        f"- Required HDF5 attrs verification: {'PASS' if validation['metadata_ok'] else 'FAIL'}; Lead-II missing attrs={validation['lead2_info']['missing_attrs']}; 12-lead missing attrs={twelve_missing_attrs}.",
         f"- Shape/dtype sampled validation: {'PASS' if validation['shape_dtype_ok'] and validation['samples']['shape_ok_count'] == validation['samples']['sampled_count'] and validation['samples']['dtype_ok_count'] == validation['samples']['sampled_count'] else 'FAIL'}; Lead-II shape={validation['lead2_info']['signal_shape']}; Lead-II dtype={validation['lead2_info']['signal_dtype']}; sampled shape_ok={validation['samples']['shape_ok_count']}/{validation['samples']['sampled_count']}; dtype_ok={validation['samples']['dtype_ok_count']}/{validation['samples']['sampled_count']}; finite_ok={validation['samples']['finite_ok_count']}/{validation['samples']['sampled_count']}.",
         f"- Raw preservation evidence: {'PASS' if validation['raw_preserved'] else 'FAIL'}; raw input file size/mtime snapshots were identical before and after Stage 9.",
         f"- Determinism validation command executed: `{validation['samples']['validation_command']}`.",
@@ -1131,7 +1138,7 @@ def _build_report(
         f"- Determinism sampled details: {validation['samples']['details']}.",
         f"- Manifest validation: {'PASS' if validation['manifest']['passed'] else 'FAIL'}; path `{validation['manifest']['path']}`; preprocessed_lead2 rows={validation['manifest']['lead2_rows']:,}; preprocessed_12lead rows={validation['manifest']['twelve_rows']:,}; duplicates={validation['manifest']['duplicate_count']}; missing Lead-II study_ids={validation['manifest']['missing_lead2_study_ids']}; missing 12-lead study_ids={validation['manifest']['missing_twelve_study_ids']}; sha256_missing={validation['manifest']['sha256_missing']}; container_path_missing={validation['manifest']['container_path_missing']}; container_row_missing={validation['manifest']['container_row_missing']}; offsets_null={validation['manifest']['container_offset_null']}; lengths_null={validation['manifest']['container_length_null']}.",
         f"- Parquet/HDF5 metadata verification: PASS; Lead-II attrs={validation['lead2_info']['attrs']}; shard00 attrs={validation['twelve_infos'][0]['attrs']}.",
-        f"- Disk usage: Lead-II output={sizes.get(relative(LEAD2_OUT), 0) / 1024**3:.2f} GiB; per-shard 12-lead output={{shard: sizes.get(relative(SIGNALS_DIR / TWELVE_OUT_TEMPLATE.format(shard=shard)), 0) for shard in range(N_TWELVE_SHARDS)}}; total Stage 9 output size={total_output_gib:.2f} GiB; disk increase during stage={disk_delta_gib:.2f} GiB.",
+        f"- Disk usage: Lead-II output={sizes.get(relative(LEAD2_OUT), 0) / 1024**3:.2f} GiB; per-shard 12-lead output GiB={twelve_output_sizes_gib}; total Stage 9 output size={total_output_gib:.2f} GiB; disk increase during stage={disk_delta_gib:.2f} GiB.",
         f"- Free disk before Stage 9: {preflight['disk_free_gib']:.1f} GiB.",
         f"- Free disk after Stage 9: {disk_after_gib:.1f} GiB.",
         f"- Cleanup status: {'PASS' if not cleanup['remaining_stage9_temp_files'] else 'FAIL'}; no old folder deletion was expected; no old folder deletion was performed; removed_partials={cleanup['removed_partials']}; removed_tmp={cleanup['removed_tmp']}; remaining_stage9_temp_files={cleanup['remaining_stage9_temp_files']}.",

@@ -608,7 +608,7 @@ as a shipped modality).
 | 20b   | `20b_pack_images.py`             | New    | Offline packer. Re-shards partial tars into 100 canonical `data/processed/images/clean_lead2_shard_{000..099}.tar` and 30 canonical `data/processed/images/clean_12lead_shard_{000..029}.tar`. Builds `data/processed/images/clean_lead2_manifest.parquet` and `data/processed/images/clean_12lead_manifest.parquet` with per-blob SHA256, offset, length. |
 | 21    | `21_generate_scanlike_images.py` | Modify | Pattern B writer. Workers read from canonical Stage 4 clean tar shards via `tarfile.open(...).extractfile(name)` and write private `data/processed/partial/scanlike_lead2_worker_{wid}.tar` and `data/processed/partial/scanlike_12lead_worker_{wid}.tar`. |
 | 21b   | `21b_pack_scanlike.py`           | New    | Offline packer → 50 × `data/processed/images/scanlike_lead2_shard_{000..049}.tar` + `scanlike_lead2_manifest.parquet` and 18 × `data/processed/images/scanlike_12lead_shard_{000..017}.tar` + `scanlike_12lead_manifest.parquet`. |
-| 22–24 | regen helpers                    | Modify | Update path expectations to read from / write to the tar shards.                                                                                                                                                                                                                                                                               |
+| 22–24 | old per-study regen helpers      | Retired | Removed from the active repository because they are not part of the §9 stage-by-stage flow and still targeted the old per-study image layout. Regeneration now happens by rerunning `20`/`20b`/`21`/`21b` against tar shards and validating those outputs.                                                                                     |
 
 ### Phase 4b — Corruption dataset (Pattern A)
 
@@ -640,8 +640,8 @@ as a shipped modality).
 
 | Script                                                 | Status    | Note                  |
 | ------------------------------------------------------ | --------- | --------------------- |
-| `_legacy_extract_ecg_signals_v1.py`                    | Unchanged | Stays in `_legacy_`.  |
-| `_test_signal_extraction.py`, `_test_ecg_rendering.py` | Unchanged | Stays as smoke tests. |
+| `_legacy_extract_ecg_signals_v1.py`                    | Removed | Historical prototype; not part of the §9 Phase 1 flow and not imported by active scripts. |
+| `_test_signal_extraction.py`, `_test_ecg_rendering.py` | Removed | Development smoke tests; not part of the §9 Phase 1 flow and not imported by active scripts. |
 
 ---
 

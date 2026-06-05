@@ -2,8 +2,8 @@
   "stage": 7,
   "script": "32_compute_structured_features",
   "dataset_version": "v2.0.0",
-  "created_at_iso": "2026-06-03T08:19:11Z",
-  "elapsed_seconds": 32593.349018096924,
+  "created_at_iso": "2026-06-05T04:20:25Z",
+  "elapsed_seconds": 73571.04742646217,
   "stats": {
     "compute": {
       "decode_ok_rows": 800035,
@@ -117,9 +117,9 @@
       "flatline_lead_flag_count": 39623,
       "extreme_amplitude_flag_count": 994,
       "sqi_tier_distribution": {
-        "high": 798774,
-        "low": 730,
-        "medium": 531
+        "medium": 492002,
+        "low": 303710,
+        "high": 4323
       },
       "hr_mismatch_count": 30872,
       "hr_mismatch_pct": 3.858831176136044,
@@ -218,10 +218,10 @@
       "metadata_validation": {
         "metadata": {
           "dataset_version": "v2.0.0",
-          "created_at_iso": "2026-06-02T23:13:23Z",
+          "created_at_iso": "2026-06-04T07:54:08Z",
           "modality_kind": "waveform_qc",
           "n_rows": "800035",
-          "script_commit_hash": "d07888c"
+          "script_commit_hash": "401124a"
         },
         "missing_keys": [],
         "modality_kind_ok": true,
@@ -313,10 +313,10 @@
       "metadata_validation": {
         "metadata": {
           "dataset_version": "v2.0.0",
-          "created_at_iso": "2026-06-03T08:19:06Z",
+          "created_at_iso": "2026-06-05T04:20:19Z",
           "modality_kind": "structured_features",
           "n_rows": "800035",
-          "script_commit_hash": "d07888c"
+          "script_commit_hash": "401124a"
         },
         "missing_keys": [],
         "modality_kind_ok": true,
@@ -413,24 +413,31 @@
     "log_status": {
       "aggregate_log": "scripts/phase1_dataset_generation/logs/32_compute_structured_features/aggregate.log",
       "all_log": "scripts/phase1_dataset_generation/logs/32_compute_structured_features/all.log",
-      "archive_dir": "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911",
+      "archive_dir": "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024",
       "archived_worker_logs": [
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_12848.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_15028.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_15344.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_25728.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_28996.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_30144.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_33556.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_34784.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_35808.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_42212.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_42300.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_43648.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_45900.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_46408.log",
-        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911/worker_47600.log"
-      ]
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_13632.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_14532.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_17844.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_21052.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_30780.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_34624.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_36288.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_43836.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_44120.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_44148.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_44668.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_50856.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_50988.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_52200.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_53500.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_5420.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_54676.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_57676.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_58664.log",
+        "scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024/worker_58768.log"
+      ],
+      "format_ok": true,
+      "nonmatching_examples": []
     }
   }
 }

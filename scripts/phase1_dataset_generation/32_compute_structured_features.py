@@ -14,6 +14,12 @@ import logging.handlers
 import math
 import multiprocessing as mp
 import os
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import re
 import shutil
 import subprocess
@@ -77,9 +83,12 @@ STAGE9_FORBIDDEN = [
 LEAD_ORDER = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
 FS = 500
 FLUSH_EVERY = 10_000
-MAX_WORKERS = max(1, math.floor((os.cpu_count() or 1) * 0.75))
-MAX_RAM_GB = max(1.0, psutil.virtual_memory().total / 1024**3 - 8.0)
+MAX_WORKERS = max(1, int(os.environ.get("STAGE7_MAX_WORKERS", str(os.cpu_count() or 1))))
+RAM_RESERVE_GB = max(1.0, float(os.environ.get("STAGE7_RAM_RESERVE_GB", "2.0")))
+MAX_RAM_GB = max(1.0, psutil.virtual_memory().total / 1024**3 - RAM_RESERVE_GB)
 WORKER_RAM_SOFT_GB = max(0.5, MAX_RAM_GB / MAX_WORKERS * 1.5)
+POOL_CHUNKSIZE = max(1, int(os.environ.get("STAGE7_POOL_CHUNKSIZE", "16")))
+LOG_LINE_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \w+\s+pid=\d+")
 
 RUN_COMMANDS = [
     (
@@ -145,8 +154,23 @@ _NK: Any = None
 _APPLY_RECIPE: Any = None
 
 
+def _archive_stale_worker_logs() -> list[str]:
+    stale_logs = sorted(LOG_DIR.glob("worker_*.log"), key=lambda p: p.name)
+    if not stale_logs:
+        return []
+    archive_dir = LOG_DIR / f"stale_worker_logs_{time.strftime('%Y%m%d_%H%M%S')}"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archived = []
+    for path in stale_logs:
+        target = archive_dir / path.name
+        shutil.move(str(path), str(target))
+        archived.append(relative(target))
+    return archived
+
+
 def _setup_main_logger() -> logging.Logger:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _archive_stale_worker_logs()
     for name in ("main.log", "all.log", "aggregate.log"):
         path = LOG_DIR / name
         if path.exists():
@@ -319,39 +343,16 @@ def _sqi_one(signal: np.ndarray) -> float:
         quality = nk.ecg_quality(cleaned, rpeaks=info.get("ECG_R_Peaks"), sampling_rate=FS, method="averageQRS")
         q = np.asarray(quality, dtype="float64")
         q = q[np.isfinite(q)]
-        return float(np.mean(q)) if q.size else float("nan")
+        return float(np.mean(q)) if q.size else 0.0
     except Exception:
-        return float("nan")
-
-
-def _proxy_sqi_lead(signal: np.ndarray) -> float:
-    x = np.asarray(signal, dtype="float32")
-    finite = x[np.isfinite(x)]
-    if finite.size < FS:
         return 0.0
-    score = float(finite.size / max(1, x.size))
-    amp = float(np.nanmax(finite) - np.nanmin(finite))
-    std = float(np.nanstd(finite))
-    if std < 1e-5 or amp < 0.02:
-        score *= 0.1
-    if float(np.nanmax(np.abs(finite))) > 10.0:
-        score *= 0.4
-    diff = np.diff(finite)
-    if diff.size:
-        mad = float(np.median(np.abs(diff - np.median(diff)))) + 1e-8
-        noise_ratio = min(1.0, mad / (std + 1e-8)) if std > 0 else 1.0
-        score *= max(0.25, 1.0 - 0.5 * noise_ratio)
-    return float(max(0.0, min(1.0, score)))
 
 
 def _sqi_features(signal: np.ndarray) -> tuple[list[float], float, bool, bool, bool]:
     values = []
     for idx in range(signal.shape[1]):
-        if idx == 1:
-            q = _sqi_one(signal[:, idx])
-            values.append(float(q) if math.isfinite(q) else _proxy_sqi_lead(signal[:, idx]))
-        else:
-            values.append(_proxy_sqi_lead(signal[:, idx]))
+        q = _sqi_one(signal[:, idx])
+        values.append(float(q) if math.isfinite(q) else 0.0)
     finite = [value for value in values if math.isfinite(value)]
     aggregate = float(np.mean(finite)) if finite else float("nan")
     high = bool(math.isfinite(aggregate) and aggregate >= 0.8)
@@ -601,7 +602,7 @@ def _compute(log: logging.Logger) -> dict[str, Any]:
     start = time.time()
     if tasks:
         with mp.Pool(processes=MAX_WORKERS, initializer=_init_worker, initargs=(str(LOG_DIR),)) as pool:
-            iterator = pool.imap_unordered(_worker, tasks, chunksize=32)
+            iterator = pool.imap_unordered(_worker, tasks, chunksize=POOL_CHUNKSIZE)
             with logging_redirect_tqdm():
                 for result in tqdm(iterator, total=len(tasks), file=sys.stderr, dynamic_ncols=True, mininterval=0.5, desc="stage 7 structured features"):
                     buffer.append(result)
@@ -813,7 +814,25 @@ def _aggregate_worker_logs() -> dict[str, Any]:
                 if text and not text.endswith("\n"):
                     text += "\n"
                 out.write(text)
-    return {"aggregate_log": relative(aggregate), "all_log": relative(all_log), "archive_dir": relative(archive_dir), "archived_worker_logs": archived}
+    checked = [LOG_DIR / "main.log", aggregate, all_log]
+    nonmatching = []
+    for path in checked:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines() if path.exists() else []
+        if not lines:
+            nonmatching.append({"path": relative(path), "line": "<empty>"})
+            continue
+        for line in lines:
+            if not LOG_LINE_RE.match(line):
+                nonmatching.append({"path": relative(path), "line": line[:200]})
+                break
+    return {
+        "aggregate_log": relative(aggregate),
+        "all_log": relative(all_log),
+        "archive_dir": relative(archive_dir),
+        "archived_worker_logs": archived,
+        "format_ok": not nonmatching,
+        "nonmatching_examples": nonmatching[:5],
+    }
 
 
 def _log_excerpt(path: Path) -> tuple[list[str], list[str], bool]:
@@ -915,7 +934,7 @@ def _make_report(
         f"- Pattern A flush boundaries  ::  `31_waveform_qc.py` uses `FLUSH_EVERY={100_000:,}` and `32_compute_structured_features.py` uses `FLUSH_EVERY={FLUSH_EVERY:,}` exactly as Stage 7 requires. Both scripts resume from existing part files and delete only their own part/temp files after canonical parquet validation.",
         "- Machine measurements source  ::  The Stage 0 metadata index contains machine HR/QRS/QTc but does not contain raw `rr_interval`, onset/end, or axis fields. Stage 7 therefore reads `data/raw/machine_measurements.csv` for the raw measurement passthroughs and for source-of-truth HR/QRS derivation.",
         "- Structured feature basis  ::  The structured feature worker reads raw 12-lead HDF5 rows and applies `apply_recipe()` from `14_fit_preprocessing_recipe.py` in memory. It does not open Stage 9 materialized preprocessed HDF5 files.",
-        "- SQI compute strategy  ::  NeuroKit2 `ecg_quality` is used on Lead II for each study, where the same lead also drives waveform HR/QRS and structured interval extraction. The remaining leads receive a deterministic finite/flatline/amplitude/noise proxy SQI so the output still contains per-lead SQI values without multiplying NeuroKit2 calls by twelve.",
+        "- SQI compute strategy  ::  NeuroKit2 `ecg_quality(..., method=\"averageQRS\")` is computed independently for all 12 leads. `sqi_per_lead` is the list of 12 NeuroKit2 quality averages in canonical lead order; aggregate/tier flags are derived from those 12 values.",
         "- NeuroKit2 fallback behavior  ::  Worker-level NeuroKit2 failures return a row with `feature_extraction_ok=False`, NaN feature values, and `error_notes`; failed rows remain in `structured_features.parquet` rather than aborting the full stage.",
         "",
         "## 5. Complete code",
@@ -1087,6 +1106,8 @@ def main() -> None:
     finally:
         log_status = _aggregate_worker_logs()
         stats["log_status"] = log_status
+        if all_pass and not log_status.get("format_ok", False):
+            all_pass = False
 
     disk_after = psutil.disk_usage(str(PROJECT_ROOT)).free / 1024**3
     elapsed = time.time() - start

@@ -1,70 +1,205 @@
-# Task input policy — defines allowed modalities per task
-# CRITICAL for leakage prevention: labels derived from a source cannot use that source as input
-# Doc §1.1, §5.1 step 4, §9.2
-
 modalities_available:
-  signal_lead2: "processed/signals_lead2/{study_id}.npy  — shape (5000,) float32"
-  signal_12lead: "processed/signals_12lead/{study_id}.npy — shape (5000,12) float32"
-  image_clean: "processed/images_clean/{study_id}.png"
-  image_scanlike: "processed/images_scanlike/{study_id}.jpg"
-  report_text: "machine_measurements.csv columns report_0..report_17 concatenated"
-  machine_measurements: "rr_interval, qrs_onset, qrs_end, t_end, p_axis, qrs_axis, t_axis"
-
+  raw_lead2: data/processed/signals/lead2_raw.h5 via modality_manifest.parquet
+  raw_12lead: data/processed/signals/twelve_lead_raw_shard_*.h5 via modality_manifest.parquet
+  preprocessed_lead2: data/processed/signals/lead2_preprocessed.h5 via modality_manifest.parquet
+  preprocessed_12lead: data/processed/signals/twelve_lead_preprocessed_shard_*.h5
+    via modality_manifest.parquet
+  image_clean_lead2: data/processed/images/clean_lead2_shard_*.tar via modality_manifest
+    layout=lead2
+  image_clean_12lead: data/processed/images/clean_12lead_shard_*.tar via modality_manifest
+    layout=12lead
+  image_scanlike_lead2: data/processed/images/scanlike_lead2_shard_*.tar via modality_manifest
+    layout=lead2
+  image_scanlike_12lead: data/processed/images/scanlike_12lead_shard_*.tar via modality_manifest
+    layout=12lead
+  signal_corrupted: data/processed/signals_corrupted.parquet via modality_manifest
+    corruption_type/snr_db
+  report_text: T_machine from ecg_metadata_clean_with_measurements.parquet
+  machine_measurements: raw machine measurement fields and derived measurement labels
+  structured_features: data/processed/structured_features.parquet
 tasks:
+  A1_ecg_diagnosis:
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    - report_text
+    forbidden_inputs:
+    - machine_measurements
+    - structured_features
+    leakage_rationale: EHR diagnosis labels are not ECG-measurement labels; machine
+      measurements and structured features are still forbidden to avoid shortcut inputs.
+  A2_measurement_blind:
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    forbidden_inputs:
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    - report_text
+    - machine_measurements
+    - structured_features
+    leakage_rationale: Labels are computed from rr_interval, QRS duration, and QTc;
+      all label-derived fields and text summaries are forbidden.
+  A3_lab_abnormality:
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    - report_text
+    forbidden_inputs:
+    - machine_measurements
+    - structured_features
+    leakage_rationale: Lab labels are EHR-derived; structured features are forbidden
+      to prevent engineered morphology shortcuts.
+  A4_event_localization:
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    forbidden_inputs:
+    - machine_measurements
+    - structured_features
+    - report_text
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    leakage_rationale: Localization labels come from waveform delineation, so engineered
+      features, text, machine measurements, and rendered images are forbidden.
+  A5_cross_modal_verification:
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    - report_text
+    forbidden_inputs:
+    - machine_measurements
+    - structured_features
+    leakage_rationale: The task verifies modality alignment; label-derived measurement
+      columns and structured features stay out of model inputs.
+  A6_risk_stratification:
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    - report_text
+    forbidden_inputs:
+    - machine_measurements
+    - structured_features
+    leakage_rationale: Risk labels are EHR-derived; engineered structured features
+      are reserved for audited baselines, not ordinary inputs.
   B1_measurement_blind:
-    allowed:
-      - signal_lead2
-      - signal_12lead
-    forbidden:
-      - report_text          # contains HR/QRS/QTc descriptions → direct leakage
-      - machine_measurements # IS the label source → perfect leakage
-      - image_clean          # image rendering may embed measurement text
-      - image_scanlike
-    leakage_rationale: "Labels (hr_label, qrs_label, qtc_label) are derived directly from rr_interval, qrs_end-qrs_onset, and t_end. Any input containing these values allows trivial copying."
-
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    forbidden_inputs:
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    - report_text
+    - machine_measurements
+    - structured_features
+    leakage_rationale: Same label source as A2; this is signal-only measurement inference.
   B2_noise_robustness:
-    allowed:
-      - signal_lead2         # corrupted version only; clean signal not seen at test time
-    forbidden:
-      - report_text
-      - machine_measurements
-      - image_clean
-      - image_scanlike
-    leakage_rationale: "Same as B1 — B2 uses B1 labels on corrupted signals."
-
+    allowed_inputs:
+    - raw_lead2
+    - preprocessed_lead2
+    - signal_corrupted
+    forbidden_inputs:
+    - raw_12lead
+    - preprocessed_12lead
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    - report_text
+    - machine_measurements
+    - structured_features
+    leakage_rationale: Noise robustness uses corrupted Lead-II signals and B1 labels;
+      clean text and measurement fields are forbidden.
   B3_temporal_grounding:
-    allowed:
-      - signal_lead2
-      - signal_12lead
-    forbidden:
-      - report_text          # report may state 'HR 85 bpm' → label leakage for HIGH_HEART_RATE
-      - machine_measurements
-    leakage_rationale: "Temporal labels derived from R-peak detection and QRS onset/end. Machine measurements provide aggregate values that partially encode the labels."
-
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    forbidden_inputs:
+    - machine_measurements
+    - structured_features
+    - report_text
+    leakage_rationale: Temporal labels are waveform-derived; measurements, text summaries,
+      and structured features leak timing information.
   B4_cross_modal_verification:
-    allowed:
-      - signal_lead2
-      - signal_12lead
-      - image_clean
-      - image_scanlike
-      - report_text
-    forbidden: []
-    leakage_rationale: "Verification task — all modalities are legitimate inputs; the task is to match them."
-
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    - report_text
+    forbidden_inputs:
+    - machine_measurements
+    - structured_features
+    leakage_rationale: Same verification head as A5; machine measurements and structured
+      features remain shortcut inputs.
   B5_contradiction_detection:
-    allowed:
-      - report_text          # must read report to detect contradiction
-      - signal_lead2         # signal provides ground truth for claim verification
-    forbidden:
-      - machine_measurements # IS the label source (hr from rr_interval) → direct leakage
-    leakage_rationale: "Contradiction labels are derived from machine measurements. Providing rr_interval/qrs fields would allow trivial computation of the true HR/QRS, defeating the detection challenge."
-
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    - report_text_corrupted
+    forbidden_inputs:
+    - machine_measurements
+    - structured_features
+    - machine_report_text_original
+    leakage_rationale: Contradiction labels are generated from measurement/report
+      edits; originals and raw measurement values are forbidden.
   B6_difficulty_stratified:
-    allowed:
-      - signal_lead2
-      - signal_12lead
-      - image_clean
-      - image_scanlike
-      - report_text
-    forbidden: []
-    leakage_rationale: "Same as B4."
+    allowed_inputs:
+    - raw_lead2
+    - raw_12lead
+    - preprocessed_lead2
+    - preprocessed_12lead
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    - report_text
+    forbidden_inputs:
+    - machine_measurements
+    - structured_features
+    leakage_rationale: Difficulty stratification evaluates the B4 verification setup;
+      shortcut measurement and structured features remain forbidden.

@@ -10,8 +10,8 @@ scripts/
 ```
 
 - **[Phase 1 — Dataset Generation](phase1_dataset_generation/README.md)** —
-  master index, patient split, signal extraction, image rendering, QC and
-  integrity, dataset cleanup.
+  version lock, access checks, EHR linkage, patient split, signal extraction,
+  image rendering, QC, structured features, manifest, and audits.
 - **[Phase 2 — Tasks, Benchmark & Paper](phase2_tasks_benchmark_and_paper/README.md)** —
   Tasks A / B / C and Plan-B B1 / B2 / B5 dataset builders, the audit suite,
   model training and per-task baselines, evaluation utilities, benchmark and
@@ -19,10 +19,11 @@ scripts/
 
 ## How to run
 
-**Always run scripts with your working directory set to `scripts/`** — every
-script uses repo-relative paths (`../processed/...`, `../data/...`,
-`../outputs/...`). The reorganization did not modify any code, so paths
-continue to resolve correctly only when CWD is `scripts/`.
+Follow the command blocks in each phase README and source-of-truth document.
+Current Phase 1 scripts derive the repository root from `__file__`, while some
+stage-report command blocks still use `scripts/` as their working directory.
+Use the exact command block printed by a stage script when validating that
+stage.
 
 ```powershell
 cd D:\Coding\MU\Tri-Modal_ECG\scripts
@@ -39,11 +40,11 @@ End-to-end reproduction order: **Phase 1 → Phase 2.1 (tasks) →
 Phase 2.2 (audits) → Phase 2.3 (training) → Phase 2.4 (baselines) →
 Phase 2.5 (evaluation) → Phase 2.6 (benchmark figures + report) →
 Phase 2.7 (paper figures).** Each phase README has the exact per-script
-table (purpose, inputs, outputs) and the run-order block to copy-paste.
+table and run-order block.
 
 ## Loose items in this folder
 
-- `logs/` — runtime / audit / regen logs (read by Phase 1 integrity scripts).
+- `logs/` — runtime, audit, and regeneration logs.
 - `render_errors.log`, `scanlike_errors.log`, `task_B_regen.log` — historical
   one-off run logs left in place for provenance.
 - `__pycache__/` — Python bytecode cache; safe to delete.

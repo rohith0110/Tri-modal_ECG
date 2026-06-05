@@ -14,6 +14,12 @@ import logging.handlers
 import math
 import multiprocessing as mp
 import os
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import re
 import shutil
 import sys
@@ -69,12 +75,15 @@ EXPECTED_LEADS = set(LEAD_ORDER)
 FS = 500
 SAMPLES_PER_RECORD = 5000
 FLUSH_EVERY = 100_000
-MAX_WORKERS = max(1, math.floor((os.cpu_count() or 1) * 0.75))
-MAX_RAM_GB = max(1.0, psutil.virtual_memory().total / 1024**3 - 8.0)
+MAX_WORKERS = max(1, int(os.environ.get("STAGE7_MAX_WORKERS", str(os.cpu_count() or 1))))
+RAM_RESERVE_GB = max(1.0, float(os.environ.get("STAGE7_RAM_RESERVE_GB", "2.0")))
+MAX_RAM_GB = max(1.0, psutil.virtual_memory().total / 1024**3 - RAM_RESERVE_GB)
 WORKER_RAM_SOFT_GB = max(0.5, MAX_RAM_GB / MAX_WORKERS * 1.5)
+POOL_CHUNKSIZE = max(1, int(os.environ.get("STAGE7_POOL_CHUNKSIZE", "16")))
 EXTREME_AMPLITUDE_MV = 10.0
 FLATLINE_DIFF_RATIO = 0.90
 FLATLINE_STD_THRESHOLD = 1e-5
+LOG_LINE_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \w+\s+pid=\d+")
 
 RUN_COMMAND = (
     "cd D:\\Coding\\MU\\Tri-Modal_ECG\\scripts\n"
@@ -121,8 +130,23 @@ _H5_HANDLES: dict[str, h5py.File] = {}
 _NK: Any = None
 
 
+def _archive_stale_worker_logs() -> list[str]:
+    stale_logs = sorted(LOG_DIR.glob("worker_*.log"), key=lambda p: p.name)
+    if not stale_logs:
+        return []
+    archive_dir = LOG_DIR / f"stale_worker_logs_{time.strftime('%Y%m%d_%H%M%S')}"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archived = []
+    for path in stale_logs:
+        target = archive_dir / path.name
+        shutil.move(str(path), str(target))
+        archived.append(relative(target))
+    return archived
+
+
 def _setup_main_logger() -> logging.Logger:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _archive_stale_worker_logs()
     for name in ("main.log", "all.log", "aggregate.log"):
         path = LOG_DIR / name
         if path.exists():
@@ -214,58 +238,40 @@ def _flatline_leads(signal: np.ndarray) -> list[str]:
     return leads
 
 
-def _sqi_one_lead(signal: np.ndarray) -> tuple[float, np.ndarray | None]:
+def _sqi_one_lead(signal: np.ndarray) -> tuple[float, np.ndarray | None, np.ndarray | None]:
     nk = _get_nk()
     try:
         cleaned = nk.ecg_clean(np.asarray(signal, dtype="float32"), sampling_rate=FS, method="neurokit")
         _, info = nk.ecg_peaks(cleaned, sampling_rate=FS, method="neurokit")
+        rpeaks = np.asarray(info.get("ECG_R_Peaks", []), dtype=int)
         quality = nk.ecg_quality(cleaned, rpeaks=info.get("ECG_R_Peaks"), sampling_rate=FS, method="averageQRS")
         q = np.asarray(quality, dtype="float64")
         finite = q[np.isfinite(q)]
-        return (float(np.mean(finite)) if finite.size else float("nan"), np.asarray(info.get("ECG_R_Peaks", []), dtype=int))
+        return (float(np.mean(finite)) if finite.size else 0.0, cleaned, rpeaks)
     except Exception:
-        return float("nan"), None
+        return 0.0, None, None
 
 
-def _proxy_sqi_lead(signal: np.ndarray) -> float:
-    x = np.asarray(signal, dtype="float32")
-    finite = x[np.isfinite(x)]
-    if finite.size < FS:
-        return 0.0
-    score = 1.0
-    finite_ratio = float(finite.size / max(1, x.size))
-    score *= finite_ratio
-    amp = float(np.nanmax(finite) - np.nanmin(finite))
-    std = float(np.nanstd(finite))
-    if std < FLATLINE_STD_THRESHOLD or amp < 0.02:
-        score *= 0.1
-    if float(np.nanmax(np.abs(finite))) > EXTREME_AMPLITUDE_MV:
-        score *= 0.4
-    diff = np.diff(finite)
-    if diff.size:
-        mad = float(np.median(np.abs(diff - np.median(diff)))) + 1e-8
-        noise_ratio = min(1.0, mad / (std + 1e-8)) if std > 0 else 1.0
-        score *= max(0.25, 1.0 - 0.5 * noise_ratio)
-    return float(max(0.0, min(1.0, score)))
-
-
-def _per_lead_sqi(signal: np.ndarray) -> list[float]:
+def _per_lead_sqi(signal: np.ndarray) -> tuple[list[float], np.ndarray | None, np.ndarray | None]:
     values: list[float] = []
+    lead2_cleaned: np.ndarray | None = None
+    lead2_rpeaks: np.ndarray | None = None
     for idx in range(signal.shape[1]):
+        q, cleaned, rpeaks = _sqi_one_lead(signal[:, idx])
+        values.append(float(q) if math.isfinite(q) else 0.0)
         if idx == 1:
-            q, _ = _sqi_one_lead(signal[:, idx])
-            values.append(float(q) if math.isfinite(q) else _proxy_sqi_lead(signal[:, idx]))
-        else:
-            values.append(_proxy_sqi_lead(signal[:, idx]))
-    return values
+            lead2_cleaned = cleaned
+            lead2_rpeaks = rpeaks
+    return values, lead2_cleaned, lead2_rpeaks
 
 
-def _waveform_hr_qrs(lead2: np.ndarray) -> tuple[float, float]:
+def _waveform_hr_qrs(lead2: np.ndarray, cleaned: np.ndarray | None = None, rpeaks: np.ndarray | None = None) -> tuple[float, float]:
     nk = _get_nk()
     try:
-        cleaned = nk.ecg_clean(np.asarray(lead2, dtype="float32"), sampling_rate=FS, method="neurokit")
-        _, peaks_info = nk.ecg_peaks(cleaned, sampling_rate=FS, method="neurokit")
-        rpeaks = np.asarray(peaks_info.get("ECG_R_Peaks", []), dtype=int)
+        if cleaned is None or rpeaks is None:
+            cleaned = nk.ecg_clean(np.asarray(lead2, dtype="float32"), sampling_rate=FS, method="neurokit")
+            _, peaks_info = nk.ecg_peaks(cleaned, sampling_rate=FS, method="neurokit")
+            rpeaks = np.asarray(peaks_info.get("ECG_R_Peaks", []), dtype=int)
         hr = float("nan")
         if rpeaks.size >= 2:
             rr_ms = np.diff(rpeaks) / FS * 1000.0
@@ -393,10 +399,13 @@ def _worker(task: dict[str, Any]) -> dict[str, Any]:
         base["flatline_lead_flag"] = bool(flat)
         base["_duplicate_key"] = _signal_key(lead2)
 
-        sqi_values = _per_lead_sqi(signal) if base["lead_count_ok"] else [float("nan")] * len(LEAD_ORDER)
+        if base["lead_count_ok"]:
+            sqi_values, lead2_cleaned, lead2_rpeaks = _per_lead_sqi(signal)
+        else:
+            sqi_values, lead2_cleaned, lead2_rpeaks = [0.0] * len(LEAD_ORDER), None, None
         finite_sqi = [x for x in sqi_values if math.isfinite(float(x))]
         aggregate = float(np.mean(finite_sqi)) if finite_sqi else float("nan")
-        waveform_hr, waveform_qrs = _waveform_hr_qrs(lead2)
+        waveform_hr, waveform_qrs = _waveform_hr_qrs(lead2, lead2_cleaned, lead2_rpeaks)
         base["sqi_per_lead"] = sqi_values
         base["sqi_aggregate"] = aggregate
         base["sqi_tier"] = _sqi_tier(aggregate)
@@ -560,7 +569,7 @@ def _compute(log: logging.Logger) -> dict[str, Any]:
     start = time.time()
     if tasks:
         with mp.Pool(processes=MAX_WORKERS, initializer=_init_worker, initargs=(str(LOG_DIR),)) as pool:
-            iterator = pool.imap_unordered(_worker, tasks, chunksize=64)
+            iterator = pool.imap_unordered(_worker, tasks, chunksize=POOL_CHUNKSIZE)
             with logging_redirect_tqdm():
                 for result in tqdm(iterator, total=len(tasks), file=sys.stderr, dynamic_ncols=True, mininterval=0.5, desc="stage 7 waveform qc"):
                     buffer.append(result)
@@ -614,7 +623,25 @@ def _aggregate_worker_logs() -> dict[str, Any]:
                 if text and not text.endswith("\n"):
                     text += "\n"
                 out.write(text)
-    return {"aggregate_log": relative(aggregate), "all_log": relative(all_log), "archive_dir": relative(archive_dir), "archived_worker_logs": archived}
+    checked = [LOG_DIR / "main.log", aggregate, all_log]
+    nonmatching = []
+    for path in checked:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines() if path.exists() else []
+        if not lines:
+            nonmatching.append({"path": relative(path), "line": "<empty>"})
+            continue
+        for line in lines:
+            if not LOG_LINE_RE.match(line):
+                nonmatching.append({"path": relative(path), "line": line[:200]})
+                break
+    return {
+        "aggregate_log": relative(aggregate),
+        "all_log": relative(all_log),
+        "archive_dir": relative(archive_dir),
+        "archived_worker_logs": archived,
+        "format_ok": not nonmatching,
+        "nonmatching_examples": nonmatching[:5],
+    }
 
 
 def _validate() -> dict[str, Any]:
@@ -719,6 +746,8 @@ def main() -> None:
     finally:
         log_status = _aggregate_worker_logs()
         stats["log_status"] = log_status
+        if all_pass and not log_status.get("format_ok", False):
+            all_pass = False
     elapsed = time.time() - start
     if all_pass:
         _write_done_marker(stats, elapsed)

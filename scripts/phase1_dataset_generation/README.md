@@ -1,151 +1,80 @@
-# Phase 1 — Dataset Generation
+# Phase 1 - Dataset Generation
 
-This phase turns the **raw MIMIC-IV ECG release** (WFDB records + metadata CSVs)
-into the on-disk **tri-modal ECG dataset** that everything in Phase 2 consumes.
-Every script in this folder is part of building the dataset itself: indexing,
-splitting, signal extraction, image rendering, QC, integrity auditing, and
-regeneration.
+This folder contains the active Phase 1 scripts for regenerating the
+tri-modal ECG dataset from raw MIMIC-IV-ECG inputs.
 
-> **Where to run from:** all scripts use repo-relative paths of the form
-> `../processed/...` and `../data/...`. Run them with your working directory
-> set to the `scripts/` folder, e.g.:
->
-> ```powershell
-> cd D:\Coding\MU\Tri-Modal_ECG\scripts
-> python phase1_dataset_generation/01_build_master_index.py
-> ```
->
-> Running from any other CWD will break the relative paths because the code
-> was not modified during this reorganization.
+The binding specification is
+`docs/PIPELINE_SOURCE_OF_TRUTH.md`. This README lists only the scripts that
+are part of the current Phase 1 flow, plus local helper modules imported by
+those scripts.
 
-## Inputs (under `data/`)
+## Active scripts
 
-| File | What it provides |
-|---|---|
-| `data/record_list.csv` | Master list of ECG studies with `study_id`, `subject_id`, and WFDB path. |
-| `data/machine_measurements.csv` | Per-study machine reports (`report_0…report_17`) and structured measurements (`rr_interval`, `qrs_onset/end`, `t_end`, `p/qrs/t_axis`, …). |
-| `data/waveform_note_links.csv` | Optional links between waveforms and clinical notes. |
-| `data/files/p*/p*/<study>/…` | Raw WFDB ECG waveforms (`.dat` + `.hea`). |
+| Stage | Scripts |
+| --- | --- |
+| 0 - Foundation | `00_lock_versions.py`, `00b_access_check.py`, `01_build_master_index.py` |
+| 1 - EHR linkage chain + decision gate | `40_load_ehr_tables.py`, `41_link_exact_overlap.py`, `42_link_tolerance.py`, `43_tie_break_link.py`, `44_label_availability.py`, `45_decision_gate.py` |
+| 2 - Patient split | `02_create_patient_split.py` |
+| 3 - Signal extraction + pack | `10_extract_ecg_signals.py`, `10b_pack_signals.py`, `14_fit_preprocessing_recipe.py` |
+| 4 - Clean image rendering | `20_render_clean_images.py`, `20b_pack_images.py` |
+| 5 - Scanlike image rendering | `21_generate_scanlike_images.py`, `21b_pack_scanlike.py` |
+| 6 - Tri-modal QC | `30_qc.py` |
+| 7 - Waveform QC + structured features | `31_waveform_qc.py`, `32_compute_structured_features.py` |
+| 8 - Corrupted signal dataset | `50_build_signals_corrupted.py` |
+| 9 - Preprocessed signals | `15_preprocess_signals.py` |
+| 10 - Final index, manifest, audits | `03_add_measurements_to_index.py`, `04_cleanup_master_index.py`, `05_build_manifest_and_splits.py`, `33_dataset_audits.py` |
 
-## Outputs (under `processed/`)
+## Local helpers
 
-| Directory / File | Purpose |
-|---|---|
-| `processed/index/index.parquet` | Master index (one row per study) with merged `T_machine` text. |
-| `processed/index/index_with_split.parquet` | Same as above with a patient-level `split` column added. |
-| `processed/index/index_clean.parquet` | Index filtered to studies passing all QC checks. |
-| `processed/index/index_clean_with_measurements.parquet` | Clean index enriched with structured measurements (HR, QRS, axis…). |
-| `processed/index/splits.json` | Subject-ID lists for each split (provenance for the patient split). |
-| `processed/signals_lead2/{study}.npy` | Lead-II waveform (5,000 samples @ 500 Hz). |
-| `processed/signals_12lead/{study}.npy` | Full 12-lead waveform (5,000 samples × 12 leads). |
-| `processed/signal_metadata/{study}.json` | Per-study extraction metadata. |
-| `processed/images_clean/{study}.png` | Lossless clinical-style waveform render of Lead II. |
-| `processed/images_scanlike/{study}.jpg` | Deterministically augmented scan-like JPG. |
-| `processed/qc/{study}.json` | Tri-modal QC flags (`waveform_ok`, `image_ok`, `text_ok`). |
-| `processed/modality_manifest.parquet` | One-row-per-study manifest of every modality file + QC + task availability. |
-| `processed/splits_subject_level.parquet` | Compact subject → split table (for downstream joins). |
-| `scripts/logs/…` | Log files from extraction / QC / regeneration runs. |
+| Helper | Used by |
+| --- | --- |
+| `_stage1_common.py` | Shared paths, logging, atomic writes, version stamps, and reporting helpers used across the active stage scripts. |
+| `modality_io.py` | Canonical modality reader used by `33_dataset_audits.py` for final manifest smoke checks. |
 
-## Pipeline order
+## Run order
 
-Scripts are prefixed by stage number. Run them in order; each stage assumes
-the outputs of the previous one.
-
-### Stage 0 — indexing (01–04)
-
-| # | Script | Purpose |
-|---|---|---|
-| 01 | `01_build_master_index.py` | Builds the master parquet index by joining `record_list.csv` with the chunked-read `machine_measurements.csv` and concatenating `report_0…report_17` into the `T_machine` text field. → `processed/index/index.parquet`. |
-| 02 | `02_create_patient_split.py` | Generates the 80/10/10 **patient-level** train/val/test split (numpy seed 42) and writes `index_with_split.parquet` + `splits.json`. Explicitly verifies that the three patient sets are disjoint so a single patient never crosses splits. |
-| 03 | `03_add_measurements_to_index.py` | Merges structured measurements (`rr_interval`, `qrs_onset/end`, `t_end`, `p/qrs/t_axis`) onto the clean index → `index_clean_with_measurements.parquet`. *Note: this is logically run **after** the QC stage, but it lives here with the other index-builders for grouping.* |
-| 04 | `04_cleanup_master_index.py` | Reads every per-study QC JSON and keeps only rows where `waveform_ok and image_ok and text_ok`. Produces `processed/index/index_clean.parquet`. |
-
-### Stage 1 — modality manifest (05)
-
-| # | Script | Purpose |
-|---|---|---|
-| 05 | `05_build_manifest_and_splits.py` | (Was `00b_build_manifest_and_splits.py`.) Builds the one-row-per-study `modality_manifest.parquet` recording the path and existence of every modality file, plus task availability, and a compact `splits_subject_level.parquet`. This is the canonical lookup table all Phase-2 scripts join against. |
-
-### Stage 2 — signal extraction (10)
-
-| # | Script | Purpose |
-|---|---|---|
-| 10 | `10_extract_ecg_signals.py` | Loads each raw WFDB record with `wfdb.rdrecord`, validates it has 12 leads, and writes `signals_lead2/{id}.npy`, `signals_12lead/{id}.npy`, and `signal_metadata/{id}.json`. Tuned for 16 GB RAM and ≤ 8 workers, with batched processing to avoid memory blow-up. |
-|  | `_legacy_extract_ecg_signals_v1.py` | Earlier prototype of the extractor (kept for provenance only; do not use). |
-
-### Stage 3 — image rendering (20–24)
-
-| # | Script | Purpose |
-|---|---|---|
-| 20 | `20_render_clean_images.py` | Renders each Lead-II `.npy` to a 12 × 2.5 inch matplotlib PNG with an ECG-paper grid, normalized to the 99th-percentile absolute amplitude → `processed/images_clean/{id}.png`. |
-| 21 | `21_generate_scanlike_images.py` | Reads each clean PNG and produces a deterministic scan-like JPG (rotation ±2°, perspective ±1 %, mild blur, brightness/contrast jitter, JPEG q70-95). Seed is derived from `study_id` so each study renders the same scan every time. → `processed/images_scanlike/{id}.jpg`. |
-| 22 | `22_fix_clean_images.py` | Rechecks clean PNGs and regenerates any that are missing or corrupt. |
-| 23 | `23_regen_clean_scanlike.py` | Multiprocessing regenerator for both clean + scan-like images from a regen list (used to recover from the ~104 K mid-run failure). |
-| 24 | `24_regen_missing.py` | Sequential single-process regen of any missing clean / scan-like files (small batches). |
-
-### Stage 4 — QC and integrity (30–32)
-
-| # | Script | Purpose |
-|---|---|---|
-| 30 | `30_qc.py` | Per-study tri-modal QC. For each row in `index_with_split.parquet` checks waveform shape (= 5,000), both image files exist, and `T_machine` is non-empty. → `processed/qc/{id}.json`. |
-| 31 | `31_corrupt_check.py` | Focused integrity check on clean PNGs (PIL verify + OpenCV decode + nonzero dims). Writes missing/corrupt lists to `scripts/logs/`. |
-| 32 | `32_image_integrity_check.py` | Broader audit covering both clean PNGs and scan-like JPGs. Writes the structured `scripts/logs/dataset_integrity_summary.json` consumed downstream. |
-
-### Dev helpers (not part of the pipeline)
-
-| Script | Purpose |
-|---|---|
-| `_test_signal_extraction.py` | Smoke test: pulls 10 random rows from the split index, loads the WFDB record, and dumps shapes — used during development. |
-| `_test_ecg_rendering.py` | Smoke test: renders 10 random Lead-II signals to a scratch directory. |
-
-## End-to-end run order (clean reproduction)
+Follow section 9 of `docs/PIPELINE_SOURCE_OF_TRUTH.md` for the exact
+preconditions, validation checks, and delete-after-validation rules.
 
 ```powershell
-cd D:\Coding\MU\Tri-Modal_ECG\scripts
+cd D:\Coding\MU\Tri-Modal_ECG
 
-# Indexing
-python phase1_dataset_generation/01_build_master_index.py
-python phase1_dataset_generation/02_create_patient_split.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\00_lock_versions.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\00b_access_check.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\01_build_master_index.py
 
-# Signals
-python phase1_dataset_generation/10_extract_ecg_signals.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\40_load_ehr_tables.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\41_link_exact_overlap.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\42_link_tolerance.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\43_tie_break_link.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\44_label_availability.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\45_decision_gate.py
 
-# Images
-python phase1_dataset_generation/20_render_clean_images.py
-python phase1_dataset_generation/21_generate_scanlike_images.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\02_create_patient_split.py
 
-# QC + integrity (then fix any gaps)
-python phase1_dataset_generation/30_qc.py
-python phase1_dataset_generation/31_corrupt_check.py
-python phase1_dataset_generation/32_image_integrity_check.py
-python phase1_dataset_generation/22_fix_clean_images.py        # if needed
-python phase1_dataset_generation/23_regen_clean_scanlike.py    # if needed
-python phase1_dataset_generation/24_regen_missing.py           # if needed
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\10_extract_ecg_signals.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\10b_pack_signals.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\14_fit_preprocessing_recipe.py
 
-# Final clean index + measurement enrichment + manifest
-python phase1_dataset_generation/04_cleanup_master_index.py
-python phase1_dataset_generation/03_add_measurements_to_index.py
-python phase1_dataset_generation/05_build_manifest_and_splits.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\20_render_clean_images.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\20b_pack_images.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\21_generate_scanlike_images.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\21b_pack_scanlike.py
+
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\30_qc.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\31_waveform_qc.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\32_compute_structured_features.py
+
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\50_build_signals_corrupted.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\15_preprocess_signals.py
+
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\03_add_measurements_to_index.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\04_cleanup_master_index.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\05_build_manifest_and_splits.py
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\33_dataset_audits.py --prep-check
+.\ecg_env\Scripts\python.exe scripts\phase1_dataset_generation\33_dataset_audits.py --final
 ```
 
-## Expected counts (sanity check)
-
-These match what the Tri-Modal ECG report records as the as-built dataset:
-
-| Artifact | Expected count | Total size |
-|---|---:|---:|
-| `signals_lead2/` | 800,033 `.npy` | ≈ 15.7 GB |
-| `signals_12lead/` | 800,031 `.npy` | ≈ 187.5 GB |
-| `signal_metadata/` | 781,230 `.json` | ≈ 76 MB |
-| `images_clean/` | 800,033 `.png` | ≈ 140.8 GB |
-| `images_scanlike/` | 800,033 `.jpg` | ≈ 68.2 GB |
-| `qc/` | 651,437 `.json` | ≈ 57 MB |
-| `index/index.parquet` | 800,035 rows | — |
-| `index/index_with_split.parquet` | 800,033 rows | — |
-| `index/index_clean.parquet` | 799,706 rows | — |
-| `index/index_clean_with_measurements.parquet` | 799,706 rows / 161,328 patients | — |
-| Patient-level split | 80 / 10 / 10 with **zero** patient overlap | — |
-
-The cleaned dataset removes 329 studies (out of 800,035) that failed at least
-one QC gate. After regeneration the final audit reports only 2 missing files
-per image modality and **0** corrupt files.
+Some stage scripts still emit their own report commands with `scripts/` as
+the working directory. When running a full stage, prefer the command block
+printed by that script and the validation block in the source-of-truth doc.

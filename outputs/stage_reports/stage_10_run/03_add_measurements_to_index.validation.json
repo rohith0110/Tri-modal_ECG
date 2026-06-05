@@ -1,0 +1,81 @@
+{
+  "added_measurement_columns": [
+    "rr_interval",
+    "p_onset",
+    "p_end",
+    "qrs_onset",
+    "qrs_end",
+    "t_end",
+    "p_axis",
+    "qrs_axis",
+    "t_axis"
+  ],
+  "added_missing_flag_columns": [
+    "rr_interval_missing",
+    "p_onset_missing",
+    "p_end_missing",
+    "qrs_onset_missing",
+    "qrs_end_missing",
+    "t_end_missing",
+    "p_axis_missing",
+    "qrs_axis_missing",
+    "t_axis_missing"
+  ],
+  "duplicate_study_id_count": 0,
+  "ecg_metadata_rows": 800035,
+  "ecg_metadata_with_measurements_rows": 800035,
+  "extra_study_id_count": 0,
+  "machine_measurements_duplicate_study_id_rows": 0,
+  "machine_measurements_rows": 800035,
+  "machine_measurements_unique_study_ids": 800035,
+  "missing_study_id_count": 0,
+  "non_null_rows_with_missing_flag_true": {
+    "p_axis": 0,
+    "p_end": 0,
+    "p_onset": 0,
+    "qrs_axis": 0,
+    "qrs_end": 0,
+    "qrs_onset": 0,
+    "rr_interval": 0,
+    "t_axis": 0,
+    "t_end": 0
+  },
+  "null_counts_per_measurement": {
+    "p_axis": 0,
+    "p_end": 0,
+    "p_onset": 0,
+    "qrs_axis": 0,
+    "qrs_end": 0,
+    "qrs_onset": 0,
+    "rr_interval": 0,
+    "t_axis": 0,
+    "t_end": 0
+  },
+  "output_path": "data/processed/index/ecg_metadata_with_measurements.parquet",
+  "sample_extra_ids": [],
+  "sample_missing_ids": [],
+  "subject_id_mismatch_count": 0,
+  "zero_counts_per_measurement": {
+    "p_axis": 5508,
+    "p_end": 48,
+    "p_onset": 3,
+    "qrs_axis": 18307,
+    "qrs_end": 83,
+    "qrs_onset": 208,
+    "rr_interval": 188,
+    "t_axis": 6682,
+    "t_end": 0
+  },
+  "zero_rows_with_missing_flag_true": {
+    "p_axis": 0,
+    "p_end": 0,
+    "p_onset": 0,
+    "qrs_axis": 0,
+    "qrs_end": 0,
+    "qrs_onset": 0,
+    "rr_interval": 0,
+    "t_axis": 0,
+    "t_end": 0
+  },
+  "zeros_and_missing_values_distinguishable": true
+}

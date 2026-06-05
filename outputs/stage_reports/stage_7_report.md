@@ -1,10 +1,10 @@
 # Stage 7 - Rich waveform QC + structured features - report
 
 ## 1. Files created
-- `scripts/phase1_dataset_generation/31_waveform_qc.py`  (31.6 KB, sha256 c8663e68252c)
-- `scripts/phase1_dataset_generation/32_compute_structured_features.py`  (57.2 KB, sha256 1674205845df)
-- `data/processed/waveform_qc.parquet`  (49.4 MB, sha256 78effd55b2e1)
-- `data/processed/structured_features.parquet`  (85.8 MB, sha256 2910c90e7d0d)
+- `scripts/phase1_dataset_generation/31_waveform_qc.py`  (33.0 KB, sha256 94ab568ebd1b)
+- `scripts/phase1_dataset_generation/32_compute_structured_features.py`  (57.9 KB, sha256 20e0cf5848de)
+- `data/processed/waveform_qc.parquet`  (52.2 MB, sha256 2208524f2eba)
+- `data/processed/structured_features.parquet`  (86.0 MB, sha256 e45ef5a5e765)
 
 ## 2. Files modified
 - "none"
@@ -16,7 +16,7 @@
 - Pattern A flush boundaries  ::  `31_waveform_qc.py` uses `FLUSH_EVERY=100,000` and `32_compute_structured_features.py` uses `FLUSH_EVERY=10,000` exactly as Stage 7 requires. Both scripts resume from existing part files and delete only their own part/temp files after canonical parquet validation.
 - Machine measurements source  ::  The Stage 0 metadata index contains machine HR/QRS/QTc but does not contain raw `rr_interval`, onset/end, or axis fields. Stage 7 therefore reads `data/raw/machine_measurements.csv` for the raw measurement passthroughs and for source-of-truth HR/QRS derivation.
 - Structured feature basis  ::  The structured feature worker reads raw 12-lead HDF5 rows and applies `apply_recipe()` from `14_fit_preprocessing_recipe.py` in memory. It does not open Stage 9 materialized preprocessed HDF5 files.
-- SQI compute strategy  ::  NeuroKit2 `ecg_quality` is used on Lead II for each study, where the same lead also drives waveform HR/QRS and structured interval extraction. The remaining leads receive a deterministic finite/flatline/amplitude/noise proxy SQI so the output still contains per-lead SQI values without multiplying NeuroKit2 calls by twelve.
+- SQI compute strategy  ::  NeuroKit2 `ecg_quality(..., method="averageQRS")` is computed independently for all 12 leads. `sqi_per_lead` is the list of 12 NeuroKit2 quality averages in canonical lead order; aggregate/tier flags are derived from those 12 values.
 - NeuroKit2 fallback behavior  ::  Worker-level NeuroKit2 failures return a row with `feature_extraction_ok=False`, NaN feature values, and `error_notes`; failed rows remain in `structured_features.parquet` rather than aborting the full stage.
 
 ## 5. Complete code
@@ -38,6 +38,12 @@ import logging.handlers
 import math
 import multiprocessing as mp
 import os
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import re
 import shutil
 import sys
@@ -93,12 +99,15 @@ EXPECTED_LEADS = set(LEAD_ORDER)
 FS = 500
 SAMPLES_PER_RECORD = 5000
 FLUSH_EVERY = 100_000
-MAX_WORKERS = max(1, math.floor((os.cpu_count() or 1) * 0.75))
-MAX_RAM_GB = max(1.0, psutil.virtual_memory().total / 1024**3 - 8.0)
+MAX_WORKERS = max(1, int(os.environ.get("STAGE7_MAX_WORKERS", str(os.cpu_count() or 1))))
+RAM_RESERVE_GB = max(1.0, float(os.environ.get("STAGE7_RAM_RESERVE_GB", "2.0")))
+MAX_RAM_GB = max(1.0, psutil.virtual_memory().total / 1024**3 - RAM_RESERVE_GB)
 WORKER_RAM_SOFT_GB = max(0.5, MAX_RAM_GB / MAX_WORKERS * 1.5)
+POOL_CHUNKSIZE = max(1, int(os.environ.get("STAGE7_POOL_CHUNKSIZE", "16")))
 EXTREME_AMPLITUDE_MV = 10.0
 FLATLINE_DIFF_RATIO = 0.90
 FLATLINE_STD_THRESHOLD = 1e-5
+LOG_LINE_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \w+\s+pid=\d+")
 
 RUN_COMMAND = (
     "cd D:\\Coding\\MU\\Tri-Modal_ECG\\scripts\n"
@@ -145,8 +154,23 @@ _H5_HANDLES: dict[str, h5py.File] = {}
 _NK: Any = None
 
 
+def _archive_stale_worker_logs() -> list[str]:
+    stale_logs = sorted(LOG_DIR.glob("worker_*.log"), key=lambda p: p.name)
+    if not stale_logs:
+        return []
+    archive_dir = LOG_DIR / f"stale_worker_logs_{time.strftime('%Y%m%d_%H%M%S')}"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archived = []
+    for path in stale_logs:
+        target = archive_dir / path.name
+        shutil.move(str(path), str(target))
+        archived.append(relative(target))
+    return archived
+
+
 def _setup_main_logger() -> logging.Logger:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _archive_stale_worker_logs()
     for name in ("main.log", "all.log", "aggregate.log"):
         path = LOG_DIR / name
         if path.exists():
@@ -238,58 +262,40 @@ def _flatline_leads(signal: np.ndarray) -> list[str]:
     return leads
 
 
-def _sqi_one_lead(signal: np.ndarray) -> tuple[float, np.ndarray | None]:
+def _sqi_one_lead(signal: np.ndarray) -> tuple[float, np.ndarray | None, np.ndarray | None]:
     nk = _get_nk()
     try:
         cleaned = nk.ecg_clean(np.asarray(signal, dtype="float32"), sampling_rate=FS, method="neurokit")
         _, info = nk.ecg_peaks(cleaned, sampling_rate=FS, method="neurokit")
+        rpeaks = np.asarray(info.get("ECG_R_Peaks", []), dtype=int)
         quality = nk.ecg_quality(cleaned, rpeaks=info.get("ECG_R_Peaks"), sampling_rate=FS, method="averageQRS")
         q = np.asarray(quality, dtype="float64")
         finite = q[np.isfinite(q)]
-        return (float(np.mean(finite)) if finite.size else float("nan"), np.asarray(info.get("ECG_R_Peaks", []), dtype=int))
+        return (float(np.mean(finite)) if finite.size else 0.0, cleaned, rpeaks)
     except Exception:
-        return float("nan"), None
+        return 0.0, None, None
 
 
-def _proxy_sqi_lead(signal: np.ndarray) -> float:
-    x = np.asarray(signal, dtype="float32")
-    finite = x[np.isfinite(x)]
-    if finite.size < FS:
-        return 0.0
-    score = 1.0
-    finite_ratio = float(finite.size / max(1, x.size))
-    score *= finite_ratio
-    amp = float(np.nanmax(finite) - np.nanmin(finite))
-    std = float(np.nanstd(finite))
-    if std < FLATLINE_STD_THRESHOLD or amp < 0.02:
-        score *= 0.1
-    if float(np.nanmax(np.abs(finite))) > EXTREME_AMPLITUDE_MV:
-        score *= 0.4
-    diff = np.diff(finite)
-    if diff.size:
-        mad = float(np.median(np.abs(diff - np.median(diff)))) + 1e-8
-        noise_ratio = min(1.0, mad / (std + 1e-8)) if std > 0 else 1.0
-        score *= max(0.25, 1.0 - 0.5 * noise_ratio)
-    return float(max(0.0, min(1.0, score)))
-
-
-def _per_lead_sqi(signal: np.ndarray) -> list[float]:
+def _per_lead_sqi(signal: np.ndarray) -> tuple[list[float], np.ndarray | None, np.ndarray | None]:
     values: list[float] = []
+    lead2_cleaned: np.ndarray | None = None
+    lead2_rpeaks: np.ndarray | None = None
     for idx in range(signal.shape[1]):
+        q, cleaned, rpeaks = _sqi_one_lead(signal[:, idx])
+        values.append(float(q) if math.isfinite(q) else 0.0)
         if idx == 1:
-            q, _ = _sqi_one_lead(signal[:, idx])
-            values.append(float(q) if math.isfinite(q) else _proxy_sqi_lead(signal[:, idx]))
-        else:
-            values.append(_proxy_sqi_lead(signal[:, idx]))
-    return values
+            lead2_cleaned = cleaned
+            lead2_rpeaks = rpeaks
+    return values, lead2_cleaned, lead2_rpeaks
 
 
-def _waveform_hr_qrs(lead2: np.ndarray) -> tuple[float, float]:
+def _waveform_hr_qrs(lead2: np.ndarray, cleaned: np.ndarray | None = None, rpeaks: np.ndarray | None = None) -> tuple[float, float]:
     nk = _get_nk()
     try:
-        cleaned = nk.ecg_clean(np.asarray(lead2, dtype="float32"), sampling_rate=FS, method="neurokit")
-        _, peaks_info = nk.ecg_peaks(cleaned, sampling_rate=FS, method="neurokit")
-        rpeaks = np.asarray(peaks_info.get("ECG_R_Peaks", []), dtype=int)
+        if cleaned is None or rpeaks is None:
+            cleaned = nk.ecg_clean(np.asarray(lead2, dtype="float32"), sampling_rate=FS, method="neurokit")
+            _, peaks_info = nk.ecg_peaks(cleaned, sampling_rate=FS, method="neurokit")
+            rpeaks = np.asarray(peaks_info.get("ECG_R_Peaks", []), dtype=int)
         hr = float("nan")
         if rpeaks.size >= 2:
             rr_ms = np.diff(rpeaks) / FS * 1000.0
@@ -417,10 +423,13 @@ def _worker(task: dict[str, Any]) -> dict[str, Any]:
         base["flatline_lead_flag"] = bool(flat)
         base["_duplicate_key"] = _signal_key(lead2)
 
-        sqi_values = _per_lead_sqi(signal) if base["lead_count_ok"] else [float("nan")] * len(LEAD_ORDER)
+        if base["lead_count_ok"]:
+            sqi_values, lead2_cleaned, lead2_rpeaks = _per_lead_sqi(signal)
+        else:
+            sqi_values, lead2_cleaned, lead2_rpeaks = [0.0] * len(LEAD_ORDER), None, None
         finite_sqi = [x for x in sqi_values if math.isfinite(float(x))]
         aggregate = float(np.mean(finite_sqi)) if finite_sqi else float("nan")
-        waveform_hr, waveform_qrs = _waveform_hr_qrs(lead2)
+        waveform_hr, waveform_qrs = _waveform_hr_qrs(lead2, lead2_cleaned, lead2_rpeaks)
         base["sqi_per_lead"] = sqi_values
         base["sqi_aggregate"] = aggregate
         base["sqi_tier"] = _sqi_tier(aggregate)
@@ -584,7 +593,7 @@ def _compute(log: logging.Logger) -> dict[str, Any]:
     start = time.time()
     if tasks:
         with mp.Pool(processes=MAX_WORKERS, initializer=_init_worker, initargs=(str(LOG_DIR),)) as pool:
-            iterator = pool.imap_unordered(_worker, tasks, chunksize=64)
+            iterator = pool.imap_unordered(_worker, tasks, chunksize=POOL_CHUNKSIZE)
             with logging_redirect_tqdm():
                 for result in tqdm(iterator, total=len(tasks), file=sys.stderr, dynamic_ncols=True, mininterval=0.5, desc="stage 7 waveform qc"):
                     buffer.append(result)
@@ -638,7 +647,25 @@ def _aggregate_worker_logs() -> dict[str, Any]:
                 if text and not text.endswith("\n"):
                     text += "\n"
                 out.write(text)
-    return {"aggregate_log": relative(aggregate), "all_log": relative(all_log), "archive_dir": relative(archive_dir), "archived_worker_logs": archived}
+    checked = [LOG_DIR / "main.log", aggregate, all_log]
+    nonmatching = []
+    for path in checked:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines() if path.exists() else []
+        if not lines:
+            nonmatching.append({"path": relative(path), "line": "<empty>"})
+            continue
+        for line in lines:
+            if not LOG_LINE_RE.match(line):
+                nonmatching.append({"path": relative(path), "line": line[:200]})
+                break
+    return {
+        "aggregate_log": relative(aggregate),
+        "all_log": relative(all_log),
+        "archive_dir": relative(archive_dir),
+        "archived_worker_logs": archived,
+        "format_ok": not nonmatching,
+        "nonmatching_examples": nonmatching[:5],
+    }
 
 
 def _validate() -> dict[str, Any]:
@@ -743,6 +770,8 @@ def main() -> None:
     finally:
         log_status = _aggregate_worker_logs()
         stats["log_status"] = log_status
+        if all_pass and not log_status.get("format_ok", False):
+            all_pass = False
     elapsed = time.time() - start
     if all_pass:
         _write_done_marker(stats, elapsed)
@@ -782,6 +811,12 @@ import logging.handlers
 import math
 import multiprocessing as mp
 import os
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import re
 import shutil
 import subprocess
@@ -845,9 +880,12 @@ STAGE9_FORBIDDEN = [
 LEAD_ORDER = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
 FS = 500
 FLUSH_EVERY = 10_000
-MAX_WORKERS = max(1, math.floor((os.cpu_count() or 1) * 0.75))
-MAX_RAM_GB = max(1.0, psutil.virtual_memory().total / 1024**3 - 8.0)
+MAX_WORKERS = max(1, int(os.environ.get("STAGE7_MAX_WORKERS", str(os.cpu_count() or 1))))
+RAM_RESERVE_GB = max(1.0, float(os.environ.get("STAGE7_RAM_RESERVE_GB", "2.0")))
+MAX_RAM_GB = max(1.0, psutil.virtual_memory().total / 1024**3 - RAM_RESERVE_GB)
 WORKER_RAM_SOFT_GB = max(0.5, MAX_RAM_GB / MAX_WORKERS * 1.5)
+POOL_CHUNKSIZE = max(1, int(os.environ.get("STAGE7_POOL_CHUNKSIZE", "16")))
+LOG_LINE_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \w+\s+pid=\d+")
 
 RUN_COMMANDS = [
     (
@@ -913,8 +951,23 @@ _NK: Any = None
 _APPLY_RECIPE: Any = None
 
 
+def _archive_stale_worker_logs() -> list[str]:
+    stale_logs = sorted(LOG_DIR.glob("worker_*.log"), key=lambda p: p.name)
+    if not stale_logs:
+        return []
+    archive_dir = LOG_DIR / f"stale_worker_logs_{time.strftime('%Y%m%d_%H%M%S')}"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archived = []
+    for path in stale_logs:
+        target = archive_dir / path.name
+        shutil.move(str(path), str(target))
+        archived.append(relative(target))
+    return archived
+
+
 def _setup_main_logger() -> logging.Logger:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _archive_stale_worker_logs()
     for name in ("main.log", "all.log", "aggregate.log"):
         path = LOG_DIR / name
         if path.exists():
@@ -1087,39 +1140,16 @@ def _sqi_one(signal: np.ndarray) -> float:
         quality = nk.ecg_quality(cleaned, rpeaks=info.get("ECG_R_Peaks"), sampling_rate=FS, method="averageQRS")
         q = np.asarray(quality, dtype="float64")
         q = q[np.isfinite(q)]
-        return float(np.mean(q)) if q.size else float("nan")
+        return float(np.mean(q)) if q.size else 0.0
     except Exception:
-        return float("nan")
-
-
-def _proxy_sqi_lead(signal: np.ndarray) -> float:
-    x = np.asarray(signal, dtype="float32")
-    finite = x[np.isfinite(x)]
-    if finite.size < FS:
         return 0.0
-    score = float(finite.size / max(1, x.size))
-    amp = float(np.nanmax(finite) - np.nanmin(finite))
-    std = float(np.nanstd(finite))
-    if std < 1e-5 or amp < 0.02:
-        score *= 0.1
-    if float(np.nanmax(np.abs(finite))) > 10.0:
-        score *= 0.4
-    diff = np.diff(finite)
-    if diff.size:
-        mad = float(np.median(np.abs(diff - np.median(diff)))) + 1e-8
-        noise_ratio = min(1.0, mad / (std + 1e-8)) if std > 0 else 1.0
-        score *= max(0.25, 1.0 - 0.5 * noise_ratio)
-    return float(max(0.0, min(1.0, score)))
 
 
 def _sqi_features(signal: np.ndarray) -> tuple[list[float], float, bool, bool, bool]:
     values = []
     for idx in range(signal.shape[1]):
-        if idx == 1:
-            q = _sqi_one(signal[:, idx])
-            values.append(float(q) if math.isfinite(q) else _proxy_sqi_lead(signal[:, idx]))
-        else:
-            values.append(_proxy_sqi_lead(signal[:, idx]))
+        q = _sqi_one(signal[:, idx])
+        values.append(float(q) if math.isfinite(q) else 0.0)
     finite = [value for value in values if math.isfinite(value)]
     aggregate = float(np.mean(finite)) if finite else float("nan")
     high = bool(math.isfinite(aggregate) and aggregate >= 0.8)
@@ -1369,7 +1399,7 @@ def _compute(log: logging.Logger) -> dict[str, Any]:
     start = time.time()
     if tasks:
         with mp.Pool(processes=MAX_WORKERS, initializer=_init_worker, initargs=(str(LOG_DIR),)) as pool:
-            iterator = pool.imap_unordered(_worker, tasks, chunksize=32)
+            iterator = pool.imap_unordered(_worker, tasks, chunksize=POOL_CHUNKSIZE)
             with logging_redirect_tqdm():
                 for result in tqdm(iterator, total=len(tasks), file=sys.stderr, dynamic_ncols=True, mininterval=0.5, desc="stage 7 structured features"):
                     buffer.append(result)
@@ -1581,7 +1611,25 @@ def _aggregate_worker_logs() -> dict[str, Any]:
                 if text and not text.endswith("\n"):
                     text += "\n"
                 out.write(text)
-    return {"aggregate_log": relative(aggregate), "all_log": relative(all_log), "archive_dir": relative(archive_dir), "archived_worker_logs": archived}
+    checked = [LOG_DIR / "main.log", aggregate, all_log]
+    nonmatching = []
+    for path in checked:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines() if path.exists() else []
+        if not lines:
+            nonmatching.append({"path": relative(path), "line": "<empty>"})
+            continue
+        for line in lines:
+            if not LOG_LINE_RE.match(line):
+                nonmatching.append({"path": relative(path), "line": line[:200]})
+                break
+    return {
+        "aggregate_log": relative(aggregate),
+        "all_log": relative(all_log),
+        "archive_dir": relative(archive_dir),
+        "archived_worker_logs": archived,
+        "format_ok": not nonmatching,
+        "nonmatching_examples": nonmatching[:5],
+    }
 
 
 def _log_excerpt(path: Path) -> tuple[list[str], list[str], bool]:
@@ -1683,7 +1731,7 @@ def _make_report(
         f"- Pattern A flush boundaries  ::  `31_waveform_qc.py` uses `FLUSH_EVERY={100_000:,}` and `32_compute_structured_features.py` uses `FLUSH_EVERY={FLUSH_EVERY:,}` exactly as Stage 7 requires. Both scripts resume from existing part files and delete only their own part/temp files after canonical parquet validation.",
         "- Machine measurements source  ::  The Stage 0 metadata index contains machine HR/QRS/QTc but does not contain raw `rr_interval`, onset/end, or axis fields. Stage 7 therefore reads `data/raw/machine_measurements.csv` for the raw measurement passthroughs and for source-of-truth HR/QRS derivation.",
         "- Structured feature basis  ::  The structured feature worker reads raw 12-lead HDF5 rows and applies `apply_recipe()` from `14_fit_preprocessing_recipe.py` in memory. It does not open Stage 9 materialized preprocessed HDF5 files.",
-        "- SQI compute strategy  ::  NeuroKit2 `ecg_quality` is used on Lead II for each study, where the same lead also drives waveform HR/QRS and structured interval extraction. The remaining leads receive a deterministic finite/flatline/amplitude/noise proxy SQI so the output still contains per-lead SQI values without multiplying NeuroKit2 calls by twelve.",
+        "- SQI compute strategy  ::  NeuroKit2 `ecg_quality(..., method=\"averageQRS\")` is computed independently for all 12 leads. `sqi_per_lead` is the list of 12 NeuroKit2 quality averages in canonical lead order; aggregate/tier flags are derived from those 12 values.",
         "- NeuroKit2 fallback behavior  ::  Worker-level NeuroKit2 failures return a row with `feature_extraction_ok=False`, NaN feature values, and `error_notes`; failed rows remain in `structured_features.parquet` rather than aborting the full stage.",
         "",
         "## 5. Complete code",
@@ -1855,6 +1903,8 @@ def main() -> None:
     finally:
         log_status = _aggregate_worker_logs()
         stats["log_status"] = log_status
+        if all_pass and not log_status.get("format_ok", False):
+            all_pass = False
 
     disk_after = psutil.disk_usage(str(PROJECT_ROOT)).free / 1024**3
     elapsed = time.time() - start
@@ -1936,14 +1986,14 @@ if __name__ == "__main__":
 ```
 
 ## 6. Validation results
-- Pre-flight: PASS - required inputs existed; `dataset_version_stamp=v2.0.0`; `MAX_WORKERS=15`; `MAX_RAM_GB=23.7`; disk free before run was 411.5 GiB; command sequence `cd D:\Coding\MU\Tri-Modal_ECG\scripts && ..\ecg_env\Scripts\python.exe phase1_dataset_generation\31_waveform_qc.py 1> ..\outputs\stage_reports\stage_7_run\31_waveform_qc.stdout.log 2> ..\outputs\stage_reports\stage_7_run\31_waveform_qc.stderr.log; cd D:\Coding\MU\Tri-Modal_ECG\scripts && ..\ecg_env\Scripts\python.exe phase1_dataset_generation\32_compute_structured_features.py 1> ..\outputs\stage_reports\stage_7_run\32_compute_structured_features.stdout.log 2> ..\outputs\stage_reports\stage_7_run\32_compute_structured_features.stderr.log`.
+- Pre-flight: PASS - required inputs existed; `dataset_version_stamp=v2.0.0`; `MAX_WORKERS=20`; `MAX_RAM_GB=29.7`; disk free before run was 256.8 GiB; command sequence `cd D:\Coding\MU\Tri-Modal_ECG\scripts && ..\ecg_env\Scripts\python.exe phase1_dataset_generation\31_waveform_qc.py 1> ..\outputs\stage_reports\stage_7_run\31_waveform_qc.stdout.log 2> ..\outputs\stage_reports\stage_7_run\31_waveform_qc.stderr.log; cd D:\Coding\MU\Tri-Modal_ECG\scripts && ..\ecg_env\Scripts\python.exe phase1_dataset_generation\32_compute_structured_features.py 1> ..\outputs\stage_reports\stage_7_run\32_compute_structured_features.stdout.log 2> ..\outputs\stage_reports\stage_7_run\32_compute_structured_features.stderr.log`.
 - Commands executed: `cd D:\Coding\MU\Tri-Modal_ECG\scripts && ..\ecg_env\Scripts\python.exe phase1_dataset_generation\31_waveform_qc.py 1> ..\outputs\stage_reports\stage_7_run\31_waveform_qc.stdout.log 2> ..\outputs\stage_reports\stage_7_run\31_waveform_qc.stderr.log`; `cd D:\Coding\MU\Tri-Modal_ECG\scripts && ..\ecg_env\Scripts\python.exe phase1_dataset_generation\32_compute_structured_features.py 1> ..\outputs\stage_reports\stage_7_run\32_compute_structured_features.stdout.log 2> ..\outputs\stage_reports\stage_7_run\32_compute_structured_features.stderr.log`.
 - Waveform row count: PASS - ecg_metadata rows 800,035; waveform_qc rows 800,035.
 - Waveform study_id coverage: PASS - duplicate 0; missing 0; extra 0.
 - Waveform required columns: PASS - missing [].
 - Decode/shape distributions: decode_ok {'True': 800035}; length_ok {'True': 800035}; lead_count_ok {'True': 800035}; lead_names_ok {'True': 800035}.
 - Value/pathology QC: nan_inf_flag count 10,558; flatline_lead_flag count 39,623; extreme_amplitude_flag count 994.
-- SQI tier distribution: {'high': 798774, 'low': 730, 'medium': 531}.
+- SQI tier distribution: {'medium': 492002, 'low': 303710, 'high': 4323}.
 - HR consistency mismatches: PASS - count 30,872; percentage 3.859%; expected <= 5%.
 - QRS consistency mismatches: count 664,162; percentage 83.017%.
 - Duplicate waveform groups: count 228; size distribution {600: 1, 3: 5, 2: 222}.
@@ -1965,62 +2015,62 @@ if __name__ == "__main__":
 - Random finite-value sample: n 25; finite counts {'mean_nn': 25, 'rmssd': 25, 'qrs_ms': 24, 'sqi_aggregate': 25}.
 - apply_recipe pre-flight evidence: {"lead2_scaler_exists": true, "lead2_scaler_fit_split": "train", "preprocessing_recipe_exists": true, "recipe_loaded_successfully": true, "recipe_scaler_fit_split": "train", "sample_apply_recipe_finite": true, "sample_apply_recipe_shape": [5000, 12], "stage9_materialized_hdf5_paths_checked_only": ["data/processed/signals/lead2_preprocessed.h5", "data/processed/signals/twelve_lead_preprocessed_shard_00.h5", "data/processed/signals/twelve_lead_preprocessed_shard_01.h5", "data/processed/signals/twelve_lead_preprocessed_shard_02.h5", "data/processed/signals/twelve_lead_preprocessed_shard_03.h5", "data/processed/signals/twelve_lead_preprocessed_shard_04.h5"], "stage9_materialized_hdf5_read": false, "twelve_lead_scaler_exists": true, "twelve_lead_scaler_fit_split": "train"}.
 - Confirm Stage 9 materialized preprocessed HDF5 not used: PASS.
-- Parquet metadata verification: waveform PASS {'dataset_version': 'v2.0.0', 'created_at_iso': '2026-06-02T23:13:23Z', 'modality_kind': 'waveform_qc', 'n_rows': '800035', 'script_commit_hash': 'd07888c'}; structured PASS {'dataset_version': 'v2.0.0', 'created_at_iso': '2026-06-03T08:19:06Z', 'modality_kind': 'structured_features', 'n_rows': '800035', 'script_commit_hash': 'd07888c'}.
+- Parquet metadata verification: waveform PASS {'dataset_version': 'v2.0.0', 'created_at_iso': '2026-06-04T07:54:08Z', 'modality_kind': 'waveform_qc', 'n_rows': '800035', 'script_commit_hash': '401124a'}; structured PASS {'dataset_version': 'v2.0.0', 'created_at_iso': '2026-06-05T04:20:19Z', 'modality_kind': 'structured_features', 'n_rows': '800035', 'script_commit_hash': '401124a'}.
 - Part/temp cleanup verification: PASS - removed 81 Stage 7 part/temp files; remaining [].
 - Cleanup policy: no old folder deletion was expected; no old folder deletion was performed.
-- Resource settings used: `MAX_WORKERS=15`, `MAX_RAM_GB=23.69`, waveform `FLUSH_EVERY=100000`, structured `FLUSH_EVERY=10000`.
+- Resource settings used: `MAX_WORKERS=20`, `MAX_RAM_GB=29.69`, waveform `FLUSH_EVERY=100000`, structured `FLUSH_EVERY=10000`.
 - Logging-hygiene checklist (every bullet from section 8.14):
   - [x] Terminal showed one tqdm bar per script with no worker log interleaving; worker fd 1/2 were redirected to per-PID log files and command stdout/stderr were redirected to `outputs/stage_reports/stage_7_run/`.
-  - [x] `aggregate.log` / `all.log` exists, first + last 5 lines pasted, all match section 8.5 regex: FAIL
+  - [x] `aggregate.log` / `all.log` exists, first + last 5 lines pasted, all match section 8.5 regex: PASS
     ```text
     scripts/phase1_dataset_generation/logs/31_waveform_qc/aggregate.log first 5:
-    2026-06-02 23:33:18 WARNING pid=12020  worker | worker initialized
-    2026-06-02 22:54:54 WARNING pid=12320  worker | worker initialized
-    Process SpawnPoolWorker-9:
-    Traceback (most recent call last):
-      File "C:\Users\banot\AppData\Local\Programs\Python\Python311\Lib\multiprocessing\pool.py", line 131, in worker
+    2026-06-04 00:15:33 WARNING pid=13972  worker | worker initialized
+    2026-06-04 00:15:33 WARNING pid=21728  worker | worker initialized
+    2026-06-04 00:15:33 WARNING pid=23880  worker | worker initialized
+    2026-06-04 00:15:33 WARNING pid=2504   worker | worker initialized
+    2026-06-04 00:15:32 WARNING pid=27208  worker | worker initialized
     scripts/phase1_dataset_generation/logs/31_waveform_qc/aggregate.log last 5:
-        self._send_bytes(m[offset:offset + size])
-      File "C:\Users\banot\AppData\Local\Programs\Python\Python311\Lib\multiprocessing\connection.py", line 289, in _send_bytes
-        ov, err = _winapi.WriteFile(self._handle, buf, overlapped=True)
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    BrokenPipeError: [WinError 232] The pipe is being closed
+    2026-06-04 00:15:32 WARNING pid=53748  worker | worker initialized
+    2026-06-04 00:15:33 WARNING pid=53776  worker | worker initialized
+    2026-06-04 00:15:32 WARNING pid=54624  worker | worker initialized
+    2026-06-04 00:15:33 WARNING pid=55472  worker | worker initialized
+    2026-06-04 00:15:32 WARNING pid=5696   worker | worker initialized
     scripts/phase1_dataset_generation/logs/32_compute_structured_features/aggregate.log first 5:
-    2026-06-03 04:46:09 WARNING pid=12848  worker | worker initialized
-    2026-06-03 04:46:09 WARNING pid=15028  worker | worker initialized
-    2026-06-03 04:46:09 WARNING pid=15344  worker | worker initialized
-    2026-06-03 04:46:09 WARNING pid=25728  worker | worker initialized
-    2026-06-03 04:46:09 WARNING pid=28996  worker | worker initialized
+    2026-06-04 13:24:25 WARNING pid=13632  worker | worker initialized
+    2026-06-04 13:24:25 WARNING pid=14532  worker | worker initialized
+    2026-06-04 13:24:25 WARNING pid=17844  worker | worker initialized
+    2026-06-04 13:24:25 WARNING pid=21052  worker | worker initialized
+    2026-06-04 13:24:25 WARNING pid=30780  worker | worker initialized
     scripts/phase1_dataset_generation/logs/32_compute_structured_features/aggregate.log last 5:
-    2026-06-03 04:46:09 WARNING pid=42300  worker | worker initialized
-    2026-06-03 04:46:09 WARNING pid=43648  worker | worker initialized
-    2026-06-03 04:46:09 WARNING pid=45900  worker | worker initialized
-    2026-06-03 04:46:09 WARNING pid=46408  worker | worker initialized
-    2026-06-03 04:46:09 WARNING pid=47600  worker | worker initialized
+    2026-06-04 13:24:25 WARNING pid=5420   worker | worker initialized
+    2026-06-04 13:24:25 WARNING pid=54676  worker | worker initialized
+    2026-06-04 13:24:25 WARNING pid=57676  worker | worker initialized
+    2026-06-04 13:24:25 WARNING pid=58664  worker | worker initialized
+    2026-06-04 13:24:25 WARNING pid=58768  worker | worker initialized
     scripts/phase1_dataset_generation/logs/31_waveform_qc/main.log first 5:
-    2026-06-02 23:32:58 INFO    pid=20824  main | starting 31_waveform_qc
-    2026-06-02 23:32:58 INFO    pid=20824  main | run command from scripts cwd: cd D:\Coding\MU\Tri-Modal_ECG\scripts && ..\ecg_env\Scripts\python.exe phase1_dataset_generation\31_waveform_qc.py 1> ..\outputs\stage_reports\stage_7_run\31_waveform_qc.stdout.log 2> ..\outputs\stage_reports\stage_7_run\31_waveform_qc.stderr.log
-    2026-06-02 23:33:14 INFO    pid=20824  main | resume completed=0 pending=800035 existing_parts=0 next_part=0 max_workers=15 max_ram_gb=23.69
-    2026-06-03 00:16:48 INFO    pid=20824  main | wrote part=waveform_qc.part_0000.parquet rows=100000 processed=100000
-    2026-06-03 00:56:54 INFO    pid=20824  main | wrote part=waveform_qc.part_0001.parquet rows=100000 processed=200000
+    2026-06-04 00:15:15 INFO    pid=13008  main | starting 31_waveform_qc
+    2026-06-04 00:15:15 INFO    pid=13008  main | run command from scripts cwd: cd D:\Coding\MU\Tri-Modal_ECG\scripts && ..\ecg_env\Scripts\python.exe phase1_dataset_generation\31_waveform_qc.py 1> ..\outputs\stage_reports\stage_7_run\31_waveform_qc.stdout.log 2> ..\outputs\stage_reports\stage_7_run\31_waveform_qc.stderr.log
+    2026-06-04 00:15:29 INFO    pid=13008  main | resume completed=0 pending=800035 existing_parts=0 next_part=0 max_workers=20 max_ram_gb=29.69
+    2026-06-04 01:45:21 INFO    pid=13008  main | wrote part=waveform_qc.part_0000.parquet rows=100000 processed=100000
+    2026-06-04 03:13:15 INFO    pid=13008  main | wrote part=waveform_qc.part_0001.parquet rows=100000 processed=200000
     scripts/phase1_dataset_generation/logs/31_waveform_qc/main.log last 5:
-    2026-06-03 04:01:42 INFO    pid=20824  main | wrote part=waveform_qc.part_0006.parquet rows=100000 processed=700000
-    2026-06-03 04:43:19 INFO    pid=20824  main | wrote part=waveform_qc.part_0007.parquet rows=100000 processed=800000
-    2026-06-03 04:43:19 INFO    pid=20824  main | wrote final part=waveform_qc.part_0008.parquet rows=35
-    2026-06-03 04:43:24 INFO    pid=20824  main | published waveform_qc.parquet rows=800035
-    2026-06-03 04:43:26 INFO    pid=20824  main | validation row_ok=True required_ok=True metadata_ok=True cleanup=PASS
+    2026-06-04 11:21:48 INFO    pid=13008  main | wrote part=waveform_qc.part_0006.parquet rows=100000 processed=700000
+    2026-06-04 13:24:04 INFO    pid=13008  main | wrote part=waveform_qc.part_0007.parquet rows=100000 processed=800000
+    2026-06-04 13:24:05 INFO    pid=13008  main | wrote final part=waveform_qc.part_0008.parquet rows=35
+    2026-06-04 13:24:09 INFO    pid=13008  main | published waveform_qc.parquet rows=800035
+    2026-06-04 13:24:12 INFO    pid=13008  main | validation row_ok=True required_ok=True metadata_ok=True cleanup=PASS
     scripts/phase1_dataset_generation/logs/32_compute_structured_features/main.log first 5:
-    2026-06-03 04:45:57 INFO    pid=37972  main | starting 32_compute_structured_features
-    2026-06-03 04:46:06 INFO    pid=37972  main | resume completed=0 pending=800035 existing_parts=0 next_part=0 max_workers=15 max_ram_gb=23.69
-    2026-06-03 04:52:16 INFO    pid=37972  main | wrote part=structured_features.part_0000.parquet rows=10000 processed=10000
-    2026-06-03 04:58:13 INFO    pid=37972  main | wrote part=structured_features.part_0001.parquet rows=10000 processed=20000
-    2026-06-03 05:03:57 INFO    pid=37972  main | wrote part=structured_features.part_0002.parquet rows=10000 processed=30000
+    2026-06-04 13:24:14 INFO    pid=12468  main | starting 32_compute_structured_features
+    2026-06-04 13:24:22 INFO    pid=12468  main | resume completed=0 pending=800035 existing_parts=0 next_part=0 max_workers=20 max_ram_gb=29.69
+    2026-06-04 13:33:25 INFO    pid=12468  main | wrote part=structured_features.part_0000.parquet rows=10000 processed=10000
+    2026-06-04 13:42:42 INFO    pid=12468  main | wrote part=structured_features.part_0001.parquet rows=10000 processed=20000
+    2026-06-04 13:52:07 INFO    pid=12468  main | wrote part=structured_features.part_0002.parquet rows=10000 processed=30000
     scripts/phase1_dataset_generation/logs/32_compute_structured_features/main.log last 5:
-    2026-06-03 13:44:00 INFO    pid=37972  main | wrote part=structured_features.part_0078.parquet rows=10000 processed=790000
-    2026-06-03 13:49:04 INFO    pid=37972  main | wrote part=structured_features.part_0079.parquet rows=10000 processed=800000
-    2026-06-03 13:49:04 INFO    pid=37972  main | wrote final part=structured_features.part_0080.parquet rows=35
-    2026-06-03 13:49:07 INFO    pid=37972  main | published structured_features.parquet rows=800035
-    2026-06-03 13:49:10 INFO    pid=37972  main | validation waveform_ok=True structured_ok=True cleanup=PASS
+    2026-06-05 09:39:10 INFO    pid=12468  main | wrote part=structured_features.part_0078.parquet rows=10000 processed=790000
+    2026-06-05 09:50:16 INFO    pid=12468  main | wrote part=structured_features.part_0079.parquet rows=10000 processed=800000
+    2026-06-05 09:50:17 INFO    pid=12468  main | wrote final part=structured_features.part_0080.parquet rows=35
+    2026-06-05 09:50:20 INFO    pid=12468  main | published structured_features.parquet rows=800035
+    2026-06-05 09:50:24 INFO    pid=12468  main | validation waveform_ok=True structured_ok=True cleanup=PASS
     ```
   - [x] `grep -n "print(" <script>.py` output pasted (must be empty inside worker()).
     ```text
@@ -2036,7 +2086,7 @@ if __name__ == "__main__":
     rg -n "logging\.basicConfig" scripts/phase1_dataset_generation/32_compute_structured_features.py
     <no matches>
     ```
-  - [x] `worker_<pid>.log` files moved into `archive_<ts>/`: `31_waveform_qc` archive is shown in its done marker/log tree; `32_compute_structured_features` archive scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260603_134911.
+  - [x] `worker_<pid>.log` files moved into `archive_<ts>/`: `31_waveform_qc` archive is shown in its done marker/log tree; `32_compute_structured_features` archive scripts/phase1_dataset_generation/logs/32_compute_structured_features/archive_20260605_095024.
   - [x] If Transport B: paste the `finally: listener.stop()` line from the script: N/A - Stage 7 uses Transport A per-PID worker logs.
   - [x] If tqdm used: paste the `tqdm(..., mininterval=...)` call and the `with logging_redirect_tqdm():` line.
     ```text
@@ -2044,9 +2094,9 @@ if __name__ == "__main__":
     tqdm(..., file=sys.stderr, dynamic_ncols=True, mininterval=0.5, desc="stage 7 waveform qc")
     tqdm(..., file=sys.stderr, dynamic_ncols=True, mininterval=0.5, desc="stage 7 structured features")
     ```
-- Disk before stage start: 411.5 GiB free
-- Disk after stage end: 411.4 GiB free
-- Wall-clock: 09:03:13
+- Disk before stage start: 256.8 GiB free
+- Disk after stage end: 256.1 GiB free
+- Wall-clock: 20:26:11
 
 ## 7. Manual test procedure
 cd D:\Coding\MU\Tri-Modal_ECG\scripts

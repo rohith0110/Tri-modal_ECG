@@ -357,7 +357,30 @@ plan; this is the index of record.
    6.8 forbids reading either column by name — see trap 8.
 2. **The Pan-Tompkins detector bug** was found and fixed during the Phase 1
    regen (it had produced ~74 K false labels). Any new fiducial code must reuse
-   the corrected path, not a fresh implementation.
+   the corrected path, not a fresh implementation. **The corrected path is
+   `scripts/phase1_dataset_generation/32_compute_structured_features.py::_extract_wave_features`
+   (lines 364–390), mirrored in `31_waveform_qc.py:272–283`:**
+
+   ```python
+   _, peak_info = nk.ecg_peaks(lead2, sampling_rate=500, method="neurokit")
+   rpeaks = _indices(peak_info.get("ECG_R_Peaks"))
+   _, waves = nk.ecg_delineate(lead2, rpeaks=rpeaks, sampling_rate=500,
+                               method="dwt", show=False, check=False)
+   ```
+
+   Three things to carry over exactly, or `00_extract_fiducials.py` will not
+   reproduce Phase 1's fiducials:
+   - `method="neurokit"`, **not** `"pantompkins"`. The corrected detector is
+     NeuroKit's default. Note that spec §4.A.4.7 and §5.1 describe the A4
+     algorithmic baseline as "NeuroKit2 Pan-Tompkins" — if the oracle baseline
+     is built with `pantompkins` while the ground truth uses `neurokit`, its F1
+     will **not** be the 1.0 §4.A.4.7 promises. Resolve when writing A4.
+   - The input is `preprocessed[:, 1]` — lead II of the **preprocessed**
+     12-lead signal — and it is fed to `ecg_peaks` **without** a further
+     `ecg_clean` call. (`_sqi_one` does clean first; the fiducial path does
+     not. Do not "fix" this.)
+   - `ecg_delineate` runs on the same array as `ecg_peaks`, with
+     `check=False`.
 3. **`.gitignore` ignores everything at the repo root** (`/*`) and re-includes
    subtrees explicitly. `docs/` was missing from that allowlist until
    2026-08-26 — new docs were being silently ignored. Any **new root-level

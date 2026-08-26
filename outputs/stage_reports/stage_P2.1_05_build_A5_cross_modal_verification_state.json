@@ -1,0 +1,207 @@
+{
+  "stage": "P2.1",
+  "script": "05_build_A5_cross_modal_verification",
+  "done": true,
+  "started_at": "2026-08-26T19:11:40Z",
+  "updated_at": "2026-08-26T19:13:44Z",
+  "finished_at": "2026-08-26T19:13:44Z",
+  "n_verification_rows": 5243784,
+  "verification": {
+    "n_rows": 5243784,
+    "n_anchors": 749112,
+    "n_subjects": 154092,
+    "positive_rate_pct": 28.571,
+    "rows_per_neg_type": {
+      "positive": 1498224,
+      "HARD_NEGATIVE_TEXT": 749112,
+      "IMAGE_SWAP": 749112,
+      "PARTIAL_MISMATCH": 749112,
+      "SIGNAL_SWAP": 749112,
+      "TEXT_SWAP": 749112
+    },
+    "image_type_counts": {
+      "clean": 4494672,
+      "scanlike": 749112
+    },
+    "by_split": {
+      "train": {
+        "n_rows": 3667615,
+        "n_anchors": 523945,
+        "n_positive": 1047890,
+        "n_negative": 2619725
+      },
+      "val": {
+        "n_rows": 528675,
+        "n_anchors": 75525,
+        "n_positive": 151050,
+        "n_negative": 377625
+      },
+      "test": {
+        "n_rows": 1047494,
+        "n_anchors": 149642,
+        "n_positive": 299284,
+        "n_negative": 748210
+      }
+    }
+  },
+  "verification_splits": {
+    "train": 3667615,
+    "val": 528675,
+    "test": 1047494
+  },
+  "masked_attribute": {
+    "n_rows": 748454,
+    "splits": {
+      "train": 523464,
+      "val": 75444,
+      "test": 149546
+    },
+    "n_reports_changed": 331951,
+    "pct_reports_changed": 44.352,
+    "mean_masked_spans": 0.594,
+    "max_masked_spans": 5,
+    "reports_by_family": {
+      "HR": 166986,
+      "QRS": 106638,
+      "axis": 128374,
+      "QT": 37876,
+      "numeric": 3788
+    },
+    "labels": {
+      "hr_label": {
+        "bradycardia": {
+          "n": 112209,
+          "pct": 14.992
+        },
+        "normal": {
+          "n": 532583,
+          "pct": 71.158
+        },
+        "tachycardia": {
+          "n": 103662,
+          "pct": 13.85
+        }
+      },
+      "hr_label_by_split": {
+        "train": {
+          "bradycardia": 15.007,
+          "normal": 71.178,
+          "tachycardia": 13.815
+        },
+        "val": {
+          "bradycardia": 15.028,
+          "normal": 71.09,
+          "tachycardia": 13.882
+        },
+        "test": {
+          "bradycardia": 14.921,
+          "normal": 71.122,
+          "tachycardia": 13.957
+        }
+      },
+      "qrs_label": {
+        "normal": {
+          "n": 481548,
+          "pct": 64.339
+        },
+        "borderline": {
+          "n": 143341,
+          "pct": 19.152
+        },
+        "wide": {
+          "n": 123565,
+          "pct": 16.509
+        }
+      },
+      "qrs_label_by_split": {
+        "train": {
+          "normal": 64.261,
+          "borderline": 19.167,
+          "wide": 16.572
+        },
+        "val": {
+          "normal": 64.686,
+          "borderline": 18.958,
+          "wide": 16.355
+        },
+        "test": {
+          "normal": 64.438,
+          "borderline": 19.196,
+          "wide": 16.366
+        }
+      },
+      "qtc_label": {
+        "short": {
+          "n": 720,
+          "pct": 0.096
+        },
+        "normal": {
+          "n": 441981,
+          "pct": 59.053
+        },
+        "prolonged": {
+          "n": 305753,
+          "pct": 40.851
+        }
+      },
+      "qtc_label_by_split": {
+        "train": {
+          "short": 0.103,
+          "normal": 58.9,
+          "prolonged": 40.997
+        },
+        "val": {
+          "short": 0.068,
+          "normal": 59.54,
+          "prolonged": 40.393
+        },
+        "test": {
+          "short": 0.088,
+          "normal": 59.34,
+          "prolonged": 40.573
+        }
+      }
+    },
+    "examples": [
+      {
+        "study_id": 40000017,
+        "original": "Sinus rhythm Leftward axis Possible anterior infarct - age undetermined Low QRS voltages in precordial leads Abnormal ECG",
+        "masked": "Sinus rhythm [MASK] Possible anterior infarct - age undetermined Low QRS voltages in precordial leads Abnormal ECG",
+        "families": "axis"
+      },
+      {
+        "study_id": 40000084,
+        "original": "--- Warning: Data quality may affect interpretation --- Sinus bradycardia Normal ECG except for rate",
+        "masked": "--- Warning: Data quality may affect interpretation --- Sinus [MASK] Normal ECG except for rate",
+        "families": "HR"
+      },
+      {
+        "study_id": 40000089,
+        "original": "SINUS RHYTHM LEFT AXIS DEVIATION Low R waves in anterior leads T wave inversion also present POSSIBLE ANTERIOR INFARCTION - AGE UNDETERMINED Inferior and latera",
+        "masked": "SINUS RHYTHM [MASK] Low R waves in anterior leads T wave inversion also present POSSIBLE ANTERIOR INFARCTION - AGE UNDETERMINED Inferior and lateral ST-T change",
+        "families": "axis"
+      },
+      {
+        "study_id": 40000144,
+        "original": "Sinus tachycardia Normal ECG except for rate",
+        "masked": "Sinus [MASK] Normal ECG except for rate",
+        "families": "HR"
+      },
+      {
+        "study_id": 40000199,
+        "original": "Sinus bradycardia Prolonged QT interval Lateral T wave changes are borderline abnormal Borderline ECG",
+        "masked": "Sinus [MASK] [MASK] Lateral T wave changes are borderline abnormal Borderline ECG",
+        "families": "HR,QT"
+      }
+    ]
+  },
+  "n_rows": 5243784,
+  "n_subjects": 154092,
+  "n_rows_train": 3667615,
+  "n_subjects_train": 107851,
+  "n_rows_val": 528675,
+  "n_subjects_val": 15397,
+  "n_rows_test": 1047494,
+  "n_subjects_test": 30844,
+  "subject_overlap": 0
+}

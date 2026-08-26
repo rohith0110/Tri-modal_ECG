@@ -1,0 +1,207 @@
+{
+  "stage": "P2.1",
+  "script": "05_build_A5_cross_modal_verification_dev",
+  "done": true,
+  "started_at": "2026-08-26T19:11:13Z",
+  "updated_at": "2026-08-26T19:11:18Z",
+  "finished_at": "2026-08-26T19:11:18Z",
+  "n_verification_rows": 35000,
+  "verification": {
+    "n_rows": 35000,
+    "n_anchors": 5000,
+    "n_subjects": 4761,
+    "positive_rate_pct": 28.571,
+    "rows_per_neg_type": {
+      "positive": 10000,
+      "HARD_NEGATIVE_TEXT": 5000,
+      "IMAGE_SWAP": 5000,
+      "PARTIAL_MISMATCH": 5000,
+      "SIGNAL_SWAP": 5000,
+      "TEXT_SWAP": 5000
+    },
+    "image_type_counts": {
+      "clean": 30000,
+      "scanlike": 5000
+    },
+    "by_split": {
+      "train": {
+        "n_rows": 24094,
+        "n_anchors": 3442,
+        "n_positive": 6884,
+        "n_negative": 17210
+      },
+      "val": {
+        "n_rows": 3409,
+        "n_anchors": 487,
+        "n_positive": 974,
+        "n_negative": 2435
+      },
+      "test": {
+        "n_rows": 7497,
+        "n_anchors": 1071,
+        "n_positive": 2142,
+        "n_negative": 5355
+      }
+    }
+  },
+  "verification_splits": {
+    "train": 24094,
+    "val": 3409,
+    "test": 7497
+  },
+  "masked_attribute": {
+    "n_rows": 4996,
+    "splits": {
+      "train": 3440,
+      "val": 487,
+      "test": 1069
+    },
+    "n_reports_changed": 2273,
+    "pct_reports_changed": 45.496,
+    "mean_masked_spans": 0.605,
+    "max_masked_spans": 4,
+    "reports_by_family": {
+      "HR": 1222,
+      "QRS": 690,
+      "axis": 816,
+      "QT": 255,
+      "numeric": 34
+    },
+    "labels": {
+      "hr_label": {
+        "bradycardia": {
+          "n": 706,
+          "pct": 14.131
+        },
+        "normal": {
+          "n": 3406,
+          "pct": 68.175
+        },
+        "tachycardia": {
+          "n": 884,
+          "pct": 17.694
+        }
+      },
+      "hr_label_by_split": {
+        "train": {
+          "bradycardia": 13.779,
+          "normal": 68.256,
+          "tachycardia": 17.965
+        },
+        "val": {
+          "bradycardia": 13.142,
+          "normal": 68.378,
+          "tachycardia": 18.48
+        },
+        "test": {
+          "bradycardia": 15.716,
+          "normal": 67.82,
+          "tachycardia": 16.464
+        }
+      },
+      "qrs_label": {
+        "normal": {
+          "n": 3249,
+          "pct": 65.032
+        },
+        "borderline": {
+          "n": 950,
+          "pct": 19.015
+        },
+        "wide": {
+          "n": 797,
+          "pct": 15.953
+        }
+      },
+      "qrs_label_by_split": {
+        "train": {
+          "normal": 65.116,
+          "borderline": 18.808,
+          "wide": 16.076
+        },
+        "val": {
+          "normal": 65.092,
+          "borderline": 19.918,
+          "wide": 14.99
+        },
+        "test": {
+          "normal": 64.733,
+          "borderline": 19.27,
+          "wide": 15.996
+        }
+      },
+      "qtc_label": {
+        "short": {
+          "n": 4,
+          "pct": 0.08
+        },
+        "normal": {
+          "n": 2910,
+          "pct": 58.247
+        },
+        "prolonged": {
+          "n": 2082,
+          "pct": 41.673
+        }
+      },
+      "qtc_label_by_split": {
+        "train": {
+          "short": 0.058,
+          "normal": 58.023,
+          "prolonged": 41.919
+        },
+        "val": {
+          "short": 0.0,
+          "normal": 56.879,
+          "prolonged": 43.121
+        },
+        "test": {
+          "short": 0.187,
+          "normal": 59.588,
+          "prolonged": 40.225
+        }
+      }
+    },
+    "examples": [
+      {
+        "study_id": 40000084,
+        "original": "--- Warning: Data quality may affect interpretation --- Sinus bradycardia Normal ECG except for rate",
+        "masked": "--- Warning: Data quality may affect interpretation --- Sinus [MASK] Normal ECG except for rate",
+        "families": "HR"
+      },
+      {
+        "study_id": 40000565,
+        "original": "Sinus tachycardia Left axis deviation Inferior infarct - age undetermined Abnormal ECG",
+        "masked": "Sinus [MASK] [MASK] Inferior infarct - age undetermined Abnormal ECG",
+        "families": "HR,axis"
+      },
+      {
+        "study_id": 40000857,
+        "original": "Possible atrial flutter Left axis deviation RBBB with left anterior fascicular block Possible anterior infarct - age undetermined Inferior/lateral ST-T changes ",
+        "masked": "Possible atrial flutter [MASK] [MASK] with left anterior fascicular block Possible anterior infarct - age undetermined Inferior/lateral ST-T changes may be due ",
+        "families": "QRS,axis"
+      },
+      {
+        "study_id": 40000884,
+        "original": "Sinus bradycardia Normal ECG except for rate",
+        "masked": "Sinus [MASK] Normal ECG except for rate",
+        "families": "HR"
+      },
+      {
+        "study_id": 40000961,
+        "original": "Sinus tachycardia Possible inferior infarct - age undetermined Abnormal ECG",
+        "masked": "Sinus [MASK] Possible inferior infarct - age undetermined Abnormal ECG",
+        "families": "HR"
+      }
+    ]
+  },
+  "n_rows": 35000,
+  "n_subjects": 4761,
+  "n_rows_train": 24094,
+  "n_subjects_train": 3272,
+  "n_rows_val": 3409,
+  "n_subjects_val": 468,
+  "n_rows_test": 7497,
+  "n_subjects_test": 1021,
+  "subject_overlap": 0
+}

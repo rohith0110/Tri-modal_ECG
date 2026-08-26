@@ -1,5 +1,17 @@
 # `scripts/` — Tri-Modal ECG Pipeline
 
+> **Status 2026-08-26.** Phase 1 is **complete and audited** — its scripts
+> produced the current 355 GB dataset and should not be re-run. Phase 2
+> **has not started**: everything currently in
+> `phase2_tasks_benchmark_and_paper/` is pre-regen legacy (see that
+> folder's README) and gets quarantined to `_legacy_phase1_pre_regen/` in
+> Stage P2.0. New Phase 2 code lands in that folder afterwards, alongside
+> `_dataset_lib/`, `_model_lib/`, `_train_lib/` and
+> `../dgx_portability/`.
+>
+> Plans: `docs/PHASE2_SOURCE_OF_TRUTH.md` (what to build) and
+> `docs/PHASE2_EXECUTION_PLAN_DGX.md` (where it runs).
+
 All pipeline code lives here, split into two phases.
 
 ```

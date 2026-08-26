@@ -14,7 +14,11 @@
 # --- allow project source & documentation (whole subtrees) ---
 !/.gitignore
 !/.gitattributes
+!/AGENTS.md
+!/CLAUDE.md
+!/phase_1_summary_report.md
 !/config/
+!/docs/
 !/scripts/
 !/paper/
 !/report_assets/

@@ -1,5 +1,28 @@
 # Phase 2 — Tasks, Benchmark Suite & Paper
 
+> **⚠️ EVERY SCRIPT IN THIS FOLDER IS PRE-REGEN AND STALE (as of
+> 2026-08-26).** They were written against the *old* Phase 1 layout —
+> per-study NPY/PNG/JPG paths that no longer exist, an 80/10/10 split
+> instead of the current 70/10/20, and a Plan-B-only task set. They
+> produced the published Plan-B benchmark results and the dataset paper,
+> so they are kept for reproducibility, but **they do not run against the
+> current dataset and must not be used as a starting point.**
+>
+> Stage P2.0 moves all of them to `_legacy_phase1_pre_regen/` and the new
+> Phase 2 scripts take their numeric slots. See
+> `docs/PHASE2_SOURCE_OF_TRUTH.md` §2.4.
+>
+> **The real Phase 2 plan lives in:**
+> - `docs/PHASE2_SOURCE_OF_TRUTH.md` — 12 tasks (A1–A6, B1–B6), model
+>   specs, training/eval protocol, audit requirements.
+> - `docs/PHASE2_EXECUTION_PLAN_DGX.md` — which stage runs on the DGX vs
+>   the laptop, the campaign schedule, and how data is staged.
+>
+> Task datasets are now **parquet under `data/processed/tasks/<task>/`**,
+> not JSONL under `data/processed/task_jsonl/` (that directory is gone).
+>
+> The description below documents what these legacy scripts did.
+
 This phase consumes the dataset built in
 [Phase 1](../phase1_dataset_generation/README.md) and produces:
 

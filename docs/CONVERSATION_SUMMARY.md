@@ -1,5 +1,25 @@
 # Tri-Modal ECG — Session Handoff Summary
 
+> **⚠️ STALE — written 2026-06-02, superseded 2026-08-26.** The project
+> state described below is Phase-1-in-progress. Phase 1 has since been
+> completed and audited, a dataset paper has been written, and Phase 2 is
+> about to begin on the MU DGX. **Do not use this file to decide what to
+> do next.** It is retained only as a record of the June handoff.
+>
+> **Current orientation, in reading order:**
+> 1. `phase_1_summary_report.md` — what Phase 1 actually produced.
+> 2. `docs/PHASE2_SOURCE_OF_TRUTH.md` — the binding Phase 2 spec: 12
+>    tasks, model architectures, training/eval protocol, audits. Status
+>    header and §12.7 (Round 5) carry the current decisions.
+> 3. `docs/PHASE2_EXECUTION_PLAN_DGX.md` — where each stage runs and how
+>    data moves, given the DGX A100 / 50 GB quota / off-campus access.
+> 4. `docs/PIPELINE_SOURCE_OF_TRUTH.md` — Phase 1 reference (executed;
+>    read for schemas, not as a work plan).
+>
+> **State as of 2026-08-26:** Phase 1 complete (all 5 pre-flight checks
+> PASS). Phase 2 not started — no task datasets exist, configs still
+> Plan-B-only, next action is Stage P2.0.
+
 **Purpose.** Self-contained context for a fresh Claude Opus 4.7 instance.
 Read this first; you will then have enough background to pick up the
 work without needing the prior session's transcript.

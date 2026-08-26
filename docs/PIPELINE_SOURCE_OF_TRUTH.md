@@ -1,6 +1,27 @@
 # Tri-Modal ECG Pipeline — Source of Truth (Phase 1)
 
-**Status:** Plan only. No code yet. This document is the single source of
+**Status (updated 2026-08-26): EXECUTED AND COMPLETE.** Every stage in
+this document has been built, run and audited. Stage 10 closed
+2026-06-05 with `status: PASS`; Stages 8 and 9 closed 2026-06-03. The
+five Phase-2 pre-flight checks (`PHASE2_SOURCE_OF_TRUTH.md` §9.0) all
+pass against the artifacts this document specifies.
+
+Final outputs: 800,035-row master index, 749,112-row clean index,
+6,480,200-row modality manifest, 355 GB of signals/images on disk, and
+five PASS audit reports under `outputs/audit_reports/`. The narrative
+summary of what was produced is `phase_1_summary_report.md`.
+
+**This document is now a reference, not a work plan.** It remains
+binding as the description of how the Phase 1 artifacts were built and
+what their schemas mean — Phase 2 reads it for manifest schemas, recipe
+locations and audit outputs. Do not re-run its stages; Phase 2 treats
+every artifact it produced as read-only ground truth. Active work has
+moved to `docs/PHASE2_SOURCE_OF_TRUTH.md` (the science) and
+`docs/PHASE2_EXECUTION_PLAN_DGX.md` (where it runs).
+
+*(Original status line, retained for history: "Plan only. No code yet.")*
+
+This document is the single source of
 truth for **regenerating the Phase 1 dataset** (raw MIMIC-IV-ECG → on-disk
 tri-modal dataset). An agent following this document should not need to
 open `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx` or

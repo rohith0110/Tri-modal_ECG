@@ -1,13 +1,29 @@
 # Tri-Modal ECG Pipeline — Source of Truth (Phase 2)
 
-**Status:** Plan only. No Phase 2 code is authoritative yet — every Phase
-2 script currently under `scripts/phase2_tasks_benchmark_and_paper/` and
-every JSONL under `data/processed/task_jsonl/` predates the Phase 1
-regen and is **stale** (see §2.4). This document is the single source of
-truth for **constructing the Phase 2 task suite, training the baselines,
+**Status (updated 2026-08-26):** Plan only — no Phase 2 code is
+authoritative yet. Every Phase 2 script currently under
+`scripts/phase2_tasks_benchmark_and_paper/` predates the Phase 1 regen
+and is **stale** (see §2.4); `data/processed/task_jsonl/` no longer
+exists on disk. This document is the single source of truth for
+**constructing the Phase 2 task suite, training the baselines,
 evaluating them, and producing every artifact the paper requires**, on
 top of the consolidated Phase 1 dataset produced by
 `docs/PIPELINE_SOURCE_OF_TRUTH.md`.
+
+**Phase 1 is COMPLETE.** Stages 8, 9 and 10 closed on 2026-06-03 /
+2026-06-05; all five pre-flight checks in §9.0 pass. Phase 2 is
+unblocked and has not started — `data/processed/tasks/` does not exist,
+`config/task_definitions.yaml` and `config/task_input_policy.yaml` are
+still the Plan-B-only files awaiting the Stage P2.0 rewrite, and none of
+the four `*_LOCKED.yaml` files exist yet.
+
+**Companion document.** `docs/PHASE2_EXECUTION_PLAN_DGX.md` governs
+*where each stage runs and how bytes move* under the real hardware
+constraints (MU DGX A100, 50 GB quota, Slurm, off-campus access, laptop
+power instability). It changes no scientific decision in this document.
+Where the two touch — resource policy (§8), stage placement (§9) — this
+document has been updated to match, and Round 5 (§12.7) records the
+decisions that made it necessary.
 
 An agent following this document should not need to open
 `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx` or
@@ -205,6 +221,18 @@ every Phase 2 report header so the reviewer can verify the inheritance
 hasn't drifted.
 
 ### 2.4 Stale-artifact removal (mandatory Stage P2.0 first action)
+
+> **Update 2026-08-26:** `data/processed/task_jsonl/` no longer exists on
+> disk — step 1 below is already satisfied and needs no action beyond
+> recording it. Steps 2–4 (quarantining the stale builder scripts) are
+> still outstanding. Note that the numeric-slot collisions are wider than
+> this section anticipated: the new Phase 2 scripts also need slots 20–22
+> (audits), 30–31 (train/eval), 40 (aggregate), 50 (baselines) and 60–61
+> (tables/figures), all of which are occupied by Plan-B-era scripts. Stage
+> P2.0 therefore quarantines **every** pre-regen script in
+> `scripts/phase2_tasks_benchmark_and_paper/`, not only `01..06_task_*.py`.
+> Quarantine, never delete — the Plan-B paper's numbers came from those
+> scripts and must stay reproducible.
 
 The current contents of `data/processed/task_jsonl/`
 (`taskA_verification.jsonl`, `taskB_temporal_grounding.jsonl`,
@@ -865,9 +893,34 @@ Sensitivity cohort: full clean cohort regardless of link_tier
 fiducial-only labels.
 
 **4.A.4.3 Label generation.** Ground truth from NeuroKit2 wavelet
-delineation (already cached during Phase 1 Stage 7
-`32_compute_structured_features.py` and waveform_qc — extract from
-the per-study lists in `structured_features.parquet`):
+delineation.
+
+> **CORRECTION 2026-08-26 (Round 5.2).** This section previously stated
+> that the per-study fiducial arrays were "already cached during Phase 1
+> Stage 7 … extract from the per-study lists in
+> `structured_features.parquet`". **They were not.** Verified against the
+> on-disk file: `structured_features.parquet` (800,035 rows) has exactly
+> one list column, `sqi_per_lead: list<float>` (12 values), plus scalar
+> aggregates (`qrs_ms`, `qt_ms`, `pr_ms`, `qtc_bazett_ms`,
+> `machine_qrs_onset`, `machine_qrs_end`, …). **No sample-position arrays
+> exist anywhere in Phase 1's outputs.**
+>
+> Resolution: Stage P2.1 gains a new first script,
+> `00_extract_fiducials.py`, which re-runs NeuroKit2 wavelet delineation
+> over the A4 cohort and writes the arrays below to
+> `data/processed/fiducials_lead2.parquet`. It is CPU-only and
+> embarrassingly parallel (~5–10 h on 20 threads; runs on `cpu_student`
+> per the execution plan). **It must reuse the corrected Pan–Tompkins
+> R-peak code path from the Phase 1 regen** — the detector bug fixed in
+> that regen must not be reintroduced by a fresh implementation. B3's
+> oracle baseline reads the same file.
+>
+> Storage: the arrays are stored **sparse** (peak positions), not as
+> dense 5000-sample masks. Dense int8 masks would cost 2.3 GB for the
+> 468 K cohort; the sparse form is ~25 MB. The dataloader expands to a
+> dense mask at batch time. Same information, no science change.
+
+Schema (in `data/processed/fiducials_lead2.parquet`, one row per study):
 
 ```
 r_peaks_lead2     list<int32>  # sample positions, 0-indexed into 5000-sample signal
@@ -2116,43 +2169,102 @@ main-paper headline figure (`figures/main/fig2_per_task_AUPRC.png`).
 
 ## 8. Resource policy (GPU, batch size, mixed precision, DGX)
 
-### 8.1 Local workstation (primary)
+> **REWRITTEN 2026-08-26 (Round 5.3).** §8.1 and §8.2 previously assumed a
+> local workstation as the primary compute and treated DGX access as
+> hypothetical. That is now inverted. **The MU DGX A100 is the primary
+> compute for every trained model**; the laptop (RTX 3060 Laptop, 6 GB)
+> is a development machine only — it writes and smoke-tests scripts
+> against small samples and does not produce any number that reaches the
+> paper. Reason: the laptop cannot hold a mains supply reliably enough
+> for multi-day runs, and 6 GB VRAM cannot fit ResNet-50 at 384×512
+> (~14 GB) or Bio-ClinicalBERT at batch 32 (~10 GB) at the §6.6 batch
+> sizes. Operational detail — quotas, campaigns, data staging, Slurm
+> submission, access model — lives in `docs/PHASE2_EXECUTION_PLAN_DGX.md`
+> and is not duplicated here.
+
+### 8.0 DGX A100 (primary compute)
+
+| Fact | Value | Consequence for this document |
+| ---- | ----- | ----------------------------- |
+| Hardware | NVIDIA DGX **A100**, nodes `dgxa` / `dgxb`, login `dgx-login01` | bf16 native (§6.6 auto-detect resolves to bf16, not fp16+GradScaler) |
+| Scheduler | Slurm, partitions `cpu_student`, `gpu_student` | every stage in §9 is submitted as a batch job or job array; §6.9 resume semantics must survive Slurm preemption/requeue |
+| Storage quota | **50 GB total**, shared across env, data, checkpoints, logs | drives §8.1's checkpoint policy and the campaign schedule in the execution plan |
+| Access | MU network only; no inbound route from outside campus | stages must run unattended to completion; no interactive babysitting |
+| Account expiry | 2026-12-31, data purged 10 days later | no Phase 2 artifact may exist only on the DGX; results are pushed off-node as they are produced |
+| CPU partition | `cpu_student` available | Stage P2.1/P2.2 task building, P2.3 audits and P2.4 algorithmic baselines run here, not on the laptop |
+
+`config/decision_phase2.yaml` records the DGX identity, the Slurm
+partition names, and the observed CUDA/torch versions at Phase 2 freeze,
+so the reproducibility audit (§1.2) can name the exact machine.
+
+### 8.1 Per-run knobs
 
 Inherits Phase 1 §6 wholesale. Phase 2 additionally:
 
 | Knob                                    | Value                                                                                                  |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | GPU presence                            | Required for §6.5–§6.8. CPU-only training disallowed for multimodal tasks (Bio-ClinicalBERT too slow). |
-| `CUDA_VISIBLE_DEVICES`                  | `0` by default; users override via env var.                                                            |
+| `CUDA_VISIBLE_DEVICES`                  | set by Slurm via `--gres=gpu:N`; never hard-coded.                                                     |
 | `torch.set_float32_matmul_precision`    | `"high"` (TF32 on Ampere+) — non-determinism is bounded and reproducible across runs.                  |
-| Mixed precision                         | bf16 (Ampere+ / H100), fp16 + GradScaler (older). Auto-detect at trainer startup; record in config snapshot. |
-| Per-task batch size                     | §6.6 defaults; halve when VRAM < 24 GB; trainer aborts if final batch ≤ 1 even after halving.          |
-| Checkpoint disk budget                  | ~150–200 GB total (Round 4.4 decision: keep best + last for every run).                                |
-| Disk priority                           | If free disk < (per-task checkpoint estimate × 1.5), halt and emit a "free disk before continuing" message rather than guess. |
+| Mixed precision                         | bf16 (A100 native). fp16 + GradScaler remains implemented for the laptop smoke-test path only. Auto-detect at trainer startup; record in config snapshot. |
+| Per-task batch size                     | §6.6 defaults, sized for 24 GB. A100 40/80 GB permits them unchanged; the laptop smoke path halves until it fits. Trainer aborts if final batch ≤ 1 after halving. |
+| **Checkpoint disk budget**              | **≤ 5 GB resident (Round 5.4, supersedes Round 4.4's 150–200 GB).** The 50 GB quota makes "keep best + last for every run" impossible: 12 tasks × ~4 tiers × 3 seeds ≈ 144 runs, and an end-to-end fusion checkpoint alone is ~2.3 GB with optimizer state. New policy below. |
+| Checkpoint retention                    | Per **running** job: `checkpoint_last.pt` (weights + optimizer + RNG, for resume) and `checkpoint_best.pt` (**weights only**, ~0.6 GB for fusion). On run completion: push `best` + `test_predictions.parquet` + `train_log.jsonl` off-node, delete both local files. Nothing accumulates. |
+| Concurrency cap                         | At most 3 concurrent end-to-end fusion jobs per user (3 × ~2.4 GB in-flight checkpoints). Lighter tiers are not capped by disk. |
+| Preemption safety                       | `checkpoint_last.pt` is written every N minutes (not only per epoch) and re-pulled from off-node storage if a requeued job finds it missing. Slurm `--requeue` is assumed on `gpu_student`. |
+| Disk priority                           | Every campaign launcher checks free quota **before** submitting and refuses to start if the campaign will not fit under 45 GB. A refusal is always better than a job that dies at 90 %. |
 
-### 8.2 DGX H100 burst (optional / deferred)
+### 8.2 Data residency — the campaign model
 
-The agent should **not** assume DGX availability. All Phase 2 stages
-P2.0–P2.13 complete successfully on local even if DGX never comes
-online (Round 1.3 decision: "we do not skip anything at all no matter
-what").
-
-A skeleton `scripts/dgx_portability/` directory is created in Stage
-P2.0 with placeholders:
+The 50 GB quota cannot hold the Phase 1 dataset (355 GB on disk). Phase 2
+therefore never stages "the dataset"; it stages **one campaign at a
+time** — the smallest set of files that lets a group of runs complete —
+then evicts it. `scripts/dgx_portability/` (created in Stage P2.0) holds
+the real launchers, not templates:
 
 ```
 scripts/dgx_portability/
-├── README.md                   # what to fill in once access is tested
-├── env_freeze_template.sh      # placeholder for capturing CUDA/torch versions
-├── transfer_up_template.sh     # placeholder for rsync-up
-├── transfer_down_template.sh   # placeholder for rsync-down checkpoints + predictions
-└── dgx_train_wrapper_template.py  # placeholder that wraps 30_train.py for DGX
+├── README.md                 # campaign table, quota rules, recovery steps
+├── stage_data.sh             # pull one campaign's data, verify checksums, refuse if it won't fit
+├── evict_data.sh             # wipe the current campaign's data after results are pushed
+├── push_results.sh           # best checkpoint + predictions + logs off-node, then delete local
+├── make_chunks.py            # cut oversized modalities into aligned i.i.d. pieces (below)
+└── slurm/campaign_<n>.sbatch # one submission file per campaign
 ```
 
-These remain template-only until the user tests access and reports
-back. When DGX access details are known, this section is updated in a
-Phase-2 doc revision (Round 4.1: "keep doc generic, defer until access
-tested"). Until then, no checks reference DGX.
+Two rules bind the science, not just the operations:
+
+1. **Chunking is i.i.d. and modality-aligned.** When a campaign's data
+   exceeds the quota, the *training* split is cut into equal pieces keyed
+   by a hash of `study_id` — never by subject, admission, label, cart_id,
+   or time. Signal and image pieces use the **same** key, so piece *k* of
+   each modality covers the same studies (required for the fusion
+   dataloader). Each piece is a fair miniature of the split.
+2. **Chunks cycle *within* each epoch, never across epochs.** Every epoch
+   visits every piece in a reshuffled order, with a shuffle buffer inside
+   each piece; two pieces are resident at a time (train on *k*, prefetch
+   *k+1*, evict *k−1*). Training to convergence on piece 1 and then
+   moving to piece 2 is **forbidden** — that is block-local SGD and it
+   catastrophically forgets. The block-shuffled sampling that *is* used
+   must be recorded as a documented deviation from global shuffling in
+   `config/decision_phase2.yaml` and disclosed in the supplementary.
+
+Storage-format note: signals are staged as **int16 with a per-record
+scale factor** rather than float32 (56.7 GB instead of 141.8 GB for the
+12-lead preprocessed set). Measured max abs error 1.1e-3 against signals
+whose amplitude reaches 70 — finer than the int16 ADC resolution of the
+source MIMIC-IV-ECG recordings, so this is a storage change, not a
+precision compromise. Stage P2.0 validates it empirically by training one
+task on both encodings and confirming the metrics agree; that comparison
+ships in the supplementary.
+
+### 8.2.1 Laptop role (development only)
+
+The laptop authors and smoke-tests every script against a fixed
+5,000-study sample (`data/processed/dev_sample/`), and renders paper
+tables/figures from downloaded result CSVs. It trains nothing that
+appears in the paper. Any laptop-run script must checkpoint its progress
+and resume cleanly, because mains power is unreliable.
 
 ### 8.3 Training-queue priority (Round 4.2)
 
@@ -2181,8 +2293,36 @@ guarantees:
 
 ### 8.4 Cohort wall-clock budget (refined from §0)
 
-Concrete budgets given the lock-ins above. Per-task seed-time is for a
-single GPU + bf16 + locked batch sizes. **Local-only** scenario:
+> **SUPERSEDED 2026-08-26 (Round 5.3).** The local-only table below is
+> retained for reference but no longer describes the plan. Revised
+> estimate on one A100, bf16, locked batch sizes, with end-to-end fusion
+> (Round 5.1) replacing frozen-encoder fusion:
+>
+> | Campaign | Runs | Est. GPU-h |
+> | -------- | ---: | ---------: |
+> | P2.1–P2.4 task building, audits, algorithmic baselines (`cpu_student`) | — | ~2 days CPU |
+> | Text-only (Bio-ClinicalBERT ×7 tasks ×3 seeds) | 21 | ~23 |
+> | Image-only, 12-lead then Lead-II | 42 | ~28 |
+> | Signal-only, Lead-II | 33 | ~8 |
+> | Signal-only, 12-lead (L3 cohorts resident; full cohorts chunked) | 30 | ~16 |
+> | **Fusion end-to-end, L3 cohorts (A1/A3/A6)** — fits resident | 9 | ~20 |
+> | **Fusion end-to-end, full cohorts (A5/B4/B5/B6)** — chunked | 12 | ~30 |
+> | Re-training sweeps (raw-vs-preprocessed, TF-IDF-vs-BERT) | ~30 | ~25 |
+> | Re-evaluation sweeps + final eval + calibration | — | ~10 |
+> | **Total** | **~180** | **~160 GPU-h** |
+>
+> ~160 GPU-hours is roughly one week of queue time on a single
+> `gpu_student` GPU, or 2–3 days across three or four. Allowing for queue
+> waits, data staging between campaigns and re-runs, budget **3–5 weeks
+> of DGX wall-clock**, preceded by ~2 weeks of laptop script development.
+> The chunked campaigns are compute-bound rather than transfer-bound
+> (~8 min of A100 work per epoch against ~41 GB of staging that prefetch
+> hides), which is what makes end-to-end fusion affordable under a 50 GB
+> quota; if measured bandwidth makes them transfer-bound, co-schedule
+> jobs over a shared piece stream so one staging pass serves several runs.
+
+Original local-only budget. Per-task seed-time is for a
+single GPU + bf16 + locked batch sizes:
 
 | Stage | Tasks                                             | Per-task per-seed | Sub-total |
 | ----- | ------------------------------------------------- | ----------------- | --------- |
@@ -2257,9 +2397,19 @@ If any check FAILS, Phase 2 halts with explicit instructions to
 return to Phase 1's doc and finish the pending stages. No silent
 fallback.
 
-**Current state of Phase 1 (2026-06-03):** Stage 7 done.json exists,
-but Stages 8, 9, 10 are pending. Phase 2 cannot start until those
-three close out. The agent records this in the P2.-1 report and waits.
+**Current state of Phase 1 (verified 2026-08-26): COMPLETE — all five
+checks PASS.** Phase 2 is unblocked.
+
+| Check | Evidence | Result |
+| ----- | -------- | ------ |
+| 1. Stage 8 | `stage_8_complete.done.json` — `status: PASS`, 79,920 rows in `signals_corrupted.parquet`, closed 2026-06-03T09:35Z | PASS |
+| 2. Stage 9 | `stage_9_complete.done.json` — PASS, `lead2_preprocessed.h5` + 5 × `twelve_lead_preprocessed_shard_*.h5`, 800,035 rows, closed 2026-06-03T17:15Z | PASS |
+| 3. Stage 10 | `stage_10_complete.done.json` — PASS, all 5 audit reports linked, closed 2026-06-05T04:23Z | PASS |
+| 4. Manifest | `modality_manifest.parquet`, 6,480,200 rows, all §2.6 kinds present | PASS |
+| 5. Decision gate | `config/decision.yaml` — `chosen_path: plan_a`, `frozen_at: 2026-06-03T08:53:27Z`, 4/4 thresholds true | PASS |
+
+*(The paragraph this replaces described the 2026-06-03 state, when
+Stages 8–10 were still open. They closed on 2026-06-03 and 2026-06-05.)*
 
 ### 9.1 Stage P2.0 — Foundation (rewrite config + quarantine stale)
 
@@ -2410,8 +2560,27 @@ tasks that allow text inputs.
 
 ### 9.9 Stage P2.8 — Train multimodal fusion
 
-**Purpose.** Train the late-fusion MLP (§5.5) on top of frozen-or-fine-tuned
-modality encoders, per §5.6 table.
+**Purpose.** Train the late-fusion MLP (§5.5) on top of the modality
+encoders, per §5.6 table.
+
+> **RESOLVED 2026-08-26 (Round 5.1).** This stage previously said
+> "frozen-**or**-fine-tuned" and never picked one. The answer is
+> **end-to-end fine-tuned, everywhere**: the signal, image and text
+> encoders train jointly with the fusion head, with the §5.3/§5.4
+> discriminative learning rates (backbone 1e-5, new heads 1e-3, BERT
+> embeddings 1e-6). No frozen-encoder shortcut is used for any primary
+> result. This is the more expensive option and the user has accepted the
+> cost explicitly.
+>
+> The frozen-encoder variant is still **reported as a supplementary
+> ablation** ("end-to-end vs frozen late fusion"), because the per-study
+> embeddings are a near-free by-product of the P2.5–P2.7 checkpoints and
+> it pre-empts an obvious reviewer question.
+>
+> Consequence for §8.2: fusion is the only stage needing signal + image +
+> text co-resident. The L3-cohort tasks (A1/A3/A6, 468 K ECGs) fit the
+> quota outright; the full-cohort tasks (A5/B4/B5/B6, 749 K) use the
+> aligned-chunk protocol.
 
 **Per-task per-seed budget:** ~2.5 h.
 
@@ -2675,9 +2844,47 @@ The reviewer reads the stage report and verifies it against this doc.
 4. **Checkpoint retention:** Keep best + last for every (task, arch,
    seed) — disk budget ~150–200 GB for Phase 2 model_runs.
 
-### 12.7 Round 5 (pending — see §13.4 below)
+### 12.7 Round 5 (locked 2026-08-26)
 
-…
+Raised once the real DGX allocation was granted (MU HPCF, 2026-06-22
+email: DGX A100, Slurm `cpu_student`/`gpu_student`, **50 GB** quota,
+MU-network-only access, account expiry 2026-12-31) and the user's
+compute constraints became concrete.
+
+1. **Fusion protocol → end-to-end fine-tuned.** §9.9's
+   "frozen-or-fine-tuned" is resolved to fully fine-tuned for every
+   primary multimodal result. Frozen late fusion is kept as a
+   supplementary ablation only. User's words: "for 1 full end to end",
+   "publishing grade work … we cannot compromise on that no matter what".
+2. **A4/B3 fiducial source → re-run NeuroKit2 at build time.** This was
+   listed as open in §13.4.2, and the choice is now forced rather than
+   preferred: the "pre-computed R-peaks" alternative does not exist on
+   disk (see the correction in §4.A.4.3). New script
+   `00_extract_fiducials.py`, reusing the Phase 1 corrected detector.
+3. **Compute placement → DGX-primary, laptop development-only.** §8
+   rewritten. The laptop's 6 GB VRAM cannot fit the §6.6 image/text batch
+   sizes, and its mains supply is unreliable for multi-day runs. Every
+   trained number in the paper comes from the DGX; CPU-heavy stages
+   (P2.1–P2.4) run on `cpu_student`, not locally.
+4. **Checkpoint retention → best-only, evicted on completion.** Round
+   4.4's "keep best + last for every run, ~150–200 GB" is impossible
+   under a 50 GB quota and is superseded by the §8.1 policy.
+5. **Signal staging format → int16 + per-record scale.** Storage change,
+   not a precision change (§8.2); validated empirically in Stage P2.0 and
+   the comparison ships in the supplementary.
+6. **Oversized campaigns → aligned i.i.d. chunk cycling within each
+   epoch** (§8.2 rule 2), recorded as a documented sampling deviation.
+   Sequential per-chunk training is explicitly forbidden.
+7. **Scope unchanged.** Round 1.3 ("we do not skip anything at all no
+   matter what") is reaffirmed under the new constraints: no task, seed,
+   sweep, or lead-set track is dropped to save compute or transfer.
+
+**Still open, pending the first DGX session** (does not block Stage
+P2.0): whether compute nodes expose scratch space beyond the 50 GB quota
+(would remove chunking from three campaigns); whether the DGX has
+outbound internet (decides the staging path); Slurm wall-time and GPU
+limits on `gpu_student`; and whether an NGC PyTorch container exists
+(would free ~12 GB of quota).
 
 ---
 
@@ -2691,24 +2898,25 @@ The reviewer reads the stage report and verifies it against this doc.
 
 ### 13.3 Rounds 3, 3.5, 4 — DONE
 
-### 13.4 Round 5 — to be raised by the implementing agent if discovered
+### 13.4 Round 5 — PARTIALLY RESOLVED (see §12.7, locked 2026-08-26)
 
-These are decisions that may surface during implementation. The agent
-halts and asks rather than guessing. Examples of potentially open
-decisions:
+| # | Question | Status |
+| - | -------- | ------ |
+| 1 | **A3 lab-window join policy** — `same_subject` only vs `same_subject AND same_hadm_id` for the primary cohort | **OPEN** — raise at Stage P2.1 when building A3 |
+| 2 | **A4 ground-truth source** — cached R-peaks vs re-running NeuroKit2 | **RESOLVED** (§12.7.2). Forced, not chosen: the cached arrays do not exist. See §4.A.4.3 correction. |
+| 3 | **A5 anchor-pool construction** — random vs stratified over the 5 neg_types | **OPEN** — raise at Stage P2.1 when building A5 |
+| 4 | **B5 span tokenization** — character vs token offsets | **OPEN** — raise at Stage P2.2 when building B5 |
+| 5 | **DGX access details** | **RESOLVED** (§12.7.3). A100, Slurm, 50 GB, MU-network-only, expiry 2026-12-31. Four sub-questions remain, listed at the end of §12.7. |
 
-1. **A3 lab-window join policy** — `same_subject` only vs
-   `same_subject AND same_hadm_id` for the primary cohort.
-2. **A4 ground-truth source** — `structured_features.parquet`'s
-   pre-computed R-peaks vs re-running NeuroKit2 at builder time.
-3. **A5 anchor-pool construction** — fully random sampling vs
-   stratified sampling to ensure all 5 neg_types are represented.
-4. **B5 span-localization tokenization** — character-level offsets vs
-   token-level offsets in Bio-ClinicalBERT input.
-5. **DGX H100 access details** — to be answered when access is tested.
+The three still-open items are all Stage P2.1/P2.2 builder questions and
+none of them block Stage P2.0. When the implementing agent reaches one,
+it raises a Round-5 question via the AskUserQuestion harness and records
+the answer here.
 
-When the implementing agent encounters one, it raises a Round-5
-question via the AskUserQuestion harness and records the answer here.
+### 13.5 Round 6 — reserved
+
+For decisions arising after the first DGX session returns the four
+environment answers listed at the end of §12.7.
 
 ---
 

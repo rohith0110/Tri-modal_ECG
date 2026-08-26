@@ -3,10 +3,10 @@
   "script": "00_extract_fiducials",
   "done": false,
   "started_at": "2026-08-26T18:41:34Z",
-  "updated_at": "2026-08-26T19:32:50Z",
+  "updated_at": "2026-08-26T19:36:09Z",
   "n_units": 749112,
-  "n_done": 150000,
+  "n_done": 160000,
   "n_pending": 749112,
-  "rate_per_s": 48.81,
-  "eta_minutes": 204.6
+  "rate_per_s": 48.89,
+  "eta_minutes": 200.8
 }

@@ -4,18 +4,23 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-26 (session 2)
-- **Current stage:** Stage P2.0 — **COMPLETE, validation PASS 26/26**
-- **Next action:** Step 2 — write the 12 task builders + `00_extract_fiducials.py`
-  (Stages P2.1 / P2.2). See §6 Step Ledger.
-- **Blockers:** none. Questions 9 and 11 — the two that gated the A2 and B5
-  builders — were resolved 2026-08-26 (§4 Round 6, spec §12.8). Every remaining
-  §5 question has a stated default and blocks nothing.
+- **Last updated:** 2026-08-27 (session 3)
+- **Current stage:** Stage P2.1 / P2.2 — **11 of 13 builders built AND run at
+  full scale.** A4 and B3 are written and dev-verified; both wait only on
+  `00_extract_fiducials.py`, which is running (~48 studies/s, ETA in §8).
+- **Next action:** when the fiducial run exits, run `04_build_A4...` and
+  `09_build_B3...` at full scale, then emit `stage_P2.1_report.md` and
+  `stage_P2.2_report.md` and move to Step 3.
+- **Blockers:** none. The A3 lab-cache prerequisite is **DONE** (§4 decision 13).
+  Every §5 question is now resolved, dissolved, or proceeding under its stated
+  default — see §5.
 - **Compute:** amended 2026-08-26 — **all CPU-only stages run on the laptop at
   full scale**, not on `cpu_student`. The DGX stays primary for every trained
   model. See §4 decision 12.
-- **One prerequisite before A3:** the cached lab table is missing the three
-  columns its label rule needs. Re-extract it first — §4 decision 13, trap 7b.
+- **The A3 lab-cache prerequisite is done.**
+  `data/raw/ehr_cache/labevents_key_labs.parquet` — 20,481,517 rows, 18 locked
+  itemids, `ref_range_lower` / `ref_range_upper` / `flag` recovered on 100 % of
+  rows. The Phase 1 `labevents.parquet` was left untouched (§4 decision 13).
 - **Branching:** never. All work lands on `main` — see §3 "Repo and git".
 
 ---
@@ -246,6 +251,52 @@ Round 6 (2026-08-26, session 2 — decided during Stage P2.0):
     the 18 locked itemids, streaming the gz. Extends a cache; re-runs no Phase 1
     stage. Spec §12.8.7, `config/lab_itemid_map_LOCKED.yaml`.
 
+Round 7 (2026-08-27, session 3 — forced by the data while building Step 2):
+
+14. **QTc reads `machine_qtc_ms`, not `structured_features.qtc_bazett_ms`.**
+    Extends Round 6.1 to the third measurement bin. §4.A.2.3 names the NeuroKit
+    column; measured, it correlates with the machine QTc at **r = 0.024** and is
+    valid for 656,358 studies against the machine column's 748,618. It belongs
+    to the same defective family as `structured_features.qrs_ms` and `.pr_ms`,
+    which Round 6.8 already forbids by name. Using it would have cut A2's primary
+    cohort from 274,911 to 241,192 and defined the `qtc` head against a quantity
+    uncorrelated with the vendor's own QTc. `qtc_bazett_ms` survives as the
+    provenance column `qtc_ms_bazett` and supplies one §4.A.2.8 sensitivity row.
+    **Disclose in the supplementary.**
+15. **A6 readmission keeps Phase 1's eligibility rule; censoring is reported, not
+    "corrected".** §4.A.6.3 asks to exclude rows whose censoring window cannot be
+    observed, assuming a global end-of-data cutoff. MIMIC-IV has none that is
+    usable — dates are shifted per patient. The obvious substitute (call a row
+    observable when the subject's own record runs past `dischtime + horizon`)
+    **conditions on the outcome**, because a record runs on precisely when the
+    patient came back: measured, it lifts readmission_30d from 21.4 % to 27.5 %.
+    A6 therefore ships `followup_days_after_discharge` as provenance, so a
+    censoring-aware sensitivity is a filter, and the residual right-censoring is
+    a stated limitation of the readmission heads.
+16. **A5's masked-attribute head masks CLAIMS, not numerals.** §4.A.5.3 says to
+    replace "numeric mentions of HR, QRS, QT, QTc, axis, and intervals" with
+    `[MASK]`. **These reports contain no numeric measurements.** Measured over
+    all 749,112: 12.5 % contain any digit, and after removing lead names
+    (`V1`–`V6`), ordinals (`1st degree`) and ratios (`2:1`), **0.51 %** remain —
+    every one the boilerplate "Age not entered, assumed to be 50 years old".
+    Taken literally the rule masks nothing, `report_text_masked` equals
+    `report_text`, and the report still says "Sinus bradycardia", so the HR head
+    becomes a lookup. The head masks the qualitative claims that carry the
+    attribute in this vocabulary (44.3 % of reports) **and** bare numerals, so
+    the rule is a strict superset of the literal one. HR/QRS/axis surface forms
+    are read from `claim_dictionary_LOCKED.yaml` so A5 and B5 cannot drift.
+    Same finding, same direction, as Round 6.3. **Disclose in the supplementary.**
+17. **B5's QRS `normal_to_wide` count drops from 23 to 0.** Those 23 studies are
+    not injection sites: they are the `qrs_ms <= 90` studies whose report ALREADY
+    asserts a wide QRS, so swapping one produces text that *agrees* with the
+    measurement under the label "corrupted". Inspected, all 23 are
+    "--- Pediatric criteria used ---" reports, where 86–90 ms genuinely **is** an
+    intraventricular conduction defect — the adult 120 ms threshold does not
+    apply, so the report is right and the adult clear zone misfires. Cohort:
+    128,674 → **128,653** (0.016 %). `claim_dictionary_LOCKED.yaml` carries the
+    correction, the superseded P2.0 measurement and the reasoning; the builder
+    re-asserts the union every run.
+
 Earlier rounds (spec §12.1–12.6) remain binding: Plan A primary + Plan B
 supplementary, seeds 42/123/456, patient-level bootstrap n=10,000 BCa, AUPRC
 primary for imbalanced tasks, thresholds from train+val only, 70/10/20 patient
@@ -255,26 +306,27 @@ split inherited and never re-split.
 
 ## 5. Open questions
 
-**Blocking nothing right now.** Raise each at the moment it is reached.
-Questions 9 and 11 are closed; the rest carry a stated default, so a builder
-can proceed under it and only needs a decision if the default looks wrong once
-the real numbers land.
+**Nothing is open that blocks work.** Questions 9 and 11 closed in session 2.
+Session 3 built all thirteen Step-2 scripts, and in doing so resolved 1 and 3
+under their stated defaults, dissolved 2, confirmed 10 against the data, and
+applied the stated defaults for 12 and 13. Questions 4–8 are for the first DGX
+session and touch no laptop work.
 
 | #   | Question                                                                             | Raise at             | Status |
 | --- | ------------------------------------------------------------------------------------ | -------------------- | ------ |
 | 1   | A3 lab-window join: `same_subject` only, or `same_subject AND same_hadm_id`?         | P2.1, A3 builder     | open   |
-| 2   | A5 anchor pool: random or stratified over the 5 negative types?                      | P2.1, A5 builder     | open   |
-| 3   | B5 span offsets: character-level or token-level?                                     | P2.2, B5 builder     | open — §4.B.5.5 declares char offsets, so character-level is the assumed default |
+| 2   | A5 anchor pool: random or stratified over the 5 negative types?                      | P2.1, A5 builder     | **DISSOLVED 2026-08-27** — the question presumes anchors are sampled. §4.A.5.2 makes the cohort *every* clean-cohort ECG and §4.A.5.3 gives *every* anchor all five negative types, so no anchor is ever drawn and there is nothing to stratify. What IS drawn is each negative's donor, and that is deterministic per (anchor, neg_type) via a splitmix64 hash, constrained to the anchor's own split and to a different subject. |
+| 3   | B5 span offsets: character-level or token-level?                                     | P2.2, B5 builder     | **RESOLVED 2026-08-27** — character offsets into `corrupted_report_text`, the §4.B.5.5 default. Token offsets would depend on a tokenizer the data contract never names. Every span is asserted at build time to mark a real change; median span 19 characters. |
 | 4   | Does the DGX have **outbound internet**?                                             | first friend session | open   |
 | 5   | Is there **scratch space beyond the 50 GB**? Would remove chunking from 3 campaigns. | first friend session | open   |
 | 6   | Slurm wall-time / GPU limits on `gpu_student`?                                       | first friend session | open   |
 | 7   | Is an **NGC PyTorch container** available? Frees ~12 GB of quota.                    | first friend session | open   |
 | 8   | User's home upload bandwidth (~145 GB to upload over the project)                    | anytime              | open   |
 | 9   | **A2 primary cohort.** §4.A.2.2 sets it to `sqi_tier == 'high'` and predicts ~445 K ECGs. Measured: high-SQI is 4,166 of 749,112 clean studies (0.56 %), of which **3,110 are L3**. Built to the letter, A2 trains on 3,110 ECGs. | P2.1, A2 builder | **RESOLVED 2026-08-26** — `sqi ∈ {high, medium}` is primary: **275,088 L3 ECGs**, 94,025 subjects, train 192,087 / val 27,820 / test 55,181. high-only demoted to the §4.A.2.8 sensitivity table. Spec §12.8.4. |
-| 10  | **B2 anchor pool is not high-SQI.** §4.B.2.2 says "test-split ECGs with `sqi_tier='high'`". Stage 8 actually took the first 2,000 test-split `raw_lead2` rows in `study_id` order, no SQI filter: 8 high / 1,119 medium / 745 low. The set is frozen and must never be regenerated. | before the B2 write-up | open — default: amend the spec text, keep the frozen anchors, describe them accurately in the paper |
+| 10  | **B2 anchor pool is not high-SQI.** §4.B.2.2 says "test-split ECGs with `sqi_tier='high'`". Stage 8 actually took the first 2,000 test-split `raw_lead2` rows in `study_id` order, no SQI filter. The set is frozen and must never be regenerated. | before the B2 write-up | **CONFIRMED 2026-08-27, default applied.** The B2 builder measures the mix rather than restating the spec: **8 high / 1,119 medium / 744 low** among the 1,871 anchors that carry usable B1 labels (1,998 anchors exist; 127 lack valid machine measurements). The frozen set is untouched, the builder records the real mix in the task README, and the paper must describe B2 anchors as an SQI-representative test-split sample. The §4.B.2.2 sentence is what needs amending. |
 | 11  | **B5 row emission.** §4.B.5.3 ("one clean row per ECG + a corrupted row with p=0.5") gives 12:1; §6.4 asserts "balanced 50/50 by dataset design". Both cannot hold. | P2.2, B5 builder | **RESOLVED 2026-08-26** — one row per **eligible** study, corrupted with p=0.5 → exact 50/50 over **128,674 rows**, 38,438 subjects, train 89,855 / val 12,944 / test 25,875. Spec §12.8.5. |
-| 12  | **Regime_2 augmentation policy** is unspecified in §7.3. | P2.5, B2 regime_2 trainer | open — default recorded in `corruption_recipes_LOCKED.yaml`: p=0.5 per sample, family and SNR uniform, RNG salted `regime2\|` |
-| 13  | **B6 hard tier** — add a same-HR-bucket, SAME-SUBJECT swap? (Round 3 left it RESERVED.) | P2.2, B6 builder | open — default: ship the hard tier empty |
+| 12  | **Regime_2 augmentation policy** is unspecified in §7.3. | P2.5, B2 regime_2 trainer | **DEFAULT APPLIED 2026-08-27** — `corruption_recipes_LOCKED.yaml` `regimes.regime_2.augmentation_policy`: p = 0.5 per sample, family uniform over all 8, SNR uniform over {30,20,10,5,0}, a train_augmentation RNG stream distinct from the frozen test set. The B2 builder stamps the policy into the task README so the trainer reads it from one place. Still revisitable at P2.5 — it changes a trainer, not the data. |
+| 13  | **B6 hard tier** — add a same-HR-bucket, SAME-SUBJECT swap? (Round 3 left it RESERVED.) | P2.2, B6 builder | **DEFAULT APPLIED 2026-08-27** — the hard tier ships empty. The tier name stays in `eval_keys.parquet`'s vocabulary, so adding it later rebuilds one small pointer table plus the matching B4 rows, and no trained model. |
 
 ---
 
@@ -317,18 +369,42 @@ plan; this is the index of record.
         deterministic (`SEED = 2026`)
   - [x] *(added)* `_dataset_lib/schema_validators.py` — the Pydantic schemas §9.1
         mandates, wrapped in a re-runnable 26-check gate
-- [ ] **Step 2 — Write AND RUN the 12 task builders + `00_extract_fiducials.py`**
-      (~1 week of writing + ~1–2 days of compute) — **start here.** Amended
-      2026-08-26: these run **at full scale on the laptop**, not on the DGX.
-      Smoke-test each on `dev_sample/` first, then run it for real.
-      `00_extract_fiducials.py` is ~5–10 h. Every full-scale script checkpoints
-      and resumes.
-  - [ ] **Prerequisite for A3:** re-extract `data/raw/ehr_cache/labevents.parquet`
-        from `data/raw/mimic-iv-hosp-3.1/hosp/labevents.csv.gz`, filtered to the
-        18 locked itemids, keeping `ref_range_lower`, `ref_range_upper`, `flag`,
-        `valueuom`, `value`. Stream the gz — 158 M rows, do not load it whole.
-        See §4 decision 13 / spec §12.8.7.
-      Q9 and Q11 are resolved; the remaining §5 questions have stated defaults.
+- [~] **Step 2 — Write AND RUN the 12 task builders + `00_extract_fiducials.py`**
+      — **11 of 13 done at full scale** (2026-08-27, session 3). Every script
+      smoke-tests on `dev_sample/` first, then runs for real; all of them
+      checkpoint and resume, and `--dev` writes to `data/processed/tasks/_dev/`
+      so a smoke test can never overwrite a real table.
+  - [x] **Prerequisite for A3 — DONE.** `00b_rebuild_lab_cache.py` streamed
+        `labevents.csv.gz` (158,374,764 rows) in 4 M-row chunks and wrote
+        `data/raw/ehr_cache/labevents_key_labs.parquet`: 20,481,517 rows over
+        the 18 locked itemids, with `ref_range_lower` / `ref_range_upper` /
+        `flag` recovered on **100 %** of rows in every lab. 9.0 min. The Phase 1
+        `labevents.parquet` was NOT overwritten — it is a provenance artifact
+        covering every itemid, and the rebuild covers 18.
+  - [~] `00_extract_fiducials.py` — **running at full scale**, 749,112 studies
+        (the full clean cohort, so A4's primary, A4's full-cohort sensitivity and
+        B3 are all served by one pass). ~48 studies/s on 15 workers.
+        Dev-sample validation: 0.14 % fallback, 99.24 % delineation, and R-peak
+        rate vs machine HR **r = 0.931** — the corrected Phase 1 detector path
+        reproduces. Adds `sqi_per_bin` so B3 needs no second pass over 11.85 GB.
+  - [x] `01_build_A1_ecg_diagnosis.py` — 376,051 primary rows / 95,765 subjects
+  - [x] `02_build_A2_measurement_blind.py` — 275,088 / 94,025, **exactly** the
+        locked Round 6.4 cohort and split
+  - [x] `03_build_A3_lab_abnormality.py` — 422,147 primary rows, 150 columns
+  - [ ] `04_build_A4_event_localization.py` — written, dev-verified; waits on the
+        fiducial run
+  - [x] `05_build_A5_cross_modal_verification.py` — 5,243,784 verification rows
+        + 748,454 masked-attribute rows
+  - [x] `06_build_A6_risk_stratification.py` — 422,147 primary rows / 114,859 subjects
+  - [x] `07_build_B1_measurement_blind.py` — 748,454 rows
+  - [x] `08_build_B2_noise_robustness.py` — 900,005 rows, complete 8 x 5 grid
+  - [ ] `09_build_B3_temporal_grounding.py` — written, dev-verified; waits on the
+        fiducial run
+  - [x] `10_build_B4_cross_modal_verification.py` — 5,243,784 rows, **A5/B4 row
+        equality PASSES** at full scale
+  - [x] `11_build_B5_contradiction_detection.py` — 128,653 rows, 49.92 % corrupted
+  - [x] `12_build_B6_difficulty_stratified.py` — pointer table, hard tier empty
+  - [ ] Emit `stage_P2.1_report.md` and `stage_P2.2_report.md` once A4 and B3 land
 - [ ] **Step 3 — Write training + evaluation code** (~3–4 days)
 - [ ] **Step 4 — Write the chunk-cutter and campaign launchers** (~2 days)
 - [ ] **Step 5 — Make int16 copies + prove equivalence** (float32-vs-int16
@@ -454,6 +530,33 @@ now happen inside Steps 2 and 3 rather than after Step 8.
    trains silently on transposed data.
 11. **`sqi_tier == 'high'` is 0.56 % of the cohort**, not the majority the spec
    assumes for A2. See §5 question 9 before building A2 or A4.
+12. **The machine reports carry NO numbers.** 12.5 % of the 749,112 clean reports
+   contain a digit; after lead names (`V1`–`V6`), ordinals (`1st degree`) and
+   ratios (`2:1`), **0.51 %** remain, and every one is the boilerplate "Age not
+   entered, assumed to be 50 years old". Any spec sentence about "numeric
+   mentions" in the report text (§4.A.5.3 was one) is describing a corpus this
+   is not. What the reports state is the qualitative claim — "Sinus
+   bradycardia", "Left axis deviation", "RBBB". §4 decision 16.
+13. **`--dev` used to overwrite the real task parquets.** Both modes wrote to
+   `data/processed/tasks/<task>/`, so a two-minute smoke test silently replaced
+   a full-scale table with 5,000 dev rows and nothing downstream could tell.
+   Fixed 2026-08-27: `build_common.set_dev()` routes dev output to
+   `data/processed/tasks/_dev/`, and every builder calls it right after parsing
+   args. **A new builder that forgets `bc.set_dev(args.dev)` reintroduces the
+   bug.**
+14. **The cohort contains paediatric ECGs and adult thresholds misfire on them.**
+   659 of 749,112 clean reports (0.088 %, 654 subjects) say
+   "--- Pediatric criteria used ---". Their median HR (74 bpm) and QRS (94 ms)
+   are within a beat and a millisecond of the adult medians, so the A2/B1 bins
+   are not materially affected — but every one of B5's 23 spurious
+   report-says-wide / measurement-says-narrow QRS pairs was paediatric, where
+   86–90 ms genuinely IS a conduction defect. §4 decision 17.
+15. **The `n_ecg_expected_*` numbers in §4 and `task_definitions.yaml` are
+   pre-QC.** They were computed on the 800,035-row full index; every builder
+   works on the 749,112-row post-QC clean cohort (93.6 %). So A1's "expected
+   468,176" lands at 422,147 L3 rows and A6's "416,440 mortality-observable"
+   lands at 382,572. Nothing is wrong — the two are counting different
+   populations. Compare against the clean cohort, not the spec's estimate.
 
 ---
 
@@ -535,3 +638,50 @@ Append a short entry per session: what changed, what to do next. Newest last.
   AND run at full scale locally. Nothing blocks it. The remaining §5 questions (1, 2, 3, 12, 13) each have a stated
   default and are raised only if the numbers contradict it; questions 4–8 are
   for the first DGX session and touch no laptop work.
+
+### Session 3 — 2026-08-27
+
+- **Step 2 is 11/13 done at full scale, on the laptop, per the Round 6.12
+  compute amendment.** Every builder was smoke-tested on `dev_sample/` first and
+  then run for real; the numbers below are the real ones.
+- **Lab cache rebuilt** (`00b_rebuild_lab_cache.py`): 158,374,764 source rows
+  streamed in 4 M-row chunks → 20,481,517 rows over the 18 locked itemids, with
+  `ref_range_lower` / `ref_range_upper` / `flag` recovered on 100 % of rows in
+  every lab, in 9.0 min. Written as a **sibling** file; the Phase 1
+  `labevents.parquet` is untouched. The A3 blocker is closed.
+- **`00_extract_fiducials.py` runs over the full clean cohort** (749,112), not
+  just A4's L3 slice, because A4's sensitivity cohort and B3's cohort are both
+  the full clean cohort — one pass serves three needs. It reuses the corrected
+  Phase 1 detector path verbatim, and the dev sample confirms it reproduces:
+  R-peak rate vs machine HR **r = 0.931**, 0.14 % fallback, 99.24 % delineation.
+  It also emits `sqi_per_bin` (10 × 1 s) so B3 needs no second 11.85 GB pass.
+- **Full-scale results.** A1 376,051 primary / 95,765 subjects · A2 275,088 /
+  94,025 (exactly the locked Round 6.4 numbers, split included) · A3 422,147 /
+  114,859 over 150 columns · A5 5,243,784 verification rows (28.571 % positive =
+  exactly 2-in-7) + 748,454 masked rows · A6 422,147 / 114,859 · B1 748,454 ·
+  B2 900,005 with a complete 8 × 5 grid · B4 5,243,784 with the **A5/B4 equality
+  assertion passing** · B5 128,653 at 49.92 % corrupted · B6 pointer table.
+  Zero subject overlap on every table.
+- **Five things the data forced**, all recorded in §4 as decisions 14–17 and in
+  §7 as traps 12–15:
+  1. QTc must read `machine_qtc_ms` — the NeuroKit `qtc_bazett_ms` correlates
+     with it at r = 0.024.
+  2. A6's readmission censoring cannot be "corrected" in MIMIC-IV without
+     conditioning on the outcome (21.4 % → 27.5 % if you try).
+  3. The machine reports contain no numerals, so A5's masked-attribute head
+     masks claims instead — and 44.3 % of reports carry one.
+  4. B5's 23 `normal_to_wide` QRS studies are not injection sites; all 23 are
+     paediatric reports where the adult threshold misfires. 128,674 → 128,653.
+  5. `--dev` was overwriting full-scale task parquets. Fixed.
+- **Every §5 question is now closed or running under its stated default.**
+  1 resolved (both joins built), 2 dissolved, 3 resolved, 10 confirmed against
+  the data, 12 and 13 defaults applied. 4–8 remain for the first DGX session.
+- Config changes: `task_definitions.yaml` (QTc source, B3 threshold slot),
+  `lab_itemid_map_LOCKED.yaml` (rebuild done + result), `claim_dictionary_LOCKED.yaml`
+  (QRS correction + superseded measurement). **P2.0 gate re-run after each: 26/26.**
+  The gate's quarantine check was also fixed — it asserted the Phase 2 script
+  directory holds zero `.py`, true at P2.0 and wrong the moment Step 2 began.
+- Commits on `main`: `bd32b9c`, `e336238`, `0ae04b7`, `7fd076b`, `13f0f9d`.
+- **Next:** the fiducial run finishes → run `04_build_A4...` and
+  `09_build_B3...` at full scale → emit `stage_P2.1_report.md` and
+  `stage_P2.2_report.md` → Step 3 (training + evaluation code).

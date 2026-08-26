@@ -1,0 +1,79 @@
+{
+  "stage": "P2.1",
+  "script": "06_build_A6_risk_stratification",
+  "done": true,
+  "started_at": "2026-08-26T18:56:20Z",
+  "updated_at": "2026-08-26T18:57:26Z",
+  "finished_at": "2026-08-26T18:57:26Z",
+  "n_rows_total": 500471,
+  "n_rows_primary_l3": 422147,
+  "splits_total": {
+    "train": 350203,
+    "val": 50240,
+    "test": 100028
+  },
+  "n_mortality_observable_primary": 382572,
+  "n_readmission_eligible_primary": 376156,
+  "n_followup_ge_30d_primary": 236530,
+  "n_followup_ge_90d_primary": 211119,
+  "prevalence_censoring_aware_pct": {
+    "readmission_30d": 27.4993,
+    "readmission_90d": 42.0336
+  },
+  "n_ed_only_null_readmission": 45991,
+  "prevalence_primary_pct": {
+    "mortality_30d": 6.8467,
+    "mortality_90d": 11.2274,
+    "readmission_30d": 21.4081,
+    "readmission_90d": 32.8986
+  },
+  "prevalence_primary_by_split_pct": {
+    "train": {
+      "mortality_30d": 6.8366,
+      "mortality_90d": 11.2442,
+      "readmission_30d": 21.4124,
+      "readmission_90d": 32.9264
+    },
+    "val": {
+      "mortality_30d": 6.9567,
+      "mortality_90d": 11.2727,
+      "readmission_30d": 21.2335,
+      "readmission_90d": 32.7744
+    },
+    "test": {
+      "mortality_30d": 6.8265,
+      "mortality_90d": 11.1455,
+      "readmission_30d": 21.4813,
+      "readmission_90d": 32.864
+    }
+  },
+  "boundary_flag_pct_primary": 11.451,
+  "days_to_death_median_positive": 20.51,
+  "days_to_readmission_median": 78.68,
+  "next_admission_type_top": {
+    "EW EMER.": 89438,
+    "EU OBSERVATION": 40744,
+    "OBSERVATION ADMIT": 40651,
+    "URGENT": 18499,
+    "DIRECT EMER.": 13499,
+    "DIRECT OBSERVATION": 12710
+  },
+  "n_rows": 500471,
+  "n_subjects": 124602,
+  "n_rows_train": 350203,
+  "n_subjects_train": 87255,
+  "n_rows_val": 50240,
+  "n_subjects_val": 12445,
+  "n_rows_test": 100028,
+  "n_subjects_test": 24902,
+  "subject_overlap": 0,
+  "primary_n_rows": 422147,
+  "primary_n_subjects": 114859,
+  "primary_n_rows_train": 295236,
+  "primary_n_subjects_train": 80431,
+  "primary_n_rows_val": 42563,
+  "primary_n_subjects_val": 11475,
+  "primary_n_rows_test": 84348,
+  "primary_n_subjects_test": 22953,
+  "primary_subject_overlap": 0
+}

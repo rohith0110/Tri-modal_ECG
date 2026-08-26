@@ -1,0 +1,79 @@
+{
+  "stage": "P2.1",
+  "script": "06_build_A6_risk_stratification_dev",
+  "done": true,
+  "started_at": "2026-08-26T18:55:47Z",
+  "updated_at": "2026-08-26T18:55:56Z",
+  "finished_at": "2026-08-26T18:55:56Z",
+  "n_rows_total": 3411,
+  "n_rows_primary_l3": 2880,
+  "splits_total": {
+    "train": 2346,
+    "val": 331,
+    "test": 734
+  },
+  "n_mortality_observable_primary": 2592,
+  "n_readmission_eligible_primary": 2556,
+  "n_followup_ge_30d_primary": 1610,
+  "n_followup_ge_90d_primary": 1439,
+  "prevalence_censoring_aware_pct": {
+    "readmission_30d": 28.5714,
+    "readmission_90d": 42.3211
+  },
+  "n_ed_only_null_readmission": 324,
+  "prevalence_primary_pct": {
+    "mortality_30d": 6.9097,
+    "mortality_90d": 11.2847,
+    "readmission_30d": 22.3787,
+    "readmission_90d": 33.2551
+  },
+  "prevalence_primary_by_split_pct": {
+    "train": {
+      "mortality_30d": 7.3478,
+      "mortality_90d": 11.8269,
+      "readmission_30d": 22.2977,
+      "readmission_90d": 32.4844
+    },
+    "val": {
+      "mortality_30d": 5.3763,
+      "mortality_90d": 11.828,
+      "readmission_30d": 28.3401,
+      "readmission_90d": 40.081
+    },
+    "test": {
+      "mortality_30d": 6.1889,
+      "mortality_90d": 9.2834,
+      "readmission_30d": 19.9262,
+      "readmission_90d": 32.6568
+    }
+  },
+  "boundary_flag_pct_primary": 11.181,
+  "days_to_death_median_positive": 21.42,
+  "days_to_readmission_median": 76.21,
+  "next_admission_type_top": {
+    "EW EMER.": 602,
+    "EU OBSERVATION": 293,
+    "OBSERVATION ADMIT": 281,
+    "URGENT": 128,
+    "DIRECT OBSERVATION": 97,
+    "DIRECT EMER.": 95
+  },
+  "n_rows": 3411,
+  "n_subjects": 3279,
+  "n_rows_train": 2346,
+  "n_subjects_train": 2256,
+  "n_rows_val": 331,
+  "n_subjects_val": 321,
+  "n_rows_test": 734,
+  "n_subjects_test": 702,
+  "subject_overlap": 0,
+  "primary_n_rows": 2880,
+  "primary_n_subjects": 2778,
+  "primary_n_rows_train": 1987,
+  "primary_n_subjects_train": 1920,
+  "primary_n_rows_val": 279,
+  "primary_n_subjects_val": 270,
+  "primary_n_rows_test": 614,
+  "primary_n_subjects_test": 588,
+  "primary_subject_overlap": 0
+}

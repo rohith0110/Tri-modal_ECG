@@ -638,13 +638,20 @@ def run() -> int:
         assert LEGACY_DIR.is_dir(), f"{LEGACY_DIR} does not exist"
         moved = sorted(p.name for p in LEGACY_DIR.glob("*.py"))
         assert moved, "the legacy directory holds no scripts"
-        stragglers = sorted(p.name for p in PHASE2_SCRIPTS.glob("*.py"))
-        assert not stragglers, f"pre-regen scripts still at the origin path: {stragglers}"
+        # Stage P2.1 onward the origin path legitimately holds the NEW Phase 2
+        # builders, so "the directory is empty" stopped being the right test on
+        # 2026-08-26. What must stay true is that no quarantined filename has
+        # come back: a Phase 2 script reusing a pre-regen name would shadow it
+        # in every import and every doc reference.
+        at_origin = {p.name for p in PHASE2_SCRIPTS.glob("*.py")}
+        returned = sorted(at_origin & set(moved))
+        assert not returned, f"quarantined pre-regen scripts are back at the origin path: {returned}"
         for slot in ("01_task_A_verification.py", "06_task_B5_contradiction_detection.py",
                      "20_train_B1_bank.py", "30_neurokit2_baseline_B1.py",
                      "40_aggregate_seeds.py", "50_benchmark_figures.py", "60_find_examples.py"):
             assert slot in moved, f"{slot} was not quarantined"
-        return f"{len(moved)} scripts moved, 0 left at the origin path"
+        return (f"{len(moved)} scripts quarantined, 0 reoccupied; "
+                f"{len(at_origin)} Phase 2 script(s) at the origin path")
 
     gate.check("legacy scripts quarantined, origin clear", _quarantine)
 

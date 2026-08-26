@@ -1,0 +1,156 @@
+{
+  "stage": "P2.1",
+  "script": "02_build_A2_measurement_blind_dev",
+  "done": true,
+  "started_at": "2026-08-26T18:50:41Z",
+  "updated_at": "2026-08-26T18:50:45Z",
+  "finished_at": "2026-08-26T18:50:45Z",
+  "n_rows_total": 3407,
+  "n_rows_primary": 1963,
+  "splits_total": {
+    "train": 2344,
+    "val": 331,
+    "test": 732
+  },
+  "sqi_breakdown_l3": {
+    "high": 247,
+    "medium": 1716,
+    "low": 913
+  },
+  "n_rows_l3_sqi_high_only": 247,
+  "n_rows_l3_l2_sqi_high_medium": 2312,
+  "labels_primary": {
+    "hr_label": {
+      "bradycardia": {
+        "n": 124,
+        "pct": 6.317
+      },
+      "normal": {
+        "n": 1233,
+        "pct": 62.812
+      },
+      "tachycardia": {
+        "n": 606,
+        "pct": 30.871
+      }
+    },
+    "hr_label_by_split": {
+      "train": {
+        "bradycardia": 6.135,
+        "normal": 62.38,
+        "tachycardia": 31.486
+      },
+      "val": {
+        "bradycardia": 5.82,
+        "normal": 62.963,
+        "tachycardia": 31.217
+      },
+      "test": {
+        "bradycardia": 7.126,
+        "normal": 64.133,
+        "tachycardia": 28.741
+      }
+    },
+    "qrs_label": {
+      "normal": {
+        "n": 1281,
+        "pct": 65.257
+      },
+      "borderline": {
+        "n": 388,
+        "pct": 19.766
+      },
+      "wide": {
+        "n": 294,
+        "pct": 14.977
+      }
+    },
+    "qrs_label_by_split": {
+      "train": {
+        "normal": 65.41,
+        "borderline": 19.438,
+        "wide": 15.152
+      },
+      "val": {
+        "normal": 70.37,
+        "borderline": 17.989,
+        "wide": 11.64
+      },
+      "test": {
+        "normal": 62.47,
+        "borderline": 21.615,
+        "wide": 15.914
+      }
+    },
+    "qtc_label": {
+      "short": {
+        "n": 2,
+        "pct": 0.102
+      },
+      "normal": {
+        "n": 965,
+        "pct": 49.159
+      },
+      "prolonged": {
+        "n": 996,
+        "pct": 50.739
+      }
+    },
+    "qtc_label_by_split": {
+      "train": {
+        "short": 0.148,
+        "normal": 49.076,
+        "prolonged": 50.776
+      },
+      "val": {
+        "short": 0.0,
+        "normal": 51.852,
+        "prolonged": 48.148
+      },
+      "test": {
+        "short": 0.0,
+        "normal": 48.219,
+        "prolonged": 51.781
+      }
+    }
+  },
+  "measurement_summary_primary": {
+    "hr_bpm": {
+      "mean": 90.36,
+      "median": 87.08,
+      "min": 37.01,
+      "max": 180.18
+    },
+    "qrs_ms": {
+      "mean": 98.5,
+      "median": 92.0,
+      "min": 58.0,
+      "max": 293.0
+    },
+    "qtc_ms": {
+      "mean": 452.07,
+      "median": 450.37,
+      "min": 345.72,
+      "max": 597.92
+    }
+  },
+  "qtc_bazett_valid_pct_primary": 82.83,
+  "n_rows": 3407,
+  "n_subjects": 3275,
+  "n_rows_train": 2344,
+  "n_subjects_train": 2254,
+  "n_rows_val": 331,
+  "n_subjects_val": 321,
+  "n_rows_test": 732,
+  "n_subjects_test": 700,
+  "subject_overlap": 0,
+  "primary_n_rows": 1963,
+  "primary_n_subjects": 1906,
+  "primary_n_rows_train": 1353,
+  "primary_n_subjects_train": 1313,
+  "primary_n_rows_val": 189,
+  "primary_n_subjects_val": 186,
+  "primary_n_rows_test": 421,
+  "primary_n_subjects_test": 407,
+  "primary_subject_overlap": 0
+}

@@ -1,0 +1,165 @@
+{
+  "stage": "P2.1",
+  "script": "03_build_A3_lab_abnormality_dev",
+  "done": true,
+  "started_at": "2026-08-26T19:00:19Z",
+  "updated_at": "2026-08-26T19:00:29Z",
+  "finished_at": "2026-08-26T19:00:29Z",
+  "n_rows_total": 3411,
+  "n_rows_primary_l3": 2880,
+  "n_columns": 150,
+  "n_heads": 35,
+  "splits_total": {
+    "train": 2346,
+    "val": 331,
+    "test": 734
+  },
+  "coverage_pm24h_pct_primary": {
+    "K": 96.32,
+    "Na": 96.04,
+    "creatinine": 96.28,
+    "troponin": 18.37,
+    "lactate": 35.28,
+    "Ca": 76.88,
+    "Mg": 78.99
+  },
+  "class_distribution_pm24h_primary_pct": {
+    "K": {
+      "missing": 3.681,
+      "low_abnormal": 3.368,
+      "high_abnormal": 6.84,
+      "abnormal_unknown_direction": 0.0,
+      "normal": 86.111
+    },
+    "Na": {
+      "missing": 3.958,
+      "low_abnormal": 8.785,
+      "high_abnormal": 2.396,
+      "abnormal_unknown_direction": 0.0,
+      "normal": 84.861
+    },
+    "creatinine": {
+      "missing": 3.715,
+      "low_abnormal": 0.694,
+      "high_abnormal": 31.354,
+      "abnormal_unknown_direction": 0.0,
+      "normal": 64.236
+    },
+    "troponin": {
+      "missing": 81.632,
+      "low_abnormal": 0.0,
+      "high_abnormal": 17.153,
+      "abnormal_unknown_direction": 0.0,
+      "normal": 1.215
+    },
+    "lactate": {
+      "missing": 64.722,
+      "low_abnormal": 0.0,
+      "high_abnormal": 11.042,
+      "abnormal_unknown_direction": 0.0,
+      "normal": 24.236
+    },
+    "Ca": {
+      "missing": 23.125,
+      "low_abnormal": 20.382,
+      "high_abnormal": 1.667,
+      "abnormal_unknown_direction": 0.0,
+      "normal": 54.826
+    },
+    "Mg": {
+      "missing": 21.007,
+      "low_abnormal": 3.993,
+      "high_abnormal": 2.743,
+      "abnormal_unknown_direction": 0.0,
+      "normal": 72.257
+    }
+  },
+  "coverage_by_window_pct_primary": {
+    "pm24h": {
+      "K": 96.32,
+      "Na": 96.04,
+      "creatinine": 96.28,
+      "troponin": 18.37,
+      "lactate": 35.28,
+      "Ca": 76.88,
+      "Mg": 78.99
+    },
+    "pre_24h": {
+      "K": 72.64,
+      "Na": 72.36,
+      "creatinine": 72.53,
+      "troponin": 12.47,
+      "lactate": 20.69,
+      "Ca": 52.19,
+      "Mg": 53.06
+    },
+    "post_24h": {
+      "K": 81.08,
+      "Na": 80.28,
+      "creatinine": 80.42,
+      "troponin": 14.03,
+      "lactate": 23.06,
+      "Ca": 66.98,
+      "Mg": 69.34
+    },
+    "pm6h": {
+      "K": 77.99,
+      "Na": 77.22,
+      "creatinine": 76.74,
+      "troponin": 14.44,
+      "lactate": 25.35,
+      "Ca": 51.77,
+      "Mg": 52.95
+    },
+    "pm12h": {
+      "K": 93.44,
+      "Na": 93.06,
+      "creatinine": 93.09,
+      "troponin": 16.39,
+      "lactate": 30.28,
+      "Ca": 68.3,
+      "Mg": 70.8
+    }
+  },
+  "same_hadm_coverage_pm24h_pct_primary": {
+    "K": 86.56,
+    "Na": 86.28,
+    "creatinine": 86.39,
+    "troponin": 17.29,
+    "lactate": 23.33,
+    "Ca": 72.81,
+    "Mg": 75.1
+  },
+  "abnormal_method_pm24h_primary": {
+    "K": {
+      "ref_range": 2774,
+      "no_event": 106,
+      "null_value": 0,
+      "flag": 0
+    },
+    "troponin": {
+      "no_event": 1598,
+      "null_value": 753,
+      "ref_range": 529,
+      "flag": 0
+    }
+  },
+  "n_rows": 3411,
+  "n_subjects": 3279,
+  "n_rows_train": 2346,
+  "n_subjects_train": 2256,
+  "n_rows_val": 331,
+  "n_subjects_val": 321,
+  "n_rows_test": 734,
+  "n_subjects_test": 702,
+  "subject_overlap": 0,
+  "primary_n_rows": 2880,
+  "primary_n_subjects": 2778,
+  "primary_n_rows_train": 1987,
+  "primary_n_subjects_train": 1920,
+  "primary_n_rows_val": 279,
+  "primary_n_subjects_val": 270,
+  "primary_n_rows_test": 614,
+  "primary_n_subjects_test": 588,
+  "primary_subject_overlap": 0
+}

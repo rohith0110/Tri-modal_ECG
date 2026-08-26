@@ -25,7 +25,8 @@ lock:
 
 reference_tables:
   dictionary: "data/raw/ehr_cache/d_labitems.parquet"
-  events: "data/raw/ehr_cache/labevents.parquet"
+  events: "data/raw/ehr_cache/labevents_key_labs.parquet"   # REBUILT 2026-08-26, see cache_rebuild_required
+  events_legacy: "data/raw/ehr_cache/labevents.parquet"     # Phase 1 extract; lacks ref_range/flag, do NOT use for A3
   events_source: "data/raw/mimic-iv-hosp-3.1/hosp/labevents.csv.gz"
   availability: "data/processed/linkage/label_availability.parquet"
 
@@ -46,9 +47,37 @@ reference_tables:
 #     ref_range_upper, flag, priority, comments
 # -----------------------------------------------------------------------------
 cache_rebuild_required:
-  status: REQUIRED_BEFORE_A3
+  status: DONE
   raised_at: "Stage P2.0, 2026-08-26"
+  completed_at: "2026-08-26, Stage P2.1"
+  completed_by: "scripts/phase2_tasks_benchmark_and_paper/00b_rebuild_lab_cache.py"
   blocks: "03_build_A3_lab_abnormality.py"
+  result:
+    out_path: "data/raw/ehr_cache/labevents_key_labs.parquet"
+    source_rows_read: 158374764
+    rows_kept: 20481517
+    elapsed_minutes: 9.0
+    original_file_untouched: true
+    per_lab_rows: {K: 4484371, Na: 4271671, creatinine: 4320364, troponin: 460542,
+                   lactate: 670120, Ca: 3341228, Mg: 2933221}
+    ref_range_lower_pct: 100.0
+    ref_range_upper_pct: 100.0
+    valuenum_pct: {K: 99.94, Na: 99.98, creatinine: 99.96, troponin: 41.74,
+                   lactate: 99.95, Ca: 99.98, Mg: 99.98}
+    flag_pct: {K: 10.04, Na: 14.36, creatinine: 31.59, troponin: 38.90,
+               lactate: 36.90, Ca: 30.63, Mg: 7.98}
+    troponin_valuenum_note: |
+      Only 41.74 % of troponin rows carry a numeric valuenum. The rest report a
+      non-numeric result string ("<0.01", "NEG", "GREATER THAN 25"), whose
+      valuenum the source leaves null. Under the §4.A.3.3 precedence that is the
+      `missing` class, which is a real class the task reports rather than drops.
+      The raw `value` string is kept in the extract as the evidence for it.
+    write_target_note: |
+      The rebuild writes a SIBLING file rather than overwriting
+      labevents.parquet. The original is a Phase 1 provenance artifact covering
+      all 158 M rows and every itemid; the rebuild covers 18 itemids only, so
+      overwriting would discard data that cost hours to extract in exchange for
+      nothing A3 needs.
   action: |
     Re-extract data/raw/ehr_cache/labevents.parquet from the csv.gz, filtered to
     the 18 locked itemids, keeping at minimum:

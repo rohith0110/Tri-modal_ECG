@@ -1,0 +1,69 @@
+{
+  "stage": "P2.1",
+  "script": "01_build_A1_ecg_diagnosis",
+  "done": true,
+  "started_at": "2026-08-26T18:44:46Z",
+  "updated_at": "2026-08-26T18:45:10Z",
+  "finished_at": "2026-08-26T18:45:10Z",
+  "n_rows_total": 500277,
+  "n_rows_primary_l3_hosp": 376051,
+  "n_rows_sensitivity_l2": 78268,
+  "n_rows_ed_secondary": 47703,
+  "splits": {
+    "train": 350090,
+    "val": 50216,
+    "test": 99971
+  },
+  "boundary_flag_pct": 13.513,
+  "boundary_flag_pct_primary": 12.848,
+  "n_manifest_codes": 138,
+  "prevalence_primary": {
+    "atrial_fibrillation_flutter": 30.15,
+    "heart_failure_narrow": 30.425,
+    "acute_myocardial_infarction": 11.159,
+    "conduction_disorder": 6.589,
+    "ventricular_arrhythmia_or_arrest": 5.055
+  },
+  "prevalence_primary_by_split": {
+    "train": {
+      "atrial_fibrillation_flutter": 30.429,
+      "heart_failure_narrow": 30.645,
+      "acute_myocardial_infarction": 11.315,
+      "conduction_disorder": 6.507,
+      "ventricular_arrhythmia_or_arrest": 5.132
+    },
+    "val": {
+      "atrial_fibrillation_flutter": 29.082,
+      "heart_failure_narrow": 29.604,
+      "acute_myocardial_infarction": 11.099,
+      "conduction_disorder": 6.298,
+      "ventricular_arrhythmia_or_arrest": 5.143
+    },
+    "test": {
+      "atrial_fibrillation_flutter": 29.71,
+      "heart_failure_narrow": 30.069,
+      "acute_myocardial_infarction": 10.644,
+      "conduction_disorder": 7.024,
+      "ventricular_arrhythmia_or_arrest": 4.739
+    }
+  },
+  "n_any_label_primary": 193977,
+  "n_rows": 500277,
+  "n_subjects": 124547,
+  "n_rows_train": 350090,
+  "n_subjects_train": 87220,
+  "n_rows_val": 50216,
+  "n_subjects_val": 12440,
+  "n_rows_test": 99971,
+  "n_subjects_test": 24887,
+  "subject_overlap": 0,
+  "primary_n_rows": 376051,
+  "primary_n_subjects": 95765,
+  "primary_n_rows_train": 262950,
+  "primary_n_subjects_train": 67024,
+  "primary_n_rows_val": 37914,
+  "primary_n_subjects_val": 9573,
+  "primary_n_rows_test": 75187,
+  "primary_n_subjects_test": 19168,
+  "primary_subject_overlap": 0
+}

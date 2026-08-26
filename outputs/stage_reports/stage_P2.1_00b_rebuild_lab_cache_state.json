@@ -1,0 +1,73 @@
+{
+  "stage": "P2.1",
+  "script": "00b_rebuild_lab_cache",
+  "done": true,
+  "started_at": "2026-08-26T18:32:05Z",
+  "updated_at": "2026-08-26T18:41:03Z",
+  "chunks_done": 40,
+  "rows_in": 158374764,
+  "rows_out": 20481517,
+  "finished_at": "2026-08-26T18:41:03Z",
+  "n_rows": 20481517,
+  "rows_read": 158374764,
+  "out_path": "D:\\Coding\\MU\\Tri-Modal_ECG\\data\\raw\\ehr_cache\\labevents_key_labs.parquet",
+  "per_lab": [
+    {
+      "lab": "Ca",
+      "n": 3341228,
+      "valuenum_pct": 99.98,
+      "ref_lower_pct": 100.0,
+      "ref_upper_pct": 100.0,
+      "flag_pct": 30.63
+    },
+    {
+      "lab": "K",
+      "n": 4484371,
+      "valuenum_pct": 99.94,
+      "ref_lower_pct": 100.0,
+      "ref_upper_pct": 100.0,
+      "flag_pct": 10.04
+    },
+    {
+      "lab": "Mg",
+      "n": 2933221,
+      "valuenum_pct": 99.98,
+      "ref_lower_pct": 100.0,
+      "ref_upper_pct": 100.0,
+      "flag_pct": 7.98
+    },
+    {
+      "lab": "Na",
+      "n": 4271671,
+      "valuenum_pct": 99.98,
+      "ref_lower_pct": 100.0,
+      "ref_upper_pct": 100.0,
+      "flag_pct": 14.36
+    },
+    {
+      "lab": "creatinine",
+      "n": 4320364,
+      "valuenum_pct": 99.96,
+      "ref_lower_pct": 100.0,
+      "ref_upper_pct": 100.0,
+      "flag_pct": 31.59
+    },
+    {
+      "lab": "lactate",
+      "n": 670120,
+      "valuenum_pct": 99.95,
+      "ref_lower_pct": 100.0,
+      "ref_upper_pct": 100.0,
+      "flag_pct": 36.9
+    },
+    {
+      "lab": "troponin",
+      "n": 460542,
+      "valuenum_pct": 41.74,
+      "ref_lower_pct": 100.0,
+      "ref_upper_pct": 100.0,
+      "flag_pct": 38.9
+    }
+  ],
+  "elapsed_seconds": 537.7
+}

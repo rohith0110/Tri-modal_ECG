@@ -62,9 +62,24 @@ shared_label_defs:
       plausible_range: {hr_bpm: [20, 300], qrs_ms: [40, 300], qtc_ms: [200, 800]}
     hr_bpm:  {formula: "60000 / rr_interval", column: machine_hr_bpm, valid_when: "rr_interval != 29999"}
     qrs_ms:  {formula: "qrs_end - qrs_onset", column: machine_qrs_ms, valid_when: "qrs_onset != 29999 and qrs_end != 29999"}
-    qtc_ms:  {formula: "Bazett: qt_ms / sqrt(rr_interval/1000)", column: "structured_features.qtc_bazett_ms",
-              alternative_column: "machine_qtc_ms in the metadata parquet",
-              note: "§4.A.2.3 names qtc_bazett_ms; both columns exist and the builder records which it used"}
+    qtc_ms:
+      column: machine_qtc_ms
+      valid_when: "200 <= machine_qtc_ms <= 800"
+      provenance_column: "structured_features.qtc_bazett_ms -> qtc_ms_bazett"
+      resolved_at: "2026-08-26 (Stage P2.1)"
+      disclose_in_supplementary: true
+      decision: |
+        QTc reads the MACHINE column, extending Round 6.1 to the third
+        measurement bin. §4.A.2.3 names structured_features.qtc_bazett_ms, but
+        that column belongs to the same defective NeuroKit family as
+        structured_features.qrs_ms and .pr_ms, which Round 6.8 already forbids
+        by name: MEASURED 2026-08-26, qtc_bazett_ms correlates with
+        machine_qtc_ms at r = 0.024 and is valid for 656,358 studies against the
+        machine column's 748,618. Using it would cut A2's primary cohort from
+        274,911 to 241,192 and would define the qtc head against a quantity
+        uncorrelated with the vendor's own QTc. qtc_bazett_ms is retained as the
+        provenance column qtc_ms_bazett and supplies one row of the §4.A.2.8
+        sensitivity table.
     hr_label:
       bradycardia: "hr_bpm < 60"
       normal:      "60 <= hr_bpm < 100"

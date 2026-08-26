@@ -1,0 +1,69 @@
+{
+  "stage": "P2.1",
+  "script": "01_build_A1_ecg_diagnosis_dev",
+  "done": true,
+  "started_at": "2026-08-26T18:44:20Z",
+  "updated_at": "2026-08-26T18:44:28Z",
+  "finished_at": "2026-08-26T18:44:28Z",
+  "n_rows_total": 3411,
+  "n_rows_primary_l3_hosp": 2556,
+  "n_rows_sensitivity_l2": 531,
+  "n_rows_ed_secondary": 337,
+  "splits": {
+    "train": 2346,
+    "val": 331,
+    "test": 734
+  },
+  "boundary_flag_pct": 13.222,
+  "boundary_flag_pct_primary": 12.598,
+  "n_manifest_codes": 99,
+  "prevalence_primary": {
+    "atrial_fibrillation_flutter": 30.673,
+    "heart_failure_narrow": 30.086,
+    "acute_myocardial_infarction": 11.033,
+    "conduction_disorder": 5.79,
+    "ventricular_arrhythmia_or_arrest": 4.734
+  },
+  "prevalence_primary_by_split": {
+    "train": {
+      "atrial_fibrillation_flutter": 30.617,
+      "heart_failure_narrow": 31.126,
+      "acute_myocardial_infarction": 11.149,
+      "conduction_disorder": 5.546,
+      "ventricular_arrhythmia_or_arrest": 4.867
+    },
+    "val": {
+      "atrial_fibrillation_flutter": 26.721,
+      "heart_failure_narrow": 28.34,
+      "acute_myocardial_infarction": 9.312,
+      "conduction_disorder": 4.858,
+      "ventricular_arrhythmia_or_arrest": 4.049
+    },
+    "test": {
+      "atrial_fibrillation_flutter": 32.657,
+      "heart_failure_narrow": 27.491,
+      "acute_myocardial_infarction": 11.439,
+      "conduction_disorder": 7.011,
+      "ventricular_arrhythmia_or_arrest": 4.613
+    }
+  },
+  "n_any_label_primary": 1319,
+  "n_rows": 3411,
+  "n_subjects": 3279,
+  "n_rows_train": 2346,
+  "n_subjects_train": 2256,
+  "n_rows_val": 331,
+  "n_subjects_val": 321,
+  "n_rows_test": 734,
+  "n_subjects_test": 702,
+  "subject_overlap": 0,
+  "primary_n_rows": 2556,
+  "primary_n_subjects": 2464,
+  "primary_n_rows_train": 1767,
+  "primary_n_subjects_train": 1706,
+  "primary_n_rows_val": 247,
+  "primary_n_subjects_val": 238,
+  "primary_n_rows_test": 542,
+  "primary_n_subjects_test": 520,
+  "primary_subject_overlap": 0
+}

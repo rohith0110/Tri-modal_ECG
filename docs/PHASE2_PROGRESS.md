@@ -8,8 +8,9 @@ starting cold reads this first, works, then updates it before the session ends.
 - **Current stage:** Stage P2.0 — **COMPLETE, validation PASS 26/26**
 - **Next action:** Step 2 — write the 12 task builders + `00_extract_fiducials.py`
   (Stages P2.1 / P2.2). See §6 Step Ledger.
-- **Blockers:** none. Five non-blocking decisions are queued in §5 (questions
-  9–13); each blocks exactly one later builder, not the next step's start.
+- **Blockers:** none. Questions 9 and 11 — the two that gated the A2 and B5
+  builders — were resolved 2026-08-26 (§4 Round 6, spec §12.8). Every remaining
+  §5 question has a stated default and blocks nothing.
 - **Branching:** never. All work lands on `main` — see §3 "Repo and git".
 
 ---
@@ -206,7 +207,23 @@ Round 6 (2026-08-26, session 2 — decided during Stage P2.0):
    insertions.** A study is eligible only when the measurement sits in a clear
    zone *and* the report carries a matching surface form, so every
    `corrupted_span_start/end` points at real characters and the corrupted class
-   is not detectable by length or phrasing style.
+   is not detectable by length or phrasing style. **128,674 of 749,112 studies
+   (17.2 %) are eligible.**
+10. **A2's primary cohort is `sqi_tier ∈ {high, medium}`, not `high`.**
+    Deviation from §4.A.2.2, which also mis-estimates the cohort at ~445 K.
+    Measured: `high` is 0.56 % of the clean cohort, so a literal A2 would train
+    on **3,110** ECGs; `{high, medium}` gives **275,088 L3 ECGs** (94,025
+    subjects). high-only becomes one row of the §4.A.2.8 per-SQI sensitivity
+    table. A4 already used `{high, medium}` and is unaffected — the two tasks
+    now share one SQI rule. **Disclose in the supplementary.**
+11. **B5 emits exactly one row per *eligible* study, corrupted with p = 0.5.**
+    Reconciles §4.B.5.3 (which yields 12:1) with §6.4 ("balanced 50/50 by
+    dataset design") — the only reading under which both are true, and the one
+    §6.4 relies on when it applies no `pos_weight` to the B5 binary head.
+    Cohort **128,674 rows**, 38,438 subjects. Ineligible studies contribute no
+    row. Clean rows are drawn from the *same* eligible pool on purpose, so
+    "the report contains a swappable claim" is not itself a signal for the
+    label. **Disclose in the supplementary.**
 
 Earlier rounds (spec §12.1–12.6) remain binding: Plan A primary + Plan B
 supplementary, seeds 42/123/456, patient-level bootstrap n=10,000 BCa, AUPRC
@@ -218,6 +235,9 @@ split inherited and never re-split.
 ## 5. Open questions
 
 **Blocking nothing right now.** Raise each at the moment it is reached.
+Questions 9 and 11 are closed; the rest carry a stated default, so a builder
+can proceed under it and only needs a decision if the default looks wrong once
+the real numbers land.
 
 | #   | Question                                                                             | Raise at             | Status |
 | --- | ------------------------------------------------------------------------------------ | -------------------- | ------ |
@@ -229,9 +249,9 @@ split inherited and never re-split.
 | 6   | Slurm wall-time / GPU limits on `gpu_student`?                                       | first friend session | open   |
 | 7   | Is an **NGC PyTorch container** available? Frees ~12 GB of quota.                    | first friend session | open   |
 | 8   | User's home upload bandwidth (~145 GB to upload over the project)                    | anytime              | open   |
-| 9   | **A2 primary cohort.** §4.A.2.2 sets it to `sqi_tier == 'high'` and predicts ~445 K ECGs. Measured: high-SQI is 4,166 of 749,112 clean studies (0.56 %), of which **3,110 are L3**. Built to the letter, A2 trains on 3,110 ECGs. | P2.1, A2 builder | open — default: promote `sqi ∈ {high, medium}` to primary (~285 K L3), report high-only as sensitivity |
+| 9   | **A2 primary cohort.** §4.A.2.2 sets it to `sqi_tier == 'high'` and predicts ~445 K ECGs. Measured: high-SQI is 4,166 of 749,112 clean studies (0.56 %), of which **3,110 are L3**. Built to the letter, A2 trains on 3,110 ECGs. | P2.1, A2 builder | **RESOLVED 2026-08-26** — `sqi ∈ {high, medium}` is primary: **275,088 L3 ECGs**, 94,025 subjects, train 192,087 / val 27,820 / test 55,181. high-only demoted to the §4.A.2.8 sensitivity table. Spec §12.8.4. |
 | 10  | **B2 anchor pool is not high-SQI.** §4.B.2.2 says "test-split ECGs with `sqi_tier='high'`". Stage 8 actually took the first 2,000 test-split `raw_lead2` rows in `study_id` order, no SQI filter: 8 high / 1,119 medium / 745 low. The set is frozen and must never be regenerated. | before the B2 write-up | open — default: amend the spec text, keep the frozen anchors, describe them accurately in the paper |
-| 11  | **B5 row emission.** §4.B.5.3 ("one clean row per ECG + a corrupted row with p=0.5") gives 12:1; §6.4 asserts "balanced 50/50 by dataset design". Both cannot hold. | P2.2, B5 builder | open — default: one row per **eligible** study, corrupted with p=0.5 → exact 50/50 over 128,653 rows |
+| 11  | **B5 row emission.** §4.B.5.3 ("one clean row per ECG + a corrupted row with p=0.5") gives 12:1; §6.4 asserts "balanced 50/50 by dataset design". Both cannot hold. | P2.2, B5 builder | **RESOLVED 2026-08-26** — one row per **eligible** study, corrupted with p=0.5 → exact 50/50 over **128,674 rows**, 38,438 subjects, train 89,855 / val 12,944 / test 25,875. Spec §12.8.5. |
 | 12  | **Regime_2 augmentation policy** is unspecified in §7.3. | P2.5, B2 regime_2 trainer | open — default recorded in `corruption_recipes_LOCKED.yaml`: p=0.5 per sample, family and SNR uniform, RNG salted `regime2\|` |
 | 13  | **B6 hard tier** — add a same-HR-bucket, SAME-SUBJECT swap? (Round 3 left it RESERVED.) | P2.2, B6 builder | open — default: ship the hard tier empty |
 
@@ -423,5 +443,14 @@ Append a short entry per session: what changed, what to do next. Newest last.
   Recorded in §3 "Repo and git", `AGENTS.md` and `CLAUDE.md`. Also recorded the
   `docs/` formatter-hook trap there — it reformatted four binding spec docs that
   this session only read; they were reverted and kept out of the commit.
-- **Next:** Step 2 — the 12 task builders + `00_extract_fiducials.py`. Resolve
-  §5 questions 9 and 11 when the A2 and B5 builders are reached.
+- **Questions 9 and 11 resolved** (user took both defaults). A2's primary
+  cohort becomes `sqi ∈ {high, medium}` — 275,088 L3 ECGs instead of 3,110 — and
+  B5 emits one row per eligible study at p = 0.5, an exact 50/50 over 128,674
+  rows. Both are documented deviations from §4 and ship in the supplementary.
+  Recorded in spec §12.8 (new Round 6 block) + §13.5, in
+  `task_definitions.yaml`, `claim_dictionary_LOCKED.yaml` and
+  `decision_phase2.yaml`, and in §4 above. Gate still 26/26.
+- **Next:** Step 2 — the 12 task builders + `00_extract_fiducials.py`. Nothing
+  blocks it. The remaining §5 questions (1, 2, 3, 12, 13) each have a stated
+  default and are raised only if the numbers contradict it; questions 4–8 are
+  for the first DGX session and touch no laptop work.

@@ -152,35 +152,54 @@ tasks:
       alone. Plan A/B §5.4 — "Use this task as a sanity check, not as the main
       novelty claim." Same labels as B1; A2 differs only in cohort scope.
     cohort:
-      primary_filter: "link_tier == 'L3' AND machine HR/QRS/QTc present and valid AND decode_ok AND length_ok AND sqi_tier == 'high'"
-      sensitivity_filter: "sqi_tier in {high, medium}; link_tier in {L3, L2}"
-      n_ecg_expected_primary: 3110        # MEASURED 2026-08-26, see spec_conflict below
-      spec_conflict:
+      primary_filter: "link_tier == 'L3' AND decode_ok AND length_ok AND machine HR/QRS/QTc valid AND sqi_tier in {high, medium}"
+      sensitivity_filters:
+        sqi_high_only: "link_tier == 'L3' AND sqi_tier == 'high'"
+        l3_l2: "link_tier in {L3, L2} AND sqi_tier in {high, medium}"
+        sqi_low_included: "link_tier == 'L3', all three SQI tiers"
+      n_ecg_expected_primary: 275088      # MEASURED 2026-08-26
+      n_subjects_expected_primary: 94025
+      split_expected_primary: {train: 192087, val: 27820, test: 55181}
+      spec_deviation:
         raised_at: "Stage P2.0, 2026-08-26"
-        status: OPEN
-        blocks: "02_build_A2_measurement_blind.py (Stage P2.1)"
+        resolved_at: "2026-08-26"
+        resolved_by: "user decision (progress doc §5 question 9)"
+        status: RESOLVED
+        decision: |
+          The A2 primary cohort is sqi_tier in {high, medium}, NOT sqi_tier ==
+          'high' as §4.A.2.2 states. high-only moves to the sensitivity table.
         detail: |
-          §4.A.2.2 states the A2 primary cohort is link_tier == 'L3' AND
-          sqi_tier == 'high', and estimates "~445 K primary". The measured
-          high-SQI population is 4,166 studies in the whole 749,112-row clean
-          cohort (0.56 %), of which 3,110 are L3. The spec's estimate is off by
-          two orders of magnitude, so an A2 built to the letter of §4.A.2.2
-          would train on 3,110 ECGs.
+          §4.A.2.2 sets the primary cohort to link_tier == 'L3' AND sqi_tier ==
+          'high' and estimates "~445 K primary". The measured high-SQI
+          population is 4,166 studies in the whole 749,112-row clean cohort
+          (0.56 %), of which 3,110 are L3 — the estimate is off by two orders of
+          magnitude. Built to the letter, A2 would train on 3,110 ECGs while
+          being (a) the whole-cohort sanity check §5.4 calls for and (b) first in
+          the §8.3 training queue precisely so it exercises the entire trainer
+          stack. Promoting `medium` gives 275,088 L3 ECGs, close to the spec's
+          own ~445 K expectation, and preserves the §4.A.2.8 requirement to
+          report by SQI tier — high-only simply becomes one row of that table
+          rather than the definition of the cohort.
         measured:
-          clean_cohort: 749112
+          clean_cohort_after_qc: 749112
+          all_three_measurements_valid: 748454
           sqi_high: 4166
           sqi_medium: 460963
           sqi_low: 283983
           sqi_high_and_l3: 3110
-        options:
-          - "keep sqi high as primary and accept a 3,110-ECG A2 (defensible, but the
-             task stops being the whole-cohort sanity check §5.4 intends)"
-          - "make sqi in {high, medium} the primary cohort (~285 K L3 ECGs, close to
-             the spec's own ~445 K expectation) and report high-only as the
-             sensitivity slice instead"
-          - "re-examine the Phase 1 SQI tier thresholds — sqi_aggregate has median
-             0.617 and max 0.869, so the 'high' cut may simply be set too far out"
-        assumed_default: "option 2 — sqi in {high, medium} primary, high-only as sensitivity"
+          sqi_high_or_medium_and_l3: 275088
+          sqi_high_or_medium_and_l3_l2: 324465
+        not_chosen:
+          - "keep sqi high as primary and accept a 3,110-ECG A2 — defensible only if
+             A2 is reframed as a clean-signal task, which contradicts §5.4"
+          - "re-cut the Phase 1 SQI tier boundaries — sqi_aggregate has median 0.617
+             and max 0.869, so the 'high' bar may simply be unreachable. Rejected
+             because it would silently change A4, B3 and every per-SQI sensitivity
+             table at once, and Phase 1 is frozen (§2, never re-run)."
+        consequence_for_a4: |
+          A4 already specifies sqi_tier in {high, medium} (§4.A.4.2), so it is
+          unaffected. A2 and A4 now share the same SQI admission rule.
+        disclose_in_supplementary: true
     targets:
       type: multi_class_3_heads
       heads:
@@ -612,7 +631,46 @@ tasks:
     cohort:
       primary_filter: "full clean cohort; per-family, ECGs with a valid measurement for that family"
       n_ecg_expected_primary: 749112
-      balance: "one is_corrupted=False row per ECG; a corrupted row with 50 % probability where the injection conditions hold"
+      balance: "exactly ONE row per ELIGIBLE study: corrupted with p = 0.5, clean with p = 0.5 (see emission_policy)"
+      n_rows_expected: 128674
+      n_subjects_expected: 38438
+      split_expected: {train: 89855, val: 12944, test: 25875}
+      emission_policy:
+        raised_at: "Stage P2.0, 2026-08-26"
+        resolved_at: "2026-08-26"
+        resolved_by: "user decision (progress doc §5 question 11)"
+        status: RESOLVED
+        decision: |
+          Emit exactly ONE row per ELIGIBLE study — corrupted with probability
+          0.5, clean otherwise. Studies that are not eligible for any family
+          contribute NO row at all. Result: an exact 50/50 balance over a
+          128,674-row cohort.
+        detail: |
+          §4.B.5.3 says "for each ECG, generate one uncorrupted row and (with
+          50 % probability — balanced) one corrupted row", which yields 749,112
+          clean against ~64,000 corrupted — 12:1. §6.4 separately asserts
+          "balanced 50/50 clean/corrupted by dataset design (Round 2 decision)".
+          Both cannot hold. One row per eligible study at p = 0.5 is the only
+          reading under which "with 50 % probability" and "balanced" are
+          simultaneously true, and it is the reading §6.4 relies on when it
+          declines to apply any pos_weight to the B5 binary head.
+        eligibility: |
+          A study is eligible for a family only when the machine measurement is
+          valid and inside a clear zone AND the report carries a matching
+          surface form (config/claim_dictionary_LOCKED.yaml). 128,674 of 749,112
+          studies (17.2 %) are eligible for at least one family.
+        clean_rows_are_drawn_from_the_same_pool: |
+          This is the point of the design. The clean rows come from the SAME
+          eligible pool as the corrupted ones, so "has a swappable claim in the
+          report" is not itself a signal for the label. Drawing clean rows from
+          the full cohort instead would let a model separate the classes on
+          vocabulary alone.
+        not_chosen: |
+          Keeping all 749,112 clean rows and handling the 12:1 imbalance with
+          pos_weight. Larger cohort, but it contradicts §6.4, makes the headline
+          AUPRC hard to interpret against a 7.9 % positive rate, and reintroduces
+          the vocabulary shortcut above.
+        disclose_in_supplementary: true
     claim_dictionary: "config/claim_dictionary_LOCKED.yaml"
     families: [HR, QRS, axis, PR]
     targets:

@@ -2886,6 +2886,94 @@ outbound internet (decides the staging path); Slurm wall-time and GPU
 limits on `gpu_student`; and whether an NGC PyTorch container exists
 (would free ~12 GB of quota).
 
+### 12.8 Round 6 — locked 2026-08-26 (during Stage P2.0)
+
+Every item here was forced by checking this document's claims against the
+Phase 1 artifacts on disk, not by preference. Items 1, 4 and 5 are
+**documented deviations from the text of §4** and must be disclosed in the
+paper's supplementary material.
+
+1. **Measurement source → the MACHINE measurement, everywhere.** Binding
+   for B5's four families and for the A2 / B1 / A5-masked-attribute bins:
+   `machine_hr_bpm`, `machine_qrs_ms`, `qrs_axis`, and `qrs_onset −
+   p_onset` for PR, all from
+   `ecg_metadata_clean_with_measurements.parquet`. §4.B.5.3 named
+   `structured_features.parquet.pr_ms`; that column is the NeuroKit2
+   interval (median 120 ms, max 9468 ms), and `structured_features.qrs_ms`
+   is byte-identical to `structured_features.qrs_dur_ms` rather than the
+   machine `qrs_end − qrs_onset` that §4.A.2.3's own formula specifies.
+   Using the NeuroKit PR would have placed 425,562 studies in the "clear
+   normal PR" zone and shipped 9,035 studies whose report already says
+   "1st degree A-V block" as **clean** B5 rows. The machine PR yields
+   1,083 such disagreements against 13,111 coherent ones. No builder may
+   read `structured_features.qrs_ms` or `.pr_ms` by name.
+
+2. **Missing-value sentinel → `29999`; the `*_missing` flag columns are
+   unusable.** `p_onset_missing`, `qrs_onset_missing`, `qrs_end_missing`,
+   `qrs_axis_missing` and `rr_interval_missing` are **False for all
+   749,112 rows** — they mark nothing. The real encoding is the literal
+   value `29999` (`p_onset` 119,385 rows, `p_axis` 119,483, `qrs_axis`
+   1,531, `rr_interval` 487, `qrs_onset` / `qrs_end` 341 each). Unmasked,
+   PR has mean −4600 ms; masked, mean 162.7 ms (median 160, sd 37). Every
+   builder touching a machine measurement masks the sentinel and applies
+   the plausible range in `config/claim_dictionary_LOCKED.yaml`.
+
+3. **B5 injections → swaps only, never insertions.** A study is eligible
+   for a family only when the measurement is valid and inside a clear zone
+   **and** the report carries a matching surface form. §4.B.5.3 specifies a
+   swap and requires a recorded span; an inserted claim would produce a
+   span with no original counterpart and would make the corrupted class
+   separable by length or phrasing rather than by the contradiction.
+   Measured: 128,674 of 749,112 studies (17.2 %) are eligible.
+
+4. **A2 primary cohort → `sqi_tier ∈ {high, medium}`,** superseding
+   §4.A.2.2's `sqi_tier == 'high'`. Measured, `high` is 4,166 of the
+   749,112-study clean cohort (0.56 %), of which **3,110 are L3** — against
+   the "~445 K primary" §4.A.2.2 estimates. Built to the letter A2 would
+   train on 3,110 ECGs while being both the whole-cohort sanity check §5.4
+   calls for and the first task in the §8.3 queue, whose job is to exercise
+   the entire trainer stack. `{high, medium}` gives **275,088 L3 ECGs**
+   (94,025 subjects; train 192,087 / val 27,820 / test 55,181). high-only
+   becomes one row of the §4.A.2.8 per-SQI sensitivity table rather than
+   the definition of the cohort. A4 already specifies `{high, medium}`
+   (§4.A.4.2) and is unaffected; the two tasks now share one SQI rule.
+   *Not chosen:* re-cutting the Phase 1 SQI tier boundaries — it would
+   silently change A4, B3 and every per-SQI table at once, and Phase 1 is
+   frozen (§2).
+
+5. **B5 row emission → one row per ELIGIBLE study, corrupted with
+   p = 0.5.** This reconciles §4.B.5.3 with §6.4, which cannot both hold as
+   written: §4.B.5.3's "one uncorrupted row per ECG plus a corrupted row
+   with 50 % probability" yields 749,112 clean against ~64,000 corrupted
+   (12:1), while §6.4 asserts "balanced 50/50 clean/corrupted by dataset
+   design". Emitting exactly one row per eligible study at p = 0.5 is the
+   only reading under which both sentences are true, and it is what §6.4
+   relies on when it declines to apply any `pos_weight` to the B5 binary
+   head. Cohort: **128,674 rows**, 38,438 subjects (train 89,855 / val
+   12,944 / test 25,875). Studies eligible for no family contribute no row.
+   Drawing the clean rows from the same eligible pool is deliberate — it
+   stops "the report contains a swappable claim" from being a signal for
+   the label. *Not chosen:* keeping all 749,112 clean rows and handling
+   12:1 with `pos_weight`.
+
+**Also verified at Stage P2.0 and PASSING, recorded so it is not
+re-checked:** the §4.A.3.2 step-5 coverage gate (Ca 75.81 %, Mg 77.25 %
+±24 h in the L3 cohort, both ≥ 50 %), so the 7-lab universe locks; and all
+five §4.A.1.3 ICD groups resolve against `d_icd_diagnoses` (175 distinct
+codes, 275,334 assignment rows).
+
+**One §4.B.2.2 description error is NOT resolvable by rebuilding.** That
+section describes the B2 anchor pool as "test-split ECGs with
+`sqi_tier='high'`". Phase 1 Stage 8 applied no SQI filter: it took the
+`raw_lead2` manifest rows for test-split subjects, sorted by
+`(study_id, subject_id)`, and truncated to the first 2,000. The 1,872
+anchors present in the clean cohort are 8 high / 1,119 medium / 745 low.
+The corrupted set is frozen and Phase 2 never regenerates it (§9.3), so
+the correct action is to amend §4.B.2.2's wording and describe B2 anchors
+in the paper as an SQI-representative test-split sample — arguably the
+better design, since a high-SQI-only anchor set would overstate
+robustness, but it must be described accurately.
+
 ---
 
 ## 13. Open-decision queue
@@ -2913,7 +3001,18 @@ none of them block Stage P2.0. When the implementing agent reaches one,
 it raises a Round-5 question via the AskUserQuestion harness and records
 the answer here.
 
-### 13.5 Round 6 — reserved
+### 13.5 Round 6 — RESOLVED (see §12.8, locked 2026-08-26)
+
+| # | Question | Status |
+| - | -------- | ------ |
+| 1 | **Measurement source** — machine measurements vs the `structured_features` NeuroKit columns | **RESOLVED** (§12.8.1). Machine, everywhere. Documented deviation from §4.B.5.3. |
+| 2 | **Missing-value encoding** — the `*_missing` flags mark nothing | **RESOLVED** (§12.8.2). Sentinel is `29999`. |
+| 3 | **B5 injection mechanic** — swap vs insert | **RESOLVED** (§12.8.3). Swap only. |
+| 4 | **A2 primary cohort** — `sqi == high` (3,110 ECGs) vs `sqi ∈ {high, medium}` (275,088) | **RESOLVED** (§12.8.4). `{high, medium}`. Documented deviation from §4.A.2.2. |
+| 5 | **B5 row emission** — §4.B.5.3's 12:1 vs §6.4's "balanced 50/50" | **RESOLVED** (§12.8.5). One row per eligible study at p = 0.5; 128,674 rows. |
+| 6 | **B2 anchor-pool description** — §4.B.2.2 says high-SQI; Stage 8 applied no SQI filter | **OPEN (wording only)** — the data is frozen and correct; §4.B.2.2's text needs amending before the B2 write-up. |
+
+### 13.6 Round 7 — reserved
 
 For decisions arising after the first DGX session returns the four
 environment answers listed at the end of §12.7.

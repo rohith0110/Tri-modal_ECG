@@ -422,11 +422,39 @@ locked_decisions:
     - "5.5 signals staged as int16 + per-record scale"
     - "5.6 oversized campaigns use aligned i.i.d. chunk cycling WITHIN each epoch"
     - "5.7 scope unchanged; nothing dropped to save compute or transfer"
+  round_6:
+    - "6.1 every measurement threshold reads the MACHINE measurement, never the
+       NeuroKit2 column of the same name — binding for B5's four families and the
+       A2/B1/A5-masked-attribute bins (documented deviation from §4.B.5.3)"
+    - "6.2 the machine-measurement missing sentinel is 29999; the *_missing flag
+       columns are all False for all 749,112 rows and must not be trusted"
+    - "6.3 B5 injections are SWAPS of surface forms actually present in the
+       report, never insertions, so every recorded span points at real characters"
+    - "6.4 A2's primary cohort is sqi_tier in {high, medium}, not sqi_tier ==
+       'high' — 275,088 L3 ECGs instead of 3,110; high-only becomes a sensitivity
+       slice (deviation from §4.A.2.2)"
+    - "6.5 B5 emits exactly ONE row per ELIGIBLE study, corrupted with p = 0.5 —
+       an exact 50/50 balance over 128,674 rows; ineligible studies contribute no
+       row (reconciles §4.B.5.3 with §6.4)"
 
 # -----------------------------------------------------------------------------
 # Open decisions still outstanding at lock time. Each blocks exactly one
 # builder and must be resolved before that builder runs — not before P2.0 ends.
 # -----------------------------------------------------------------------------
+resolved_decisions:
+  - id: 9
+    question: "A2 primary cohort: sqi high only, or high+medium?"
+    resolved_at: "2026-08-26"
+    decision: "sqi_tier in {high, medium} is primary (275,088 L3 ECGs); high-only is a sensitivity slice"
+    deviation_from: "§4.A.2.2"
+    disclose_in_supplementary: true
+  - id: 11
+    question: "B5 row emission: how is 'balanced 50/50' achieved?"
+    resolved_at: "2026-08-26"
+    decision: "one row per ELIGIBLE study, corrupted with p = 0.5 — exact 50/50 over 128,674 rows"
+    reconciles: "§4.B.5.3 with §6.4"
+    disclose_in_supplementary: true
+
 open_decisions:
   - id: 1
     question: "A3 lab-window join: same_subject only, or same_subject AND same_hadm_id?"

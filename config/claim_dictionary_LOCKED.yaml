@@ -207,32 +207,48 @@ injection_policy:
   probability_of_corruption: 0.5
   rng: {key_template: "b5|{study_id}", digest: sha256, bytes_used: 4, modulus: 2147483648,
         generator: "numpy.random.default_rng", note: "deterministic per study — re-running the builder reproduces the identical dataset"}
+  emission:
+    resolved_at: "2026-08-26"
+    resolved_by: "user decision, progress doc §5 question 11"
+    rule: |
+      Exactly ONE row per ELIGIBLE study: corrupted with probability 0.5, clean
+      with probability 0.5. A study eligible for no family contributes no row.
+      This gives an exact 50/50 balance and keeps the clean rows inside the same
+      eligible pool, so "the report contains a swappable claim" is not itself a
+      signal for the label.
+    n_rows_expected: 128674
   measured_eligibility:
     measured_at: "2026-08-26"
     clean_cohort: 749112
-    eligible_for_at_least_one_family: 128653
+    eligible_for_at_least_one_family: 128674
     eligible_pct: 17.2
+    n_subjects: 38438
+    split: {train: 89855, val: 12944, test: 25875}
     per_family: {HR: 38453, QRS: 54060, axis: 52621, PR: 13111}
+    families_per_eligible_study: {1: 101238, 2: 25370, 3: 1997, 4: 69}
     note: "per-family counts sum above the union total because a study can be eligible for more than one family"
 
-open_decisions:
+resolved_decisions:
   - id: 5
     question: "B5 row emission — how is 'balanced 50/50' achieved?"
-    blocks: "11_build_B5_contradiction_detection.py (Stage P2.2)"
+    resolved_at: "2026-08-26"
+    resolved_by: "user decision, progress doc §5 question 11"
+    decision: |
+      Emit exactly ONE row per ELIGIBLE study: corrupted with p = 0.5, clean
+      with p = 0.5. Exact 50/50 over a 128,674-row cohort. See injection_policy.emission.
     detail: |
       §4.B.5.3 reads "for each ECG, generate one uncorrupted row and (with 50 %
       probability — balanced) one corrupted row", which yields 749,112 clean vs
       ~64,000 corrupted — 12:1, not balanced. §6.4 separately asserts "balanced
-      50/50 clean/corrupted by dataset design". The two cannot both hold.
-    assumed_default: |
-      Emit exactly ONE row per ELIGIBLE study: corrupted with p = 0.5, clean
-      with p = 0.5. This gives an exact 50/50 balance over a 128,653-row cohort
-      and is the only reading under which "with 50 % probability" and "balanced"
-      are simultaneously true.
-    alternative: |
+      50/50 clean/corrupted by dataset design". The two cannot both hold; the
+      chosen reading is the only one that satisfies both sentences.
+    not_chosen: |
       Keep every clean row (749,112) and accept the 12:1 imbalance, handling it
       with pos_weight instead of by design. Larger cohort, but contradicts §6.4
       and weakens the headline AUPRC's interpretability.
+    disclose_in_supplementary: true
+
+open_decisions:
   - id: 3
     question: "B5 span offsets: character-level or token-level?"
     blocks: "11_build_B5_contradiction_detection.py"

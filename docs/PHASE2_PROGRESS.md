@@ -5,12 +5,12 @@ starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
 - **Last updated:** 2026-08-27 (session 3)
-- **Current stage:** Stage P2.1 / P2.2 — **11 of 13 builders built AND run at
-  full scale.** A4 and B3 are written and dev-verified; both wait only on
-  `00_extract_fiducials.py`, which is running (~48 studies/s, ETA in §8).
-- **Next action:** when the fiducial run exits, run `04_build_A4...` and
-  `09_build_B3...` at full scale, then emit `stage_P2.1_report.md` and
-  `stage_P2.2_report.md` and move to Step 3.
+- **Current stage:** Stages P2.1 and P2.2 — **COMPLETE.** All 13 Step-2 scripts
+  written and run at full scale on the laptop. Reports:
+  `outputs/stage_reports/stage_P2.1_report.md`, `stage_P2.2_report.md`.
+- **Next action:** Step 10 / Stage P2.3 — the three audits (leakage, cohort,
+  split), which §4.C invariant 4 makes the gate before any training and, since
+  the Round 6.12 amendment, before the first upload too. Then Step 3.
 - **Blockers:** none. The A3 lab-cache prerequisite is **DONE** (§4 decision 13).
   Every §5 question is now resolved, dissolved, or proceeding under its stated
   default — see §5.
@@ -369,11 +369,12 @@ plan; this is the index of record.
         deterministic (`SEED = 2026`)
   - [x] *(added)* `_dataset_lib/schema_validators.py` — the Pydantic schemas §9.1
         mandates, wrapped in a re-runnable 26-check gate
-- [~] **Step 2 — Write AND RUN the 12 task builders + `00_extract_fiducials.py`**
-      — **11 of 13 done at full scale** (2026-08-27, session 3). Every script
-      smoke-tests on `dev_sample/` first, then runs for real; all of them
-      checkpoint and resume, and `--dev` writes to `data/processed/tasks/_dev/`
-      so a smoke test can never overwrite a real table.
+- [x] **Step 2 — Write AND RUN the 12 task builders + `00_extract_fiducials.py`**
+      — **DONE 2026-08-27, all 13 at full scale.** Every script smoke-tests on
+      `dev_sample/` first, then runs for real; all of them checkpoint and resume,
+      and `--dev` writes to `data/processed/tasks/_dev/` so a smoke test can
+      never overwrite a real table. Reports: `stage_P2.1_report.md`,
+      `stage_P2.2_report.md`.
   - [x] **Prerequisite for A3 — DONE.** `00b_rebuild_lab_cache.py` streamed
         `labevents.csv.gz` (158,374,764 rows) in 4 M-row chunks and wrote
         `data/raw/ehr_cache/labevents_key_labs.parquet`: 20,481,517 rows over
@@ -381,30 +382,36 @@ plan; this is the index of record.
         `flag` recovered on **100 %** of rows in every lab. 9.0 min. The Phase 1
         `labevents.parquet` was NOT overwritten — it is a provenance artifact
         covering every itemid, and the rebuild covers 18.
-  - [~] `00_extract_fiducials.py` — **running at full scale**, 749,112 studies
-        (the full clean cohort, so A4's primary, A4's full-cohort sensitivity and
-        B3 are all served by one pass). ~48 studies/s on 15 workers.
-        Dev-sample validation: 0.14 % fallback, 99.24 % delineation, and R-peak
-        rate vs machine HR **r = 0.931** — the corrected Phase 1 detector path
-        reproduces. Adds `sqi_per_bin` so B3 needs no second pass over 11.85 GB.
+  - [x] `00_extract_fiducials.py` — **749,112 studies in 223.5 min** on 15
+        workers (~56/s at the end). The full clean cohort, so A4's primary,
+        A4's full-cohort sensitivity and B3 are all served by one pass.
+        0.10 % fallback, 99.29 % delineation, R-peak rate vs machine HR
+        **r = 0.9206** — the corrected Phase 1 detector path reproduces.
+        `sqi_per_bin` mean 0.6178 against Phase 1's `sqi_aggregate` median
+        0.617, so B3's per-bin SQI is on the right scale and needs no second
+        pass over 11.85 GB. Output 79.6 MB sparse.
   - [x] `01_build_A1_ecg_diagnosis.py` — 376,051 primary rows / 95,765 subjects
   - [x] `02_build_A2_measurement_blind.py` — 275,088 / 94,025, **exactly** the
         locked Round 6.4 cohort and split
   - [x] `03_build_A3_lab_abnormality.py` — 422,147 primary rows, 150 columns
-  - [ ] `04_build_A4_event_localization.py` — written, dev-verified; waits on the
-        fiducial run
+  - [x] `04_build_A4_event_localization.py` — 275,045 primary rows / 94,027
+        subjects; 90.8 % of beats carry a usable QRS span, median span 86 ms
+        (p05 50, p95 160)
   - [x] `05_build_A5_cross_modal_verification.py` — 5,243,784 verification rows
         + 748,454 masked-attribute rows
   - [x] `06_build_A6_risk_stratification.py` — 422,147 primary rows / 114,859 subjects
   - [x] `07_build_B1_measurement_blind.py` — 748,454 rows
   - [x] `08_build_B2_noise_robustness.py` — 900,005 rows, complete 8 x 5 grid
-  - [ ] `09_build_B3_temporal_grounding.py` — written, dev-verified; waits on the
-        fiducial run
+  - [x] `09_build_B3_temporal_grounding.py` — 2,996,448 rows (749,112 x 4
+        queries); `noisy_sqi_threshold` **locked at 0.415030** from the train
+        split and written into `task_definitions.yaml`
   - [x] `10_build_B4_cross_modal_verification.py` — 5,243,784 rows, **A5/B4 row
         equality PASSES** at full scale
   - [x] `11_build_B5_contradiction_detection.py` — 128,653 rows, 49.92 % corrupted
   - [x] `12_build_B6_difficulty_stratified.py` — pointer table, hard tier empty
-  - [ ] Emit `stage_P2.1_report.md` and `stage_P2.2_report.md` once A4 and B3 land
+  - [x] Emitted `stage_P2.1_report.md` (4,393 lines) and `stage_P2.2_report.md`
+        (2,183 lines) in the §10 eight-section format, generated from the state
+        files and the artifacts rather than written by hand
 - [ ] **Step 3 — Write training + evaluation code** (~3–4 days)
 - [ ] **Step 4 — Write the chunk-cutter and campaign launchers** (~2 days)
 - [ ] **Step 5 — Make int16 copies + prove equivalence** (float32-vs-int16
@@ -423,8 +430,8 @@ Amended 2026-08-26 (Round 6.12). This was Campaign 0 on `cpu_student`. Step
 numbers are kept so the plan and this ledger stay aligned, but Steps 9 and 11
 now happen inside Steps 2 and 3 rather than after Step 8.
 
-- [ ] **Step 9 — Run the 12 task builders + fiducial extraction at full scale,
-      locally** (folded into Step 2)
+- [x] **Step 9 — Run the 12 task builders + fiducial extraction at full scale,
+      locally** (folded into Step 2) — DONE 2026-08-27
 - [ ] **Step 10 — Run the three audits (leakage / cohort / split)** — *all must
       PASS before any GPU time is spent, and now before the first upload too*
 - [ ] **Step 11 — Algorithmic baselines, locally** (folded into Step 3).
@@ -682,6 +689,22 @@ Append a short entry per session: what changed, what to do next. Newest last.
   The gate's quarantine check was also fixed — it asserted the Phase 2 script
   directory holds zero `.py`, true at P2.0 and wrong the moment Step 2 began.
 - Commits on `main`: `bd32b9c`, `e336238`, `0ae04b7`, `7fd076b`, `13f0f9d`.
-- **Next:** the fiducial run finishes → run `04_build_A4...` and
-  `09_build_B3...` at full scale → emit `stage_P2.1_report.md` and
-  `stage_P2.2_report.md` → Step 3 (training + evaluation code).
+- **Stages P2.1 and P2.2 closed at 03:56.** The fiducial run finished in
+  223.5 min (749,112 studies, r = 0.9206 vs machine HR, 0.10 % fallback);
+  `04_build_A4...` then produced 275,045 primary rows and `09_build_B3...`
+  2,996,448 rows with `noisy_sqi_threshold` locked at **0.415030** from the
+  train split. Both stage reports were emitted in the §10 format, generated
+  from the state files and the artifacts on disk.
+- **Independent verification** (re-derived from the raw sources, not from
+  builder code): A1's five ICD heads on 400 admissions → MATCH; A3's K/pm24h
+  label, method and signed hours on 300 rows → MATCH; A6's mortality_30d and
+  _90d on 4,000 rows → MATCH; A5's 40,000 negatives → 0 cross-split references
+  and 0 same-subject swaps, HARD_NEGATIVE_TEXT donors 100 % same-HR-bucket
+  against TEXT_SWAP's 70 %; B5's 20,000 spans all mark a real change with a
+  median length delta of 0 (a swap, not an insertion); B2's grid 40/40 cells at
+  1,871 anchors each with regime_1 and regime_2 on the identical set; B3's four
+  queries re-derived on 4,000 studies → MATCH. Every task table's `split`
+  column equals the frozen subject-level split and no subject crosses splits.
+- **Next:** Step 10 / Stage P2.3 — the leakage, cohort and split audits. §4.C
+  invariant 4 makes them the gate before any training, and the Round 6.12
+  amendment makes them the gate before the first upload as well.

@@ -581,8 +581,8 @@ tasks:
         WIDE_QRS:        "bin = 1 if any beat whose QRS onset falls in the bin has duration > 60 samples (120 ms)"
         NOISY_SEGMENT:   "bin = 1 if per-second SQI (windowed NeuroKit2 ecg_quality) < noisy_sqi_threshold"
       noisy_sqi_threshold:
-        value: null
-        status: "TO BE LOCKED by 09_build_B3_temporal_grounding.py at Stage P2.2"
+        value: 0.415030
+        status: "LOCKED 2026-08-26T22:26:02Z by 09_build_B3_temporal_grounding.py (train split, 25th percentile)"
         derivation: "25th percentile of the per-bin SQI distribution computed on the TRAIN split only"
         binding: "the doc mandates the threshold come from train only; once computed it is written back into this file and never recomputed"
       fallback_flag: "fallback_used = True when R-peak detection failed for the study"

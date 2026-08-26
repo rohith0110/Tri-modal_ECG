@@ -10,6 +10,7 @@ starting cold reads this first, works, then updates it before the session ends.
   (Stages P2.1 / P2.2). See §6 Step Ledger.
 - **Blockers:** none. Five non-blocking decisions are queued in §5 (questions
   9–13); each blocks exactly one later builder, not the next step's start.
+- **Branching:** never. All work lands on `main` — see §3 "Repo and git".
 
 ---
 
@@ -141,6 +142,23 @@ P2.0 must still prove it empirically (see Step 5).
 - `rclone lsd r2:` returns 403 by design — scoped tokens cannot list all
   buckets. Always name the bucket: `rclone lsd r2:trimodal-data`.
 - Cost ≈ $2.20/month for ~145 GB; egress to the DGX is free.
+
+### Repo and git
+
+- **All work happens on `main`. Never create a branch, a worktree, or a PR.**
+  Confirmed by the user 2026-08-26 (session 2). This repo is a single-track
+  handover: the next cold-start session reads `docs/PHASE2_PROGRESS.md` from
+  `main`, and anything parked on a side branch is invisible to it. Commit
+  straight to `main`.
+- Commit when the user asks, at the end of a step. Every Phase 2 commit should
+  leave `docs/PHASE2_PROGRESS.md` accurate in the same commit — the doc and the
+  code move together or the handover rots.
+- **A markdown formatter hook reformats files under `docs/` when they are
+  touched**, including files a session only *read*. On 2026-08-26 it turned a
+  parenthetical into an `##` heading and a `+ …` continuation line into a bullet
+  list inside `PIPELINE_SOURCE_OF_TRUTH.md`. **Run `git diff docs/` before every
+  commit and `git checkout --` anything you did not intend to change.** Never
+  stage a reformat of a binding spec doc.
 
 ### Credentials — never in this repo
 
@@ -400,5 +418,10 @@ Append a short entry per session: what changed, what to do next. Newest last.
 - Fixed `.gitignore` — `/outputs/*` was silently swallowing `outputs/results/`
   and the figure/release provenance READMEs. Installed `pydantic` 2.13.4 into
   `ecg_env` (the only dependency added; `transformers` is still needed for Step 3).
+- Committed Stage P2.0 as `aa723cf` on `main` (61 files).
+- **User confirmed the git convention: everything on `main`, never branch.**
+  Recorded in §3 "Repo and git", `AGENTS.md` and `CLAUDE.md`. Also recorded the
+  `docs/` formatter-hook trap there — it reformatted four binding spec docs that
+  this session only read; they were reverted and kept out of the commit.
 - **Next:** Step 2 — the 12 task builders + `00_extract_fiducials.py`. Resolve
   §5 questions 9 and 11 when the A2 and B5 builders are reached.

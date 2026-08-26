@@ -9,3 +9,5 @@ Short version, so it is never missed:
 2. **Update `docs/PHASE2_PROGRESS.md` before the session ends** — step marks,
    decisions, open questions, the header block, and a session-log entry.
 3. **Use `./ecg_env/Scripts/python.exe`**, never the system Python.
+4. **Work on `main`.** Never branch — the progress doc on `main` is the
+   handover, and a side branch hides the work from the next session.

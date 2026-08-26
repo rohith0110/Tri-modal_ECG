@@ -50,6 +50,13 @@ same as no handover.
   nothing reshuffles it.
 - **Never read an HDF5 or tar directly.** Go through `read_modality()` and the
   modality manifest.
+- **All work happens on `main`. Never create a branch.** This repo is a
+  single-track handover: `docs/PHASE2_PROGRESS.md` on `main` is what the next
+  cold-start session reads, and work parked on a side branch is work the next
+  agent cannot see. Commit straight to `main` when the user asks you to commit.
+  Do not open a branch, a worktree, or a PR unless the user explicitly asks for
+  one — not "to be safe", not because a step is large, not because the default
+  branch is usually protected elsewhere.
 - **Never commit credentials.** The DGX password and R2 keys live in the user's
   password manager and `%APPDATA%\rclone\rclone.conf`, never in this repo.
 - **Never commit data.** `data/` and `ecg_env/` are permanently excluded. Raw

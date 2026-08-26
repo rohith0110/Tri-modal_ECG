@@ -26,7 +26,46 @@ lock:
 reference_tables:
   dictionary: "data/raw/ehr_cache/d_labitems.parquet"
   events: "data/raw/ehr_cache/labevents.parquet"
+  events_source: "data/raw/mimic-iv-hosp-3.1/hosp/labevents.csv.gz"
   availability: "data/processed/linkage/label_availability.parquet"
+
+# -----------------------------------------------------------------------------
+# BLOCKER FOR A3 — the cached lab table lacks the columns the label rule needs.
+# Found at Stage P2.0, 2026-08-26. Spec §12.8.7.
+# -----------------------------------------------------------------------------
+# data/raw/ehr_cache/labevents.parquet (158,374,764 rows) carries only:
+#     labevent_id, subject_id, hadm_id, itemid, charttime, valuenum, valueuom
+# The §4.A.3.3 rule branches on ref_range_lower, ref_range_upper and flag —
+# none of which were kept. Without them A3 degenerates to missing vs
+# not_missing and the low/high/abnormal distinction cannot be recovered.
+#
+# The original download has all three:
+#     data/raw/mimic-iv-hosp-3.1/hosp/labevents.csv.gz  (2.6 GB gz, 16 columns)
+#     labevent_id, subject_id, hadm_id, specimen_id, itemid, order_provider_id,
+#     charttime, storetime, value, valuenum, valueuom, ref_range_lower,
+#     ref_range_upper, flag, priority, comments
+# -----------------------------------------------------------------------------
+cache_rebuild_required:
+  status: REQUIRED_BEFORE_A3
+  raised_at: "Stage P2.0, 2026-08-26"
+  blocks: "03_build_A3_lab_abnormality.py"
+  action: |
+    Re-extract data/raw/ehr_cache/labevents.parquet from the csv.gz, filtered to
+    the 18 locked itemids, keeping at minimum:
+      subject_id, hadm_id, itemid, charttime, valuenum, valueuom,
+      ref_range_lower, ref_range_upper, flag
+    Stream the csv.gz in chunks — do not load 158 M rows into memory. Expect
+    roughly 21 M rows after the itemid filter.
+  not_a_phase1_rerun: |
+    This extends an EHR cache. It re-runs no Phase 1 stage, regenerates no
+    Phase 1 artifact, and changes no row of any processed output. The §2
+    "never re-run Phase 1" rule is not engaged. label_availability.parquet is
+    unaffected — its lab_*_within_* booleans only ever needed itemid + charttime.
+  schema_impact: none
+  schema_note: |
+    §4.A.3.5's abnormal_method column already enumerates
+    ref_range | flag | locked_threshold, so the recovered columns fit the
+    locked schema unchanged.
 
 # -----------------------------------------------------------------------------
 # The 7-lab universe. `fluid: Blood` for every itemid — Appendix C step 2

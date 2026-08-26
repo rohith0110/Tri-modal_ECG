@@ -278,6 +278,7 @@ compute:
     login_host: "dgx-login01 (10.59.121.172)"
     scheduler: slurm
     partitions: {cpu: cpu_student, gpu: gpu_student}
+    cpu_partition_status: "UNUSED as of Round 6.6 — CPU-only stages moved to the laptop"
     storage_quota_gb: 50
     quota_check: 'run on a COMPUTE node, not the login node: du -sh "$PWD"'
     network: "MU campus network only; no inbound route from outside campus"
@@ -296,7 +297,17 @@ compute:
       slurm_walltime_gpu_limits: {status: unknown, matters_for: "job sizing and requeue policy"}
       ngc_pytorch_container: {status: unknown, matters_for: "frees ~12 GB of quota"}
   development:
-    role: "authors and smoke-tests scripts; trains NOTHING that reaches the paper"
+    role: "authors and smoke-tests scripts; RUNS every CPU-only stage at full scale; trains NOTHING that reaches the paper"
+    role_amended_at: "2026-08-26"
+    role_amendment: |
+      Round 6.6 (spec §12.8.6) amends Round 5.3. Stage P2.1's
+      00_extract_fiducials.py, the twelve task builders, the P2.3 audits and the
+      P2.4 algorithmic baselines all run here at full scale, not on cpu_student.
+      Every TRAINED model in the paper still comes from the DGX. Long local runs
+      are approved by the user; the binding condition is that each one
+      checkpoints and resumes cleanly.
+    cpu_stages_run_here: [P2.1, P2.2, P2.3, P2.4]
+    long_run_requirement: "every full-scale local script MUST checkpoint and resume — mains power is unreliable"
     hardware: "Intel i7-12700H, 14C/20T, 32 GB RAM, RTX 3060 Laptop 6 GB, NVMe SSD"
     os: "Windows-10-10.0.26200-SP0 (Windows 11 Pro)"
     interpreter: "./ecg_env/Scripts/python.exe"

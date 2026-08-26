@@ -2956,6 +2956,35 @@ paper's supplementary material.
    the label. *Not chosen:* keeping all 749,112 clean rows and handling
    12:1 with `pos_weight`.
 
+6. **CPU-only stages run on the laptop, not `cpu_student`.** Amends Round
+   5.3 (§12.7.3), which sent Stages P2.1–P2.4 to the DGX CPU partition. The
+   user has approved long local runs. Stage P2.1's `00_extract_fiducials.py`
+   (~5–10 h over the 468 K A4 cohort), the twelve task builders, the P2.3
+   audits and the P2.4 algorithmic baselines all execute at full scale on the
+   laptop. **Round 5.3's core holds unchanged: every TRAINED model in the paper
+   still comes from the DGX.** Consequences: the EHR cache never leaves the
+   laptop (which also suits the data-use agreement), the upload budget drops
+   from ~145 GB to ~142 GB, one campaign disappears from the schedule, and the
+   §4.C invariant-4 audit gate closes before the first upload instead of after
+   it. The cost is that every long local script MUST checkpoint and resume —
+   mains power is unreliable — which §8.2.1 already required.
+
+7. **The cached lab table is missing the three columns A3's label rule needs.**
+   `data/raw/ehr_cache/labevents.parquet` (158,374,764 rows) carries only
+   `labevent_id, subject_id, hadm_id, itemid, charttime, valuenum, valueuom`.
+   §4.A.3.3's rule branches on `ref_range_lower`, `ref_range_upper` and `flag`,
+   none of which were kept. Without them A3 collapses to `missing` vs
+   `not_missing` and the low/high/abnormal distinction is unrecoverable. The
+   columns DO exist in the original download
+   (`data/raw/mimic-iv-hosp-3.1/hosp/labevents.csv.gz`, 16 columns including
+   all three). **Resolution: Stage P2.1 re-extracts the lab cache for the 18
+   locked itemids, keeping `ref_range_lower`, `ref_range_upper`, `flag`,
+   `valueuom` and `value`, before `03_build_A3_lab_abnormality.py` runs.** This
+   extends an EHR cache; it re-runs no Phase 1 stage and changes no Phase 1
+   output, so the §2 "never re-run Phase 1" rule is not engaged. §4.A.3.5's
+   `abnormal_method` column already anticipates the three provenance values
+   (`ref_range | flag | locked_threshold`), so no schema change follows.
+
 **Also verified at Stage P2.0 and PASSING, recorded so it is not
 re-checked:** the §4.A.3.2 step-5 coverage gate (Ca 75.81 %, Mg 77.25 %
 ±24 h in the L3 cohort, both ≥ 50 %), so the 7-lab universe locks; and all

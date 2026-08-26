@@ -8,6 +8,35 @@
 
 ---
 
+## Amendment — 2026-08-26, after Stage P2.0 (read this first)
+
+**All CPU-only work moved back to the laptop.** The user has approved long local
+runs — hours, overnight, whatever it takes. Campaign 0 no longer exists as a DGX
+campaign: the R-peak extraction, the 12 task builders, the three audits and the
+rule-based baselines all run at home, at full scale.
+
+What this buys us:
+
+- **The DGX is now GPU-only.** Its 50 GB holds training data and nothing else. The
+  EHR tables never have to go to campus at all — which also means the raw MIMIC
+  extract stays on the laptop, where the data-use agreement is happiest.
+- **Roughly 3 GB less to upload**, and one fewer campaign to schedule.
+- **The audit gate closes before the first upload**, not after it. Leakage, cohort
+  and split all say PASS at home; only then does anything move.
+- **No round-trip.** Previously a failed builder meant "notice it on the DGX, fix
+  it at home, re-upload, re-run" through a remote desktop into a friend's laptop.
+  Now the fix and the re-run are on the same machine.
+
+What it costs: a few days of laptop wall-clock, and the laptop must not be needed
+for anything else while the long jobs run. Power cuts are handled by
+checkpoint-and-resume, which every long script now has to implement — that is a
+requirement, not an optimisation.
+
+The DGX plan below is otherwise unchanged. Parts 4 through 7 — every trained
+model in the paper — still run on the DGX exactly as written.
+
+---
+
 ## What changed from the earlier draft
 
 The earlier plan kept the big signal files on your laptop, because signal models are small
@@ -20,9 +49,11 @@ training is heavy work — the model is doing a lot of maths per ECG. That means
 busy long enough for the next batch of data to finish downloading in the background. A
 "light" model would have sat idle waiting for downloads; a heavy one does not.
 
-Your laptop's new job: **write and test the scripts on small samples, then send them to the
-DGX to run at full scale.** Every laptop session is a few hours, and everything saves its
-progress so a power cut costs you minutes, not days.
+Your laptop's job (as amended 2026-08-26): **write the scripts, test them on a small
+sample, then run every CPU-only stage here at full scale** — the R-peak extraction,
+the 12 task builders, the audits and the rule-based baselines. Only the GPU work goes
+to the DGX. Everything saves its progress, so a power cut costs you the current chunk,
+never the job.
 
 ---
 
@@ -98,8 +129,8 @@ Here is the full schedule. "Resident" is what sits on the DGX's 50 GB during tha
 
 | # | Campaign | Data on DGX | Resident | Runs | Rough GPU time |
 |---|---|---|---:|---:|---:|
-| 0 | Build all task files + audits + baselines | EHR tables, indexes, Lead-II signals, corrupted signals | ~10 GB | — (CPU partition) | ~2 days CPU |
-| 1 | Text models | text + task files | ~3 GB | 21 | ~23 h |
+| ~~0~~ | ~~Build all task files + audits + baselines~~ | **moved to the laptop 2026-08-26 — see the amendment at the top. The EHR tables never go to the DGX.** | — | — | — |
+| 1 | Text models | text + task files + fiducials | ~3 GB | 21 | ~23 h |
 | 2 | Picture models, 12-lead | clean 12-lead pictures | ~12 GB | 21 | ~14 h |
 | 3 | Picture models, Lead-II | clean Lead-II pictures | ~21 GB | 21 | ~14 h |
 | 4 | Signal models, Lead-II | Lead-II signals (4.7 GB) | ~8 GB | 33 | ~8 h |
@@ -184,11 +215,26 @@ all 12 tasks instead of the 6 old ones. Write the 5 new locked config files (dia
 map, lab test map, corruption list, claim dictionary, Phase-2 lock file). Create the output
 folders. Write the shared helper that reads signals and pictures.
 
-**Step 2 — Write the 12 task builders + the missing R-peak script.** (~1 week, a few hours a
-day)
-Six for the A tasks, six for the B tasks, plus the R-peak extractor from problem #1. Test
-each on the 5,000-ECG sample. When a builder produces sensible numbers on the sample, it is
-ready to run at full scale on the DGX.
+**Step 2 — Write the 12 task builders + the missing R-peak script, and RUN them.**
+(~1 week of writing, plus ~1–2 days of computer time)
+Six for the A tasks, six for the B tasks, plus the R-peak extractor from problem #1.
+
+Amended 2026-08-26: each script is smoke-tested on the 5,000-ECG sample first — two
+minutes, and it catches the bugs — and then **run at full scale here on the laptop**.
+The R-peak extraction is the long one, roughly 5–10 hours over the 468 K-study group.
+Start it, let it run, write the next builder while it works.
+
+Every full-scale script must save its progress and resume cleanly. That is what makes
+a power cut cost you twenty minutes instead of eight hours.
+
+**One prerequisite the lab-results task needs first.** The cached lab table
+(`data/raw/ehr_cache/labevents.parquet`) kept only `valuenum` — it dropped
+`ref_range_lower`, `ref_range_upper` and `flag`, and the A3 abnormality rule is built
+entirely on those three. They exist in the original download
+(`data/raw/mimic-iv-hosp-3.1/hosp/labevents.csv.gz`, 2.6 GB compressed, 158 M rows).
+Re-extract the cache for the 18 locked lab item IDs, keeping those columns, before
+writing A3. This is extending a cache, not re-running Phase 1 — no Phase 1 output
+changes.
 
 **Step 3 — Write the training and evaluation code.** (~3–4 days)
 The three model types, the combined end-to-end model, the trainer with save-and-resume, the
@@ -210,7 +256,7 @@ Upload in the order the campaigns need things, so the DGX is never waiting on yo
 
 | Upload | Size | Needed by |
 |---|---:|---|
-| Code, configs, EHR tables, indexes, Lead-II signals, corrupted signals | ~10 GB | Campaign 0 |
+| Code, configs, **finished task files**, fiducials, indexes, Lead-II signals, corrupted signals | ~7 GB | Campaign 1 |
 | Text file | 0.2 GB | Campaign 1 |
 | Clean 12-lead pictures | 8.9 GB | Campaign 2 |
 | Clean Lead-II pictures | 17.8 GB | Campaign 3 |
@@ -218,7 +264,9 @@ Upload in the order the campaigns need things, so the DGX is never waiting on yo
 | 12-lead raw signals, in pieces | ~32 GB | Campaign 9 |
 | Scan-like pictures, test split only | ~20 GB | Campaign 10 |
 
-**About 145 GB in total, uploaded over the whole project, not at once.** Storage cost is
+**About 142 GB in total, uploaded over the whole project, not at once.** (Was ~145 GB;
+the EHR tables came off the list when task building moved home. The finished task files
+are small — they hold study IDs and labels, never signal or image bytes.) Storage cost is
 around ₹180/month, and downloading it to the DGX costs nothing. Uploads resume after an
 interruption, so power cuts and dropped connections are not a problem.
 
@@ -251,25 +299,37 @@ still there.** The first real launch must never be a script's first run on that 
 
 ---
 
-## PART 3 — Campaign 0: build everything, on the DGX's CPU partition. (~2 days)
+## PART 3 — Build everything, on your laptop. (~2 days of computer time)
 
-**Step 9 — Run the 12 task builders and the R-peak extractor** on `cpu_student`. This is the
-work that would have taken 3–5 days on your laptop with a power-cut risk on every one of
-them. The DGX also has far more memory than your laptop, which matters for the lab-results
-task — it has to match 7 lab tests across 5 time windows against a 1.2 GB table.
+**Amended 2026-08-26.** This part used to run on the DGX's `cpu_student` partition as
+"Campaign 0". It runs at home now. Steps 9 to 12 keep their numbers so the ledger in
+`docs/PHASE2_PROGRESS.md` still lines up, but Steps 9 and 11 have already happened by
+the time you reach this point in the plan — they are done as part of Steps 2 and 3.
 
-**Step 10 — Run the three checking scripts.** Leakage (is any model being fed the answer?),
-cohort (how many patients, how many positives, how much is missing?), split (is any patient
-in two groups?).
+**Step 9 — Run the 12 task builders and the R-peak extractor at full scale, locally.**
+Done during Step 2. The R-peak extraction is ~5–10 hours; the builders are shorter.
+Everything checkpoints, so a power cut costs the current chunk.
 
-> **All three must say PASS. Everything downstream is built on these files.** If one fails, we
-> fix it now — not after 160 GPU-hours.
+The lab-results task is the memory-hungry one — it matches 7 lab tests across 5 time
+windows against a 158 M-row table. On 32 GB of RAM that means reading the lab table
+**filtered to the 18 locked item IDs and to the columns actually needed**, never
+loading it whole. Filtered, it is about 21 M rows and fits comfortably.
 
-**Step 11 — Run the rule-based baselines** (`cpu_student`, no learning involved). These are
-the reference numbers the paper needs.
+**Step 10 — Run the three checking scripts.** Leakage (is any model being fed the
+answer?), cohort (how many patients, how many positives, how much is missing?), split
+(is any patient in two groups?). Minutes, not hours.
 
-**Step 12 — Pull the results down**, review the cohort report at home, and confirm the
-numbers look right before any GPU time is spent.
+> **All three must say PASS. Everything downstream is built on these files.** If one
+> fails, we fix it now — not after 160 GPU-hours. Because this now happens at home,
+> the gate closes *before* the first upload rather than after it.
+
+**Step 11 — Run the rule-based baselines** locally (no learning involved). These are
+the reference numbers the paper needs. They are NeuroKit2 over the test split, so
+budget hours, not minutes, and let them run overnight.
+
+**Step 12 — Review the cohort report** and confirm the numbers look right. Nothing to
+pull down any more; it is all already here. **This is the point where uploading
+starts** — the task files are finished and audited, so Step 6's first upload can go.
 
 ---
 
@@ -351,7 +411,7 @@ reviewer through reproducing every number. Never any raw data.
 |---|---|---|
 | 1 | Write and test everything on your laptop | ~2 weeks |
 | 2 | First DGX session | 1 hour |
-| 3 | Build task files, audits, baselines (CPU partition) | ~2 days |
+| 3 | Build task files, audits, baselines (**on your laptop**) | ~2 days |
 | 4 | Text, picture, Lead-II signal models | ~1 week |
 | 5 | 12-lead signal models | ~1 week |
 | 6 | Combined end-to-end models | ~1.5 weeks |

@@ -11,6 +11,11 @@ starting cold reads this first, works, then updates it before the session ends.
 - **Blockers:** none. Questions 9 and 11 — the two that gated the A2 and B5
   builders — were resolved 2026-08-26 (§4 Round 6, spec §12.8). Every remaining
   §5 question has a stated default and blocks nothing.
+- **Compute:** amended 2026-08-26 — **all CPU-only stages run on the laptop at
+  full scale**, not on `cpu_student`. The DGX stays primary for every trained
+  model. See §4 decision 12.
+- **One prerequisite before A3:** the cached lab table is missing the three
+  columns its label rule needs. Re-extract it first — §4 decision 13, trap 7b.
 - **Branching:** never. All work lands on `main` — see §3 "Repo and git".
 
 ---
@@ -180,8 +185,11 @@ Full record in spec §12. Round 5 (2026-08-26) is the current one:
    claimed Phase 1 cached R-peak arrays; it did not. Must reuse the _corrected_
    Pan-Tompkins path from the Phase 1 regen — the detector bug fixed there must
    not be reintroduced.
-3. **DGX-primary, laptop development-only.** CPU-heavy stages go to
-   `cpu_student`, not the laptop.
+3. **DGX-primary for every TRAINED model.** ~~CPU-heavy stages go to
+   `cpu_student`, not the laptop.~~ **Amended 2026-08-26 (Round 6.6): all
+   CPU-only stages run on the laptop at full scale** — `00_extract_fiducials.py`,
+   the 12 task builders, the P2.3 audits, the P2.4 algorithmic baselines. The
+   user approved long local runs. The GPU half of the plan is unchanged.
 4. **Checkpoints: best-only, evicted on completion.** Supersedes Round 4.4's
    150–200 GB budget, impossible under 50 GB.
 5. **Signals staged as int16 + per-record scale.**
@@ -224,6 +232,19 @@ Round 6 (2026-08-26, session 2 — decided during Stage P2.0):
     row. Clean rows are drawn from the *same* eligible pool on purpose, so
     "the report contains a swappable claim" is not itself a signal for the
     label. **Disclose in the supplementary.**
+12. **CPU-only stages run at home, at full scale.** Amends decision 3 above and
+    spec §12.7.3. Buys: the EHR cache never leaves the laptop, ~3 GB less to
+    upload, one fewer campaign, and the audit gate closes *before* the first
+    upload instead of after it. Costs: a couple of days of laptop wall-clock,
+    and **every long local script must checkpoint and resume** — that is a
+    requirement, not an optimisation. Spec §12.8.6.
+13. **The lab cache must be re-extracted before A3.**
+    `data/raw/ehr_cache/labevents.parquet` kept only `valuenum` and dropped
+    `ref_range_lower`, `ref_range_upper` and `flag` — the three columns
+    §4.A.3.3's rule branches on. They exist in
+    `data/raw/mimic-iv-hosp-3.1/hosp/labevents.csv.gz`. Re-extract, filtered to
+    the 18 locked itemids, streaming the gz. Extends a cache; re-runs no Phase 1
+    stage. Spec §12.8.7, `config/lab_itemid_map_LOCKED.yaml`.
 
 Earlier rounds (spec §12.1–12.6) remain binding: Plan A primary + Plan B
 supplementary, seeds 42/123/456, patient-level bootstrap n=10,000 BCa, AUPRC
@@ -296,9 +317,18 @@ plan; this is the index of record.
         deterministic (`SEED = 2026`)
   - [x] *(added)* `_dataset_lib/schema_validators.py` — the Pydantic schemas §9.1
         mandates, wrapped in a re-runnable 26-check gate
-- [ ] **Step 2 — Write the 12 task builders + `00_extract_fiducials.py`** (~1 week)
-      — **start here.** Resolve §5 questions 9 and 11 when the A2 and B5
-      builders are reached; everything else has a stated default.
+- [ ] **Step 2 — Write AND RUN the 12 task builders + `00_extract_fiducials.py`**
+      (~1 week of writing + ~1–2 days of compute) — **start here.** Amended
+      2026-08-26: these run **at full scale on the laptop**, not on the DGX.
+      Smoke-test each on `dev_sample/` first, then run it for real.
+      `00_extract_fiducials.py` is ~5–10 h. Every full-scale script checkpoints
+      and resumes.
+  - [ ] **Prerequisite for A3:** re-extract `data/raw/ehr_cache/labevents.parquet`
+        from `data/raw/mimic-iv-hosp-3.1/hosp/labevents.csv.gz`, filtered to the
+        18 locked itemids, keeping `ref_range_lower`, `ref_range_upper`, `flag`,
+        `valueuom`, `value`. Stream the gz — 158 M rows, do not load it whole.
+        See §4 decision 13 / spec §12.8.7.
+      Q9 and Q11 are resolved; the remaining §5 questions have stated defaults.
 - [ ] **Step 3 — Write training + evaluation code** (~3–4 days)
 - [ ] **Step 4 — Write the chunk-cutter and campaign launchers** (~2 days)
 - [ ] **Step 5 — Make int16 copies + prove equivalence** (float32-vs-int16
@@ -310,13 +340,21 @@ plan; this is the index of record.
 - [ ] **Step 7 — Environment survey** (the 7 checks; answers → §5 questions 4–7)
 - [ ] **Step 8 — Set up rclone + folders, run a 5-minute Slurm smoke job**
 
-### Part 3 — Campaign 0, `cpu_student` (~2 days)
+### Part 3 — Full-scale build + audits, **on the laptop** (~2 days of compute)
 
-- [ ] **Step 9 — Run the 12 task builders + fiducial extraction at full scale**
-- [ ] **Step 10 — Run the three audits (leakage / cohort / split)** — _all must
-      PASS before any GPU time is spent_
-- [ ] **Step 11 — Algorithmic baselines**
-- [ ] **Step 12 — Pull results, review cohort report**
+
+Amended 2026-08-26 (Round 6.12). This was Campaign 0 on `cpu_student`. Step
+numbers are kept so the plan and this ledger stay aligned, but Steps 9 and 11
+now happen inside Steps 2 and 3 rather than after Step 8.
+
+- [ ] **Step 9 — Run the 12 task builders + fiducial extraction at full scale,
+      locally** (folded into Step 2)
+- [ ] **Step 10 — Run the three audits (leakage / cohort / split)** — *all must
+      PASS before any GPU time is spent, and now before the first upload too*
+- [ ] **Step 11 — Algorithmic baselines, locally** (folded into Step 3).
+      NeuroKit2 over the test split — budget hours, run overnight.
+- [ ] **Step 12 — Review the cohort report.** Nothing to pull down; it is all
+      already here. **This is the gate that releases Step 6's first upload.**
 
 ### Part 4 — Campaigns 1–4 (~1 week)
 
@@ -391,6 +429,13 @@ plan; this is the index of record.
    `read_modality()` and the manifest.
 6. **Raw MIMIC never leaves the laptop** and never enters the release package.
 7. **`rclone lsd r2:` 403s by design.** Name the bucket.
+7b. **`data/raw/ehr_cache/labevents.parquet` is missing `ref_range_lower`,
+   `ref_range_upper` and `flag`** — the three columns A3's label rule needs. It
+   kept only `labevent_id, subject_id, hadm_id, itemid, charttime, valuenum,
+   valueuom` across 158,374,764 rows. The originals are in
+   `data/raw/mimic-iv-hosp-3.1/hosp/labevents.csv.gz` (16 columns). Re-extract
+   before A3; see §4 decision 13. Also: **never load that table whole** on a
+   32 GB laptop — filter to the 18 locked itemids at read time (~21 M rows).
 8. **The machine-measurement missing sentinel is `29999`, and the `*_missing`
    flag columns are useless.** `p_onset_missing`, `qrs_onset_missing`,
    `qrs_end_missing`, `qrs_axis_missing` and `rr_interval_missing` are **all
@@ -473,7 +518,20 @@ Append a short entry per session: what changed, what to do next. Newest last.
   Recorded in spec §12.8 (new Round 6 block) + §13.5, in
   `task_definitions.yaml`, `claim_dictionary_LOCKED.yaml` and
   `decision_phase2.yaml`, and in §4 above. Gate still 26/26.
-- **Next:** Step 2 — the 12 task builders + `00_extract_fiducials.py`. Nothing
-  blocks it. The remaining §5 questions (1, 2, 3, 12, 13) each have a stated
+- **Compute placement amended (Round 6.12):** the user approved long local runs,
+  so every CPU-only stage — fiducial extraction, the 12 builders, the audits, the
+  algorithmic baselines — moves off `cpu_student` and onto the laptop, at full
+  scale. Updated `PHASE2_EXECUTION_PLAN_DGX.md` (amendment block, campaign table,
+  Steps 2/6/9–12, upload table, timeline), spec §12.8.6, `decision_phase2.yaml`,
+  and §4/§6 here. The DGX half of the plan is untouched.
+- **Found an A3 blocker while checking the plan:**
+  `data/raw/ehr_cache/labevents.parquet` (158,374,764 rows) kept only
+  `valuenum` — it dropped `ref_range_lower`, `ref_range_upper` and `flag`, which
+  are exactly what §4.A.3.3's rule branches on. The columns exist in
+  `data/raw/mimic-iv-hosp-3.1/hosp/labevents.csv.gz`. Recorded as spec §12.8.7,
+  §4 decision 13, trap 7b, and a `cache_rebuild_required` block in
+  `lab_itemid_map_LOCKED.yaml`. Re-extraction is a Step 2 prerequisite for A3.
+- **Next:** Step 2 — the 12 task builders + `00_extract_fiducials.py`, written
+  AND run at full scale locally. Nothing blocks it. The remaining §5 questions (1, 2, 3, 12, 13) each have a stated
   default and are raised only if the numbers contradict it; questions 4–8 are
   for the first DGX session and touch no laptop work.

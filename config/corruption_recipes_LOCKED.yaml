@@ -1,0 +1,224 @@
+# =============================================================================
+# corruption_recipes_LOCKED.yaml — B2 noise-robustness corruption families
+# =============================================================================
+# LOCKED at Stage P2.0 (Phase 2). Source of truth:
+#   docs/PHASE2_SOURCE_OF_TRUTH.md §4.B.2 and §7.3
+#   Phase 1 Stage 8 — scripts/phase1_dataset_generation/50_build_signals_corrupted.py
+#
+# THIS FILE IS A TRANSCRIPTION, NOT A REDEFINITION.
+# Phase 1 Stage 8 already generated and froze the corrupted TEST set
+# (data/processed/signals_corrupted.parquet, 79,920 rows = 1,998 usable anchors
+# × 8 families × 5 SNRs). Phase 2 NEVER regenerates it (§9.3 "B2 specifics").
+# Every parameter below is copied from the Stage 8 implementation so that:
+#   (a) the B2 builder can label and document the locked test rows, and
+#   (b) the regime_2 TRAIN-TIME augmenter reproduces the same corruption
+#       DISTRIBUTION with a DIFFERENT RNG seed stream (§7.3) — so the
+#       noise-augmented model cannot memorise the test realisations.
+# A P2.0 validation check asserts the family list and SNR ladder here match
+# the CORRUPTIONS / SNR_LEVELS_DB constants in the Stage 8 script.
+# =============================================================================
+
+lock:
+  locked_at: "2026-08-26"
+  locked_by_stage: "P2.0"
+  spec_section: "docs/PHASE2_SOURCE_OF_TRUTH.md §4.B.2, §7.3"
+  transcribed_from: "scripts/phase1_dataset_generation/50_build_signals_corrupted.py"
+  phase1_stage: 8
+  phase1_stage_closed: "2026-06-03T09:35:00Z"
+  regeneration_in_phase2: forbidden
+
+frozen_test_set:
+  path: "data/processed/signals_corrupted.parquet"
+  n_rows: 79920
+  anchor_size_requested: 2000
+  anchors_materialised: 1998
+  anchor_selection: |
+    Test-split subjects only, from the raw_lead2 rows of
+    data/processed/signals/signals_manifest.parquet, sorted by
+    (study_id, subject_id) with a stable mergesort and truncated to the first
+    ANCHOR_SIZE. Deterministic — no RNG involved in anchor choice.
+  columns: [study_id, subject_id, split, anchor_index, corruption_type, snr_db,
+            seed, corruption_status, error_note, signal]
+  signal_dtype: "fixed_size_list<float32>[5000]"
+  split: "test"          # every row is test-split by construction
+
+signal_geometry:
+  n_samples: 5000
+  fs_hz: 500
+  duration_s: 10.0
+  source_modality: raw_lead2
+  source_container: "data/processed/signals/lead2_raw.h5"
+
+snr_levels_db: [30, 20, 10, 5, 0]
+
+# -----------------------------------------------------------------------------
+# Noise scaling. Additive families scale the generated noise vector so the
+# realised SNR equals the requested snr_db exactly:
+#     P_sig    = mean(x^2)
+#     P_target = P_sig / 10^(snr_db / 10)
+#     noise   *= sqrt(P_target / P_noise)
+# Guard: if P_sig or P_noise is non-finite, or P_noise < 1e-12, the noise is
+# used unscaled (this never fired in Stage 8).
+# The three non-additive families (lead_dropout, gain_drift, saturation) treat
+# snr_db as a severity parameter instead — see per-family `snr_semantics`.
+# -----------------------------------------------------------------------------
+noise_scaling:
+  mode: power_ratio
+  formula: "noise *= sqrt((mean(x^2) / 10^(snr_db/10)) / mean(noise^2))"
+  degenerate_power_epsilon: 1.0e-12
+
+# -----------------------------------------------------------------------------
+# RNG. Stage 8 derives a deterministic per-(study, family, snr) seed:
+#     seed = int.from_bytes(sha256(f"{study_id}|{corruption}|{snr_db}").digest()[:4], "big") % 2**31
+#     rng  = np.random.default_rng(seed)
+# The regime_2 train-time augmenter MUST use the same construction with the
+# `train_augmentation` salt inserted, so its stream is disjoint from the frozen
+# test stream while remaining reproducible (§7.3).
+# -----------------------------------------------------------------------------
+rng:
+  test_set:
+    key_template: "{study_id}|{corruption}|{snr_db}"
+    digest: "sha256"
+    bytes_used: 4
+    modulus: 2147483648            # 2**31
+    generator: "numpy.random.default_rng"
+  train_augmentation:
+    key_template: "regime2|{seed}|{epoch}|{study_id}|{corruption}|{snr_db}"
+    digest: "sha256"
+    bytes_used: 4
+    modulus: 2147483648
+    generator: "numpy.random.default_rng"
+    disjointness_rationale: |
+      The literal prefix "regime2|" plus the run seed and epoch guarantee the
+      key never collides with a test key, so no train-time realisation can
+      equal a locked test realisation for the same (study, family, snr).
+
+# -----------------------------------------------------------------------------
+# The 8 families, in Stage 8 order.
+# -----------------------------------------------------------------------------
+families:
+
+  gaussian:
+    order: 0
+    kind: additive
+    snr_semantics: power_ratio
+    description: "White Gaussian noise across the full band."
+    noise: "rng.standard_normal(5000).astype(float32)"
+    params: {}
+
+  baseline_wander:
+    order: 1
+    kind: additive
+    snr_semantics: power_ratio
+    description: "Single low-frequency sinusoid — respiration / electrode drift."
+    noise: "sin(2*pi*freq*t + phase)"
+    params:
+      freq_hz:   {distribution: uniform, low: 0.05, high: 1.0}
+      phase_rad: {distribution: uniform, low: 0.0,  high: 6.283185307179586}
+
+  powerline:
+    order: 2
+    kind: additive
+    snr_semantics: power_ratio
+    description: "Mains hum at 50 Hz or 60 Hz, random phase."
+    noise: "sin(2*pi*freq*t + phase)"
+    params:
+      freq_hz:   {distribution: choice, values: [50.0, 60.0]}
+      phase_rad: {distribution: uniform, low: 0.0, high: 6.283185307179586}
+
+  emg:
+    order: 3
+    kind: additive
+    snr_semantics: power_ratio
+    description: |
+      Muscle-artifact proxy: white noise high-passed by subtracting its own
+      boxcar moving average, i.e. noise - movingavg(noise, window).
+    noise: "n - convolve(n, ones(window)/window, mode='same'), n ~ N(0,1)"
+    params:
+      window_samples: {value: 10, derivation: "max(1, fs // 50) with fs = 500"}
+
+  electrode_motion:
+    order: 4
+    kind: additive
+    snr_semantics: power_ratio
+    description: "3–9 rectangular step artifacts of random width, amplitude and sign."
+    noise: "zeros(5000); for each spike: noise[start:end] = amp * sign"
+    params:
+      n_spikes:      {distribution: integers, low: 3,  high: 10}   # high exclusive
+      centre_sample: {distribution: integers, low: 0,  high: 5000} # high exclusive
+      width_samples: {distribution: integers, low: 10, high: 80}   # high exclusive
+      amplitude:     {distribution: uniform,  low: 0.5, high: 2.0}
+      sign:          {distribution: sign_of_standard_normal, values: [-1.0, 1.0]}
+      span:          "start = max(0, centre - width//2); end = min(5000, centre + width//2)"
+
+  lead_dropout:
+    order: 5
+    kind: replacement
+    snr_semantics: severity
+    description: "A contiguous span of the strip is zeroed — simulated lead disconnection."
+    operation: "x[start : start + length] = 0.0"
+    params:
+      fraction:       {formula: "0.1 * 10^(-snr_db/20) + 0.05", cap: 0.5}
+      length_samples: {formula: "clip(int(5000 * min(fraction, 0.5)), 1, 5000)"}
+      start_sample:   {distribution: integers, low: 0, high: "max(1, 5000 - length)"}
+    realised_fraction_by_snr_db: {30: 0.053, 20: 0.060, 10: 0.082, 5: 0.106, 0: 0.150}
+    note: "snr_db is a severity dial here, not a measured power ratio; the zeroed span grows as snr_db falls."
+
+  gain_drift:
+    order: 6
+    kind: multiplicative
+    snr_semantics: severity
+    description: "Slow sinusoidal amplitude modulation — gain instability."
+    operation: "x * (1 + depth * sin(2*pi*freq*t + phase))"
+    params:
+      freq_hz:   {distribution: uniform, low: 0.01, high: 0.5}
+      phase_rad: {distribution: uniform, low: 0.0,  high: 6.283185307179586}
+      depth:     {formula: "clip(10^(-snr_db/20), 0.01, 0.99)"}
+    realised_depth_by_snr_db: {30: 0.032, 20: 0.100, 10: 0.316, 5: 0.562, 0: 0.990}
+    note: "snr_db is a severity dial here, not a measured power ratio."
+
+  saturation:
+    order: 7
+    kind: clipping
+    snr_semantics: severity
+    description: "Hard symmetric amplitude clipping — ADC / amplifier saturation."
+    operation: "clip(x, -threshold, +threshold)"
+    params:
+      rms:          {formula: "sqrt(mean(x^2))"}
+      clip_factor:  {formula: "10^(snr_db/20) * 0.5"}
+      threshold:    {formula: "max(0.1 * rms, clip_factor * rms)"}
+    realised_clip_factor_by_snr_db: {30: 15.811, 20: 5.0, 10: 1.581, 5: 0.889, 0: 0.5}
+    deterministic: true
+    note: |
+      The only family with no RNG draw. At 30 dB and 20 dB the threshold sits
+      far above the signal RMS, so most strips are returned unchanged — this is
+      expected and is why the saturation curve is flat at high SNR.
+
+# -----------------------------------------------------------------------------
+# B2 evaluation regimes — §7.3. Recorded here so the recipe file and the eval
+# config cannot drift apart.
+# -----------------------------------------------------------------------------
+regimes:
+  regime_1:
+    train: "clean signals from the B1 train split"
+    test:  "frozen corrupted rows from data/processed/signals_corrupted.parquet"
+    augmentation: false
+  regime_2:
+    train: "clean + on-the-fly synthetic corruption drawn from this file, train_augmentation RNG stream"
+    test:  "the same frozen corrupted rows as regime_1"
+    augmentation: true
+    augmentation_policy:
+      p_corrupt_per_sample: 0.5
+      family: {distribution: uniform_choice, over: all_8_families}
+      snr_db: {distribution: uniform_choice, over: [30, 20, 10, 5, 0]}
+  regime_3:
+    train: "same trainer as regime_1"
+    test:  "natural test signals stratified by waveform_qc.sqi_tier — no synthetic corruption"
+    augmentation: false
+
+metrics:
+  primary:
+    - area_under_corruption_curve      # AUPRC averaged across the SNR ladder, per family
+    - relative_performance_drop        # clean - corrupted, per (family, snr_db)
+    - collapse_threshold               # SNR at which AUPRC < 50 % of clean
+  grid: "8 families × 5 SNRs = 40 cells per head"

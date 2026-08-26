@@ -31,6 +31,19 @@
 !/outputs/audit_reports/
 !/outputs/stage_reports/
 !/outputs/tables/
+!/outputs/results/
+# figures/, model_runs/ and release_package/ hold binaries; keep only their
+# provenance READMEs (and the release checksum list), never their contents.
+!/outputs/figures/
+/outputs/figures/*
+!/outputs/figures/README.md
+!/outputs/release_package/
+/outputs/release_package/*
+!/outputs/release_package/README.md
+!/outputs/release_package/checksums.txt
+!/outputs/model_runs/
+/outputs/model_runs/*
+!/outputs/model_runs/README.md
 
 # --- never commit logs, caches, or notebook checkpoints anywhere ---
 **/logs/

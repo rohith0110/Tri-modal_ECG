@@ -1,0 +1,448 @@
+# =============================================================================
+# decision_phase2.yaml — Phase 2 run lock
+# =============================================================================
+# Created at Stage P2.0, 2026-08-26. This file freezes the architecture (§5),
+# training infrastructure (§6), evaluation regimes (§7) and compute identity
+# (§8) as they stand at the start of Phase 2, so the reproducibility audit
+# (§1.2) can name the exact configuration and the exact machine.
+#
+# Mutating any value here re-triggers the §11 reviewer check and invalidates
+# every result produced under the old value. Fields explicitly marked
+# `status: pending_dgx_survey` are the only ones expected to be filled in
+# later — by Step 7 of docs/PHASE2_EXECUTION_PLAN_DGX.md, before any GPU job.
+# =============================================================================
+
+lock:
+  locked_at: "2026-08-26"
+  locked_by_stage: "P2.0"
+  spec: "docs/PHASE2_SOURCE_OF_TRUTH.md §5, §6, §7, §8"
+  operations_plan: "docs/PHASE2_EXECUTION_PLAN_DGX.md"
+  phase1_decision_gate: "config/decision.yaml"
+
+# -----------------------------------------------------------------------------
+# Phase 1 inheritance check (§2.3). If decision.yaml's frozen_at ever differs
+# from the value recorded here, Phase 2 halts at P2.0 with
+# "decision.yaml mutated since last Phase 2 lock — re-confirm."
+# -----------------------------------------------------------------------------
+inherited_from_phase1:
+  decision_yaml_frozen_at: "2026-06-03T08:53:27Z"
+  chosen_path: "plan_a"
+  dataset_version: "v2.0.0"
+  threshold_values:
+    total_ecgs: 800035
+    clean_linkage_count: 547827
+    l3_l2_icd_count: 547671
+  linkage_distribution: {L3: 468176, L2: 79651, L1: 237934, L0: 14274}
+  clean_cohort_ecgs: 749112
+  subjects: 161352
+  split_ecgs:     {train: 523945, val: 75525, test: 149642}
+  split_subjects: {train: 107851, val: 15397, test: 30844}
+  split_source: "data/processed/splits_subject_level.parquet"
+  split_ratio: "70/10/20, stratified on (hr_bucket, linkage_tier)"
+  never_re_split: true
+  modality_manifest_rows: 6480200
+
+# -----------------------------------------------------------------------------
+# §5 — Architecture. Locked; no per-task tweaking. The only per-task
+# variability allowed is head shape and the allowed input subset.
+# -----------------------------------------------------------------------------
+architecture:
+  signal_encoder:
+    name: ECGResNet1D18
+    family: resnet18_1d
+    pretrained: false
+    trained_from_scratch: true
+    embed_dim: 512
+    stem: "Conv1d(n_leads, 64, kernel=15, stride=2, padding=7) + BN + ReLU + MaxPool1d(3, stride=2)"
+    stages: [{blocks: 2, in: 64, out: 64, stride: 1}, {blocks: 2, in: 64, out: 128, stride: 2},
+             {blocks: 2, in: 128, out: 256, stride: 2}, {blocks: 2, in: 256, out: 512, stride: 2}]
+    block: "BasicBlock1D — 2 x (Conv1d k=7 / BN / ReLU) + identity skip; stride on the first conv of the first block in a stage"
+    head: "AdaptiveAvgPool1d(1) -> flatten -> Linear(512, 512)"
+    init: "Kaiming normal for Conv1d; ones/zeros for BN"
+    lead_subsets: [1, 12]
+    weights_shared_across_lead_subsets: false
+    module: "_model_lib/signal_encoders.py"
+  image_encoder:
+    name: ImageResNet50
+    backbone: "torchvision.models.resnet50(weights=IMAGENET1K_V2)"
+    pretrained: true
+    embed_dim: 512
+    head: "final fc replaced with Linear(2048, 512)"
+    normalize: {mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
+    target_size:
+      image_clean_lead2:      {h: 224, w: 672}
+      image_scanlike_lead2:   {h: 224, w: 672}
+      image_clean_12lead:     {h: 384, w: 512}
+      image_scanlike_12lead:  {h: 384, w: 512}
+    eval_transform: "PIL -> RGB -> Resize(short_side) -> CenterCrop(target) -> ToTensor -> Normalize"
+    train_transform_when_augment: "Resize(short_side) -> RandomCrop(target) -> ColorJitter(0.1, 0.1, 0.05, 0) -> RandomRotation(2 deg) -> ToTensor -> Normalize"
+    horizontal_flip: false
+    horizontal_flip_rationale: "flipping an ECG image is medically invalid — it inverts the leads"
+    augmentation_default: false
+    augmentation_on_for: ["scan-like training", "mixed clean+scanlike ablation regimes (B2/B4/B6)"]
+    module: "_model_lib/image_encoders.py"
+  text_encoders:
+    primary:
+      name: BioClinicalBertEncoder
+      hf_id: "emilyalsentzer/Bio_ClinicalBERT"
+      params: "110M (BERT-base)"
+      max_length: 512
+      truncation: right
+      pooling: "[CLS] hidden state, last layer"
+      head: "Linear(768, 512)"
+      embed_dim: 512
+      license: "MIT via HuggingFace"
+      model_sha: {value: null, status: pending_first_download, note: "record the exact HF revision SHA at first fetch; it ships in the release package"}
+      module: "_model_lib/text_encoders.py"
+    supplementary:
+      name: TfidfTextEncoder
+      vectorizer: "sklearn TfidfVectorizer, sublinear_tf=true, max_df=0.95, min_df=10"
+      vocabulary: "top 50,000 char n-grams (n in {2,3,4}) + word unigrams + word bigrams"
+      fit_on: "TRAIN split only, frozen for val/test"
+      projection: "TruncatedSVD to 512 dimensions, fit on TRAIN only"
+      embed_dim: 512
+      module: "_model_lib/text_encoders.py"
+    both_trained_for_every_text_task: true
+    paper_reporting: "Bio-ClinicalBERT primary, TF-IDF supplementary"
+  fusion_head:
+    name: LateFusionMLP
+    style: late_concat_mlp
+    concat_dim: 1539            # 3 x 512 embeddings + 3 presence bits
+    hidden_dims: [1024, 512]
+    activation: GELU
+    dropout: 0.2
+    missing_modality: "all-zeros embedding + a presence mask bit"
+    shared_across_tasks: true
+    per_task_difference: "only the final task_out layer"
+    module: "_model_lib/fusion_heads.py"
+  fusion_training_mode:
+    mode: end_to_end_fine_tuned
+    decision_round: "Round 5.1 (2026-08-26)"
+    applies_to: "every primary multimodal result, every task"
+    encoders_frozen: false
+    supplementary_ablation: "frozen late fusion over the P2.5-P2.7 checkpoint embeddings — a near-free by-product, reported as 'end-to-end vs frozen late fusion'"
+    rationale: |
+      §9.9 previously said "frozen-or-fine-tuned" and never picked one. The
+      answer is end-to-end everywhere. This is the more expensive option and
+      the user accepted the cost explicitly.
+  primary_modalities:
+    signal: preprocessed
+    image: clean
+    lead_set: 12-lead
+    lead2_reported_as: "Track-1, separately"
+
+# -----------------------------------------------------------------------------
+# §6 — Training infrastructure.
+# -----------------------------------------------------------------------------
+training:
+  entry_point: "scripts/phase2_tasks_benchmark_and_paper/30_train.py"
+  seeds: [42, 123, 456]
+  determinism:
+    set_seed: "random, numpy, torch, torch.cuda, PYTHONHASHSEED"
+    cudnn_deterministic: true
+    cudnn_benchmark: false
+    throughput_cost_accepted: "~5-15 %"
+    float32_matmul_precision: high
+    module: "_train_lib/seed.py"
+  optimizer:
+    name: AdamW
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
+  learning_rates:
+    head: 1.0e-3
+    signal_backbone: 1.0e-3          # trained from scratch
+    image_backbone: 1.0e-5           # pretrained
+    text_backbone_layers: 1.0e-5
+    text_embeddings: 1.0e-6
+  schedule:
+    warmup: "linear over the first 5 % of total steps"
+    decay: "cosine to 0"
+  epochs:
+    signal_only: 30
+    image_only: 30
+    text_only: 20
+    multimodal: 20
+  early_stopping: {patience_epochs: 5, monitor: "val primary metric"}
+  gradient_clipping: {type: global_norm, value: 1.0}
+  gradient_accumulation:
+    default_steps: 1
+    a6_multimodal_steps: 4
+    a6_rationale: "effective batch 64 for calibration stability"
+  mixed_precision:
+    policy: "bf16 where supported; fp16 + GradScaler fallback"
+    dgx_a100_resolves_to: bf16
+    laptop_smoke_path: "fp16 + GradScaler"
+    recorded_per_run_in: "train_config.yaml snapshot"
+  batch_sizes:
+    signal_only_a2_b1_b3: 256
+    signal_only_a4: 128
+    signal_only_a6: 128
+    image_only: 64
+    text_only: 32
+    multimodal: 16
+    b2_regime_2: 256
+    sizing_basis: "24 GB VRAM; A100 40/80 GB permits them unchanged; the laptop smoke path halves until it fits"
+    abort_if_batch_le_1_after_halving: true
+  loss_and_imbalance:
+    multi_label_binary_a1_a6: {loss: BCEWithLogitsLoss, pos_weight: "(1 - prev) / prev from TRAIN, capped at 20"}
+    multi_class_5_a3:         {loss: CrossEntropyLoss, class_weights: "TRAIN inverse-frequency", missing_class_downweighted: false}
+    multi_class_3_a2_b1_b2:   {loss: CrossEntropyLoss, class_weights: none, optional_flag: "--balanced-sampler"}
+    per_sample_sigmoid_a4:    {loss: BCEWithLogitsLoss, reduction: "summed over samples, normalized per study", pos_weight: 14}
+    binary_verification_a5_b4_b6: {loss: BCEWithLogitsLoss, imbalance: "hard-negative oversampling; every batch contains >= 1 HARD_NEGATIVE_TEXT"}
+    binary_corruption_b5:     {loss: BCEWithLogitsLoss, auxiliary: "5-class CE on the label head", balance: "50/50 by dataset design"}
+    span_regression_b5:       {loss: SmoothL1Loss, normalization: "by report length", masked_when: "is_corrupted == False"}
+    statistics_source: "TRAIN split only, always"
+  threshold_selection:
+    rule: "maximize Youden's J on the VALIDATION set"
+    logged_to: "outputs/audit_reports/threshold_audit.md, per (task, arch, seed)"
+    never_tuned_on_test: true
+    a6_extra_thresholds: [0.05, 0.10, 0.20]
+    a3_note: "per-class threshold is not meaningful for 35 softmax heads; macro-AUPRC is reported instead"
+  calibration:
+    applies_to: [A3_lab_abnormality, A6_risk_stratification]
+    reliability_bins: 10
+    bin_type: quantile
+    metrics: [ECE, brier, log_loss]
+    recalibration_trigger: "ECE > 0.05 at the val-optimal threshold"
+    recalibration_order: [platt_scaling, isotonic_regression]
+    fit_on: "VAL predictions only"
+    scaler_is_part_of_the_model_artifact: true
+    other_tasks: "compute ECE for completeness (supplementary) but do not auto-recalibrate"
+    module: "_train_lib/calibration.py"
+  checkpointing:
+    contents: [model_state_dict, optimizer_state_dict, scheduler_state_dict, seed, epoch,
+               global_step, val_metric_best, val_metric_best_epoch, rng_states, train_config_snapshot]
+    rng_states: [python, numpy, torch, cuda]
+    resume: "re-run the same command; the trainer detects checkpoint_last.pt and resumes"
+    retention_policy: best_only_evicted_on_completion
+    retention_decision_round: "Round 5.4 (supersedes Round 4.4's 150-200 GB budget)"
+    resident_budget_gb: 5
+    per_running_job: {checkpoint_last: "weights + optimizer + RNG, for resume",
+                      checkpoint_best: "WEIGHTS ONLY, ~0.6 GB for fusion"}
+    on_completion: "push checkpoint_best + test_predictions.parquet + train_log.jsonl off-node, then delete both local files"
+    concurrency_cap_fusion_jobs: 3
+    preemption: "checkpoint_last.pt written every N minutes, not only per epoch; re-pulled from off-node storage if a requeued job finds it missing"
+  logging:
+    canonical_machine_readable: "train_log.jsonl, one row per epoch"
+    worker_transport: "per-PID file logging (Phase 1 §8.3)"
+    silenced: [mixed_precision_warnings, h5py_thread_warnings, huggingface_tokenizer_warnings]
+
+# -----------------------------------------------------------------------------
+# §7 — Evaluation.
+# -----------------------------------------------------------------------------
+evaluation:
+  entry_point: "scripts/phase2_tasks_benchmark_and_paper/31_eval.py"
+  bootstrap:
+    method: bca
+    fallback: percentile
+    fallback_when: "test-positive count < 100 per head"
+    n_iter: 10000
+    level: 0.95
+    unit: patient
+    resampling: "draw subject_ids WITH replacement; take all ECGs for each drawn subject"
+    seed: 2026
+    module: "_dataset_lib/bootstrap.py"
+  per_task_outputs:
+    prediction_file: "outputs/model_runs/<task>/<arch>/seed_<n>/test_predictions.parquet"
+    result_file: "outputs/results/<task>.csv"
+    summary_file: "outputs/results/all_tasks_summary.csv"
+  reporting:
+    - "primary metric +/- std across the 3 seeds"
+    - "pooled-prediction bootstrap CI (concatenate seeds, then resample subjects)"
+    - "per-subgroup metric: SQI tier, cart_id top-5, linkage tier, Plan A boundary flag"
+  subgroup_keys: [sqi_tier, cart_id, link_tier, boundary_flag]
+  primary_metric_policy: "AUPRC for imbalanced tasks (Round 1 lock); AUROC always reported as secondary"
+  sensitivity:
+    entry_point: "41_run_sensitivity.py"
+    retrains_by_default: false
+    retrain_required_for: ["TF-IDF vs Bio-ClinicalBERT", "raw vs preprocessed signal", "lead-II vs 12-lead"]
+    output: "outputs/results/<task>_sensitivity_<sweep>.csv"
+  eval_configs:
+    default: "config/eval_configs/default.yaml"
+    a4_fiducial: "config/eval_configs/A4_fiducial.yaml"
+    a6_risk: "config/eval_configs/A6_risk.yaml"
+    b2_robustness: "config/eval_configs/B2_robustness.yaml"
+    cross_modal: "config/eval_configs/cross_modal.yaml"
+  retrieval_pool: {size: 100, composition: "50 same-HR-bucket + 50 different-HR-bucket non-anchor subjects",
+                   seed: "2026 + anchor_id", identical_across_seeds: true}
+
+# -----------------------------------------------------------------------------
+# §8 — Compute identity. The reproducibility audit names this machine.
+# -----------------------------------------------------------------------------
+compute:
+  primary:
+    role: "every trained model that reaches the paper"
+    facility: "MU HPCF"
+    hardware: "NVIDIA DGX A100"
+    nodes: [dgxa, dgxb]
+    login_host: "dgx-login01 (10.59.121.172)"
+    scheduler: slurm
+    partitions: {cpu: cpu_student, gpu: gpu_student}
+    storage_quota_gb: 50
+    quota_check: 'run on a COMPUTE node, not the login node: du -sh "$PWD"'
+    network: "MU campus network only; no inbound route from outside campus"
+    account: "se23ucse027"
+    account_expiry: "2026-12-31"
+    data_purge: "2027-01-10 (expiry + 10 days)"
+    extension_request_month: "2026-11"
+    mixed_precision_resolved: bf16
+    observed_versions:
+      status: pending_dgx_survey
+      to_record: [nvidia_driver, cuda_runtime, python, torch, torchvision, transformers, nvcc, os_release]
+      recorded_by: "Step 7 of docs/PHASE2_EXECUTION_PLAN_DGX.md"
+    open_environment_questions:
+      outbound_internet: {status: unknown, matters_for: "HuggingFace model download for Bio-ClinicalBERT"}
+      scratch_beyond_quota: {status: unknown, matters_for: "removes chunking from 3 campaigns"}
+      slurm_walltime_gpu_limits: {status: unknown, matters_for: "job sizing and requeue policy"}
+      ngc_pytorch_container: {status: unknown, matters_for: "frees ~12 GB of quota"}
+  development:
+    role: "authors and smoke-tests scripts; trains NOTHING that reaches the paper"
+    hardware: "Intel i7-12700H, 14C/20T, 32 GB RAM, RTX 3060 Laptop 6 GB, NVMe SSD"
+    os: "Windows-10-10.0.26200-SP0 (Windows 11 Pro)"
+    interpreter: "./ecg_env/Scripts/python.exe"
+    smoke_test_sample: "data/processed/dev_sample/ (5,000 studies)"
+    constraint: "mains power unreliable — every long-running local script must checkpoint and resume"
+    env:
+      python: "3.11.9"
+      torch: "2.7.1+cu118"
+      torch_cuda_build: "11.8"
+      cuda_available: true
+      bf16_supported: true
+      gpu: "NVIDIA GeForce RTX 3060 Laptop GPU"
+      torchvision: "0.22.1+cu118"
+      numpy: "2.4.3"
+      pandas: "2.3.3"
+      pyarrow: "23.0.1"
+      h5py: "3.16.0"
+      scikit_learn: "1.8.0"
+      scipy: "1.17.1"
+      neurokit2: "0.2.13"
+      matplotlib: "3.10.8"
+      pydantic: "2.13.4"
+      transformers: {version: null, status: not_installed, required_by: "Step 3 (Bio-ClinicalBERT); install before authoring _model_lib/text_encoders.py"}
+    warning: "the SYSTEM Python 3.14 carries a CPU-only torch and must never be used"
+
+# -----------------------------------------------------------------------------
+# §8.2 — Data residency. The 50 GB quota cannot hold the 355 GB Phase 1 dataset,
+# so Phase 2 never stages "the dataset" — it stages one campaign at a time.
+# -----------------------------------------------------------------------------
+data_residency:
+  model: campaign
+  launchers: "scripts/dgx_portability/"
+  staging_bucket: "r2:trimodal-data (private, DGX read-only)"
+  results_bucket: "r2:trimodal-results (private, DGX read-write)"
+  never_on_dgx_only: "no Phase 2 artifact may exist only on the DGX; results are pushed off-node as they are produced"
+  raw_mimic_never_leaves_laptop: true
+  refuse_campaign_if_over_gb: 45
+  signal_storage_format:
+    on_laptop: "float32 + gzip-4 (Phase 1 materialisation, unchanged)"
+    staged_to_dgx: "int16 + per-record scale factor + shuffle + gzip-4"
+    measured_ratio: 0.40
+    measured_size_12lead_preprocessed_gb: 56.7
+    float32_size_12lead_preprocessed_gb: 141.8
+    measured_max_abs_error: 1.1e-3
+    signal_amplitude_reference: 70
+    justification: "finer than the int16 ADC resolution of the source MIMIC-IV-ECG recordings — a storage change, not a precision compromise"
+    empirical_proof_required: "Step 5 — train one task on both encodings and confirm the metrics agree; the comparison ships in the supplementary"
+    proof_status: not_yet_run
+  chunking:
+    applies_when: "a campaign's data exceeds the quota"
+    key: "hash of study_id"
+    forbidden_keys: [subject_id, hadm_id, label, cart_id, time]
+    modality_aligned: true
+    alignment_requirement: "signal and image piece k cover the SAME studies — required by the fusion dataloader"
+    applies_to_split: train
+    cycling: within_epoch
+    cycling_rule: "every epoch visits every piece in a reshuffled order, with a shuffle buffer inside each piece; two pieces resident at a time (train on k, prefetch k+1, evict k-1)"
+    sequential_per_chunk_training: forbidden
+    forbidden_rationale: "training to convergence on piece 1 then moving to piece 2 is block-local SGD and catastrophically forgets"
+    documented_deviation: |
+      Block-shuffled sampling is a documented deviation from global shuffling.
+      It is recorded here, per §8.2 rule 2, and MUST be disclosed in the paper's
+      supplementary material.
+
+# -----------------------------------------------------------------------------
+# §8.3 — Locked training-queue order for stages P2.5-P2.8 (Round 4.2).
+# -----------------------------------------------------------------------------
+training_queue:
+  plan_a_order: [A2_measurement_blind, A1_ecg_diagnosis, A4_event_localization,
+                 A3_lab_abnormality, A6_risk_stratification, A5_cross_modal_verification]
+  plan_b_order: [B1_measurement_blind, B2_noise_robustness, B3_temporal_grounding,
+                 B4_cross_modal_verification, B5_contradiction_detection, B6_difficulty_stratified]
+  arch_tier_order: [algorithmic_baseline, signal_only, image_only, text_only, multimodal]
+  seed_order: [42, 123, 456]
+  rationale: |
+    A2 is first and exercises the whole trainer stack on the simplest task, so
+    failures show up early. A1/A4/A3/A6 each produce a defensible
+    single-modality table before multimodal work begins. A5 is last in Plan A
+    because it is the most architecture-complex. B1 reuses A2's signal-encoder
+    code, B2 reuses B1's head with regime_2 augmentation, B3 starts the next
+    code stream.
+
+# -----------------------------------------------------------------------------
+# Scope. Round 5.7: nothing is dropped to save compute or transfer.
+# -----------------------------------------------------------------------------
+scope:
+  tasks: 12
+  plan_a_role: primary
+  plan_b_role: supplementary
+  nothing_dropped_for_compute: true
+  accepted_wall_clock: "weeks to months"
+  estimated_runs: 180
+  estimated_gpu_hours: 160
+  estimated_dgx_wall_clock: "3-5 weeks, after ~2 weeks of laptop script development"
+  audits_required_before_submission:
+    - leakage_audit_phase2.md
+    - split_audit_phase2.md
+    - cohort_audit.md
+    - threshold_audit.md
+    - calibration_audit.md
+    - sensitivity_audit.md
+    - reproducibility_audit.md
+  audit_gate: "all must be PASS; leakage/split/cohort must be PASS before ANY GPU time is spent"
+
+# -----------------------------------------------------------------------------
+# Locked decisions, Rounds 1-5. Full record in spec §12.
+# -----------------------------------------------------------------------------
+locked_decisions:
+  round_1: ["seeds 42/123/456", "AUPRC primary for imbalanced tasks",
+            "patient-level bootstrap n=10,000 BCa", "70/10/20 patient split inherited, never re-split",
+            "thresholds from train+val only"]
+  round_2: ["5 ICD groups (2.1)", "7-lab universe (2.2)", "B5 = HR + QRS + axis + PR, 4 families",
+            "A4 = R-peak + QRS-bound localization; B3 = 10-bin queries (2.5)"]
+  round_3: ["signal = 1D ResNet-18 from scratch", "image = ResNet-50 ImageNet-1k",
+            "text = TF-IDF + Bio-ClinicalBERT", "fusion = late concat + MLP",
+            "primary signal = preprocessed, primary image = clean, primary lead set = 12-lead"]
+  round_4: ["training-queue order (4.2)", "5 main tables + 5 main figures + 15 supplementary tables + 8 supplementary figures (4.3)"]
+  round_5:
+    - "5.1 fusion is end-to-end fine-tuned everywhere; frozen late fusion is a supplementary ablation only"
+    - "5.2 A4/B3 fiducials are re-run with NeuroKit2 at build time — Phase 1 never cached R-peak arrays; the corrected Pan-Tompkins path must be reused"
+    - "5.3 DGX-primary, laptop development-only"
+    - "5.4 checkpoints best-only, evicted on completion; <= 5 GB resident"
+    - "5.5 signals staged as int16 + per-record scale"
+    - "5.6 oversized campaigns use aligned i.i.d. chunk cycling WITHIN each epoch"
+    - "5.7 scope unchanged; nothing dropped to save compute or transfer"
+
+# -----------------------------------------------------------------------------
+# Open decisions still outstanding at lock time. Each blocks exactly one
+# builder and must be resolved before that builder runs — not before P2.0 ends.
+# -----------------------------------------------------------------------------
+open_decisions:
+  - id: 1
+    question: "A3 lab-window join: same_subject only, or same_subject AND same_hadm_id?"
+    blocks: "03_build_A3_lab_abnormality.py"
+    assumed_default: same_subject
+    note: "the same_hadm restriction is a required sensitivity sweep either way (§7.2)"
+  - id: 2
+    question: "A5 anchor pool: random or stratified over the 5 negative types?"
+    blocks: "05_build_A5_cross_modal_verification.py"
+    assumed_default: null
+  - id: 3
+    question: "B5 span offsets: character-level or token-level?"
+    blocks: "11_build_B5_contradiction_detection.py"
+    assumed_default: character_level
+    note: "§4.B.5.5 declares corrupted_span_start/end as char offsets, so character-level is the reading the schema already implies"
+  - id: 4
+    question: "B6 hard tier: add a same-HR-bucket SAME-SUBJECT swap?"
+    blocks: "12_build_B6_difficulty_stratified.py"
+    assumed_default: "ship the hard tier empty (RESERVED)"

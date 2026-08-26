@@ -1,3 +1,55 @@
+# =============================================================================
+# task_input_policy.yaml — Phase 2 allowed / forbidden model inputs, 12 tasks
+# =============================================================================
+# REWRITTEN at Stage P2.0, 2026-08-26. Transcribed mechanically from the
+# `4.X.4 Input policy` block of each task in docs/PHASE2_SOURCE_OF_TRUTH.md §4.
+# Schema unchanged from the pre-P2.0 file (§2.5).
+#
+# THIS FILE IS THE SINGLE AUTHORITY ON LEAKAGE.
+# 20_audit_tasks_leakage.py reads only this file, walks every column of every
+# task parquet, and flags anything that resolves to a forbidden reference. A
+# violation is CRITICAL (§11) and blocks all training.
+#
+# BASELINE-ONLY CARVE-OUT. Two algorithmic baselines are permitted to read
+# fields that are forbidden as MODEL inputs, because a rule baseline that
+# cannot see machine measurements is not a baseline:
+#   - A1 logistic regression on machine-measurement summary stats (§4.A.1.7)
+#   - A6 Cox PH on age + sex + machine HR/QRS/QTc (§4.A.6.7, §5.1)
+# These run only inside 50_run_baselines_algorithmic.py and are declared per
+# task under `baseline_only_exemptions`. No trained encoder may use them.
+# =============================================================================
+
+meta:
+  phase: 2
+  rewritten_at: "2026-08-26"
+  rewritten_by_stage: "P2.0"
+  spec: "docs/PHASE2_SOURCE_OF_TRUTH.md §4.X.4, §2.5, §2.6"
+  n_tasks: 12
+  enforcement: "scripts/phase2_tasks_benchmark_and_paper/20_audit_tasks_leakage.py"
+
+# -----------------------------------------------------------------------------
+# The locked modality-kind enum (§2.6). Adding a kind is a CRITICAL spec
+# violation. `report_text` and `report_text_masked` are NOT modality kinds —
+# text lives in a parquet column, not the modality manifest — but they are
+# valid policy references and are listed separately below.
+# -----------------------------------------------------------------------------
+modality_kind_enum:
+  - raw_lead2
+  - raw_12lead
+  - preprocessed_lead2
+  - preprocessed_12lead
+  - image_clean_lead2
+  - image_clean_12lead
+  - image_scanlike_lead2
+  - image_scanlike_12lead
+  - signal_corrupted
+
+non_modality_references:
+  - report_text            # T_machine column, a parquet read
+  - report_text_masked     # A5 only: numerics replaced with [MASK]
+  - machine_measurements   # raw machine measurement fields + derived measurement labels
+  - structured_features    # data/processed/structured_features.parquet
+
 modalities_available:
   raw_lead2: data/processed/signals/lead2_raw.h5 via modality_manifest.parquet
   raw_12lead: data/processed/signals/twelve_lead_raw_shard_*.h5 via modality_manifest.parquet
@@ -5,19 +57,25 @@ modalities_available:
   preprocessed_12lead: data/processed/signals/twelve_lead_preprocessed_shard_*.h5
     via modality_manifest.parquet
   image_clean_lead2: data/processed/images/clean_lead2_shard_*.tar via modality_manifest
-    layout=lead2
+    (modality_kind=image_clean, layout=lead2)
   image_clean_12lead: data/processed/images/clean_12lead_shard_*.tar via modality_manifest
-    layout=12lead
+    (modality_kind=image_clean, layout=12lead)
   image_scanlike_lead2: data/processed/images/scanlike_lead2_shard_*.tar via modality_manifest
-    layout=lead2
+    (modality_kind=image_scanlike, layout=lead2)
   image_scanlike_12lead: data/processed/images/scanlike_12lead_shard_*.tar via modality_manifest
-    layout=12lead
+    (modality_kind=image_scanlike, layout=12lead)
   signal_corrupted: data/processed/signals_corrupted.parquet via modality_manifest
     corruption_type/snr_db
-  report_text: T_machine from ecg_metadata_clean_with_measurements.parquet
-  machine_measurements: raw machine measurement fields and derived measurement labels
+  report_text: T_machine from data/processed/index/ecg_metadata_clean_with_measurements.parquet
+  report_text_masked: A5-derived variant of T_machine with HR/QRS/QT/QTc/axis/interval
+    numerics replaced by [MASK]; written into the A5 masked_attribute parquet
+  machine_measurements: raw machine measurement fields (rr_interval, p_onset, p_end,
+    qrs_onset, qrs_end, t_end, p_axis, qrs_axis, t_axis, machine_hr_bpm,
+    machine_qrs_ms, machine_qtc_ms) and any label derived directly from them
   structured_features: data/processed/structured_features.parquet
+
 tasks:
+
   A1_ecg_diagnosis:
     allowed_inputs:
     - raw_lead2
@@ -32,8 +90,20 @@ tasks:
     forbidden_inputs:
     - machine_measurements
     - structured_features
-    leakage_rationale: EHR diagnosis labels are not ECG-measurement labels; machine
-      measurements and structured features are still forbidden to avoid shortcut inputs.
+    leakage_rationale: |
+      Labels are EHR-derived, not ECG-measurement-derived, so machine
+      measurements and structured features are not direct leakage. They
+      are still forbidden because the report_text already encodes machine
+      interpretations of the same measurements, and admitting structured
+      features would let the model side-channel-learn the report text via
+      correlated numerical features (e.g., a model predicting AF could
+      learn 'irregular RR' from rr_interval std).
+    baseline_only_exemptions:
+    - baseline: "algorithmic logistic regression on machine-measurement summary stats (HR/QRS/QTc bins, axis)"
+      reads: [machine_measurements]
+      spec: "§4.A.1.7"
+      scope: "50_run_baselines_algorithmic.py only; never reaches a trained encoder"
+
   A2_measurement_blind:
     allowed_inputs:
     - raw_lead2
@@ -48,8 +118,14 @@ tasks:
     - report_text
     - machine_measurements
     - structured_features
-    leakage_rationale: Labels are computed from rr_interval, QRS duration, and QTc;
-      all label-derived fields and text summaries are forbidden.
+    leakage_rationale: |
+      Labels are computed directly from rr_interval, qrs_end-qrs_onset,
+      and qtc_bazett_ms. Any input containing these values allows trivial
+      copying. Image rendering doesn't embed text but does embed the
+      waveform shape and amplitude; image is forbidden in A2 (matches B1
+      decision) to keep this strictly signal-only — the task is meant as
+      a signal-encoder sanity check.
+
   A3_lab_abnormality:
     allowed_inputs:
     - raw_lead2
@@ -64,8 +140,14 @@ tasks:
     forbidden_inputs:
     - machine_measurements
     - structured_features
-    leakage_rationale: Lab labels are EHR-derived; structured features are forbidden
-      to prevent engineered morphology shortcuts.
+    leakage_rationale: |
+      Lab labels are EHR-derived, not ECG-derived, so signal/image/text are
+      legitimate inputs. Structured features are forbidden because some
+      labs (K, troponin) have stereotypical ECG signatures (peaked T waves,
+      ST elevation) that the model should learn from raw signal — feeding
+      pre-computed morphology features would short-circuit that learning
+      and bias the comparison.
+
   A4_event_localization:
     allowed_inputs:
     - raw_lead2
@@ -80,8 +162,16 @@ tasks:
     - image_clean_12lead
     - image_scanlike_lead2
     - image_scanlike_12lead
-    leakage_rationale: Localization labels come from waveform delineation, so engineered
-      features, text, machine measurements, and rendered images are forbidden.
+    leakage_rationale: |
+      Labels are derived from NeuroKit2 wavelet delineation of the
+      Lead-II raw signal. Structured features carry aggregate timing
+      information from the same delineation, so including them would
+      leak the labels. report_text and machine_measurements summarize
+      timings (qrs_onset/end) which are global aggregates of the
+      per-peak labels — also leakage. Image is forbidden because the
+      rendered ECG image visually shows the QRS complex boundaries
+      (model could pixel-trace).
+
   A5_cross_modal_verification:
     allowed_inputs:
     - raw_lead2
@@ -93,11 +183,24 @@ tasks:
     - image_scanlike_lead2
     - image_scanlike_12lead
     - report_text
+    - report_text_masked
     forbidden_inputs:
     - machine_measurements
     - structured_features
-    leakage_rationale: The task verifies modality alignment; label-derived measurement
-      columns and structured features stay out of model inputs.
+    leakage_rationale: |
+      The verification head needs all three modalities — that IS the
+      task. The masked-attribute head needs signal + image as inputs and
+      predicts binned attributes; report_text_masked is the source of
+      the "what's been masked" provenance and is allowed only because
+      its numeric content has been removed. Structured features are
+      forbidden because they encode the same numerics by another route.
+    head_scoped_notes:
+      verification: "report_text (unmasked) is an input to this head — it is the thing being verified."
+      masked_attribute: |
+        Inputs are signal + image; report_text_masked carries only the masking
+        provenance. The UNMASKED report_text must never reach this head — it
+        would restore the very numerics the head is asked to predict.
+
   A6_risk_stratification:
     allowed_inputs:
     - raw_lead2
@@ -112,8 +215,20 @@ tasks:
     forbidden_inputs:
     - machine_measurements
     - structured_features
-    leakage_rationale: Risk labels are EHR-derived; engineered structured features
-      are reserved for audited baselines, not ordinary inputs.
+    leakage_rationale: |
+      Labels are derived from EHR mortality/readmission, not from any ECG
+      measurement, so signal/image/text are legitimate. structured_features
+      and machine_measurements are forbidden because they side-channel
+      encode the ECG into a small numeric vector that would let the
+      multimodal model achieve high performance via tabular shortcut
+      rather than learning ECG-from-modality. Letting them in would also
+      bias the comparison vs single-modality baselines.
+    baseline_only_exemptions:
+    - baseline: "algorithmic Cox proportional hazards on age + sex + machine HR + QRS + QTc"
+      reads: [machine_measurements]
+      spec: "§4.A.6.7, §5.1"
+      scope: "50_run_baselines_algorithmic.py only; never reaches a trained encoder"
+
   B1_measurement_blind:
     allowed_inputs:
     - raw_lead2
@@ -128,7 +243,12 @@ tasks:
     - report_text
     - machine_measurements
     - structured_features
-    leakage_rationale: Same label source as A2; this is signal-only measurement inference.
+    leakage_rationale: |
+      Identical to A2 (§4.B.1.4 "Identical to §4.A.2.4"). Labels are computed
+      directly from rr_interval, qrs_end-qrs_onset and qtc_bazett_ms; any input
+      carrying those values allows trivial copying. Image stays forbidden so the
+      task remains a strictly signal-only encoder sanity check.
+
   B2_noise_robustness:
     allowed_inputs:
     - raw_lead2
@@ -144,8 +264,18 @@ tasks:
     - report_text
     - machine_measurements
     - structured_features
-    leakage_rationale: Noise robustness uses corrupted Lead-II signals and B1 labels;
-      clean text and measurement fields are forbidden.
+    leakage_rationale: |
+      Same as B1 — labels derive from clean machine measurements; any
+      input containing those values trivially leaks. Image is also
+      forbidden because the corrupted signal's rendered image would
+      show the corruption visually; we want the model to learn from
+      signal directly.
+    notes: |
+      12-lead signal is forbidden here even though it is allowed in B1: the
+      frozen corruption set was generated on Lead-II only (Phase 1 Stage 8), so
+      a 12-lead model would see 11 uncorrupted leads and the robustness claim
+      would be meaningless.
+
   B3_temporal_grounding:
     allowed_inputs:
     - raw_lead2
@@ -156,8 +286,16 @@ tasks:
     - machine_measurements
     - structured_features
     - report_text
-    leakage_rationale: Temporal labels are waveform-derived; measurements, text summaries,
-      and structured features leak timing information.
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    leakage_rationale: |
+      Bin labels derived from local R-peak detection + per-bin SQI.
+      Aggregate machine measurements (rr_interval, qrs_*) summarize the
+      same quantities and would leak. Image is forbidden for the same
+      fiducial-leakage reason as A4.
+
   B4_cross_modal_verification:
     allowed_inputs:
     - raw_lead2
@@ -172,21 +310,41 @@ tasks:
     forbidden_inputs:
     - machine_measurements
     - structured_features
-    leakage_rationale: Same verification head as A5; machine measurements and structured
-      features remain shortcut inputs.
+    leakage_rationale: |
+      Same as the A5 verification head. The task IS to decide whether the
+      signal/image/text triple belongs together, so all three modalities are
+      inputs by construction. Machine measurements and structured features are
+      forbidden because they encode the same numerics by another route and
+      would give the model a shortcut alignment signal.
+
   B5_contradiction_detection:
     allowed_inputs:
     - raw_lead2
     - raw_12lead
     - preprocessed_lead2
     - preprocessed_12lead
-    - report_text_corrupted
+    - report_text
     forbidden_inputs:
     - machine_measurements
     - structured_features
-    - machine_report_text_original
-    leakage_rationale: Contradiction labels are generated from measurement/report
-      edits; originals and raw measurement values are forbidden.
+    - image_clean_lead2
+    - image_clean_12lead
+    - image_scanlike_lead2
+    - image_scanlike_12lead
+    leakage_rationale: |
+      machine_measurements and structured_features ARE the contradiction
+      source — including them lets the model trivially recompute HR /
+      QRS / axis / PR and detect mismatch. report_text is needed because
+      that's the input being audited. Image is forbidden because a
+      rendered ECG image visually shows HR / QRS / axis (model could
+      pixel-trace and short-circuit signal+text comparison).
+    notes: |
+      `report_text` here means the row's audited text: `corrupted_report_text`
+      on is_corrupted=True rows and `original_report_text` on clean rows. The
+      task parquet stores both columns, but a model is fed exactly ONE of them
+      per row — feeding both would trivially reveal the label by diff. The
+      leakage audit checks the dataloader, not just the parquet, for this task.
+
   B6_difficulty_stratified:
     allowed_inputs:
     - raw_lead2
@@ -201,5 +359,7 @@ tasks:
     forbidden_inputs:
     - machine_measurements
     - structured_features
-    leakage_rationale: Difficulty stratification evaluates the B4 verification setup;
-      shortcut measurement and structured features remain forbidden.
+    leakage_rationale: |
+      Identical to B4 (§4.B.6.4). B6 is an evaluation-time stratification of the
+      B4 prediction file, so it inherits B4's policy unchanged; no new input is
+      introduced by the difficulty slicing.

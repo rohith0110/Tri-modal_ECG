@@ -1,90 +1,701 @@
-# Task definitions — locked at dataset construction time
-# Plan B only (no EHR access)
+# =============================================================================
+# task_definitions.yaml — Phase 2 benchmark, all 12 tasks
+# =============================================================================
+# REWRITTEN at Stage P2.0, 2026-08-26. The previous version covered only the 6
+# Plan-B tasks and pointed at data/processed/task_jsonl/*.jsonl, which no
+# longer exists. Source of truth for every block below:
+#   docs/PHASE2_SOURCE_OF_TRUTH.md §4 (data contract, per task)
+#   docs/PHASE2_SOURCE_OF_TRUTH.md §5.6 (per-task head shape)
+#   docs/PHASE2_SOURCE_OF_TRUTH.md §6.4 (loss / imbalance)
+#   docs/PHASE2_SOURCE_OF_TRUTH.md §7 (evaluation regimes)
+#
+# This file is the DATA + METRIC contract. The MODEL contract (which encoder,
+# which LR, which batch size) lives in config/model_configs/*.yaml and
+# config/decision_phase2.yaml, deliberately separated so the data contract can
+# be audited without reference to any specific model (§4 preamble).
+#
+# Allowed / forbidden inputs are NOT duplicated here — config/task_input_policy.yaml
+# is the single authority and 20_audit_tasks_leakage.py reads only that file.
+# =============================================================================
 
+meta:
+  phase: 2
+  rewritten_at: "2026-08-26"
+  rewritten_by_stage: "P2.0"
+  spec: "docs/PHASE2_SOURCE_OF_TRUTH.md §4"
+  n_tasks: 12
+  plan_a_tasks: [A1_ecg_diagnosis, A2_measurement_blind, A3_lab_abnormality,
+                 A4_event_localization, A5_cross_modal_verification, A6_risk_stratification]
+  plan_b_tasks: [B1_measurement_blind, B2_noise_robustness, B3_temporal_grounding,
+                 B4_cross_modal_verification, B5_contradiction_detection, B6_difficulty_stratified]
+  dataset_root: "data/processed/tasks/<task_key>/{train,val,test}.parquet"
+  split_source: "data/processed/splits_subject_level.parquet"   # 70/10/20, never re-derived
+  seeds: [42, 123, 456]
+  bootstrap: {n_iter: 10000, method: bca, fallback: percentile, fallback_when: "n_positive < 100", level: 0.95}
+  threshold_selection: "Youden's J on the VALIDATION split only (§6.5). Never re-tuned on test."
+
+# -----------------------------------------------------------------------------
+# Shared label definitions reused by A2, B1, B2 and the A5 masked-attribute head.
+# Thresholds unchanged from the pre-P2.0 B1 block (§4.A.2.3).
+# -----------------------------------------------------------------------------
+shared_label_defs:
+  measurement_bins:
+    source: "MACHINE measurements in data/processed/index/ecg_metadata_clean_with_measurements.parquet"
+    source_decision:
+      resolved_at: "2026-08-26"
+      resolved_by: "user decision, Stage P2.0"
+      rule: |
+        The measurement bins read the MACHINE measurement, never the NeuroKit2
+        column of the same name. structured_features.qrs_ms is byte-identical to
+        structured_features.qrs_dur_ms (the NeuroKit value, max 9688 ms) and is
+        NOT the machine qrs_end - qrs_onset that §4.A.2.3's formula defines. No
+        builder may reach for structured_features.qrs_ms or .pr_ms by name.
+      applies_to: [A2_measurement_blind, B1_measurement_blind, B2_noise_robustness,
+                   A5_cross_modal_verification.masked_attribute]
+    validity:
+      missing_sentinel: 29999
+      missing_flag_columns_are_unusable: |
+        p_onset_missing, qrs_onset_missing, qrs_end_missing, qrs_axis_missing and
+        rr_interval_missing are ALL FALSE for all 749,112 rows — they mark
+        nothing. The real missing encoding is the literal value 29999 in the
+        integer measurement columns. Every builder must mask it.
+      plausible_range: {hr_bpm: [20, 300], qrs_ms: [40, 300], qtc_ms: [200, 800]}
+    hr_bpm:  {formula: "60000 / rr_interval", column: machine_hr_bpm, valid_when: "rr_interval != 29999"}
+    qrs_ms:  {formula: "qrs_end - qrs_onset", column: machine_qrs_ms, valid_when: "qrs_onset != 29999 and qrs_end != 29999"}
+    qtc_ms:  {formula: "Bazett: qt_ms / sqrt(rr_interval/1000)", column: "structured_features.qtc_bazett_ms",
+              alternative_column: "machine_qtc_ms in the metadata parquet",
+              note: "§4.A.2.3 names qtc_bazett_ms; both columns exist and the builder records which it used"}
+    hr_label:
+      bradycardia: "hr_bpm < 60"
+      normal:      "60 <= hr_bpm < 100"
+      tachycardia: "hr_bpm >= 100"
+    qrs_label:
+      normal:     "qrs_ms < 100"
+      borderline: "100 <= qrs_ms < 120"
+      wide:       "qrs_ms >= 120"
+    qtc_label:
+      short:     "qtc_ms < 350"
+      normal:    "350 <= qtc_ms < 450"
+      prolonged: "qtc_ms >= 450"
+      note: "Single 450 ms cut for both sexes; the 460 ms female cut is a supplementary sensitivity only (§4.A.2.3)."
+  negative_types:
+    TEXT_SWAP:          "Replace text with text from a different subject's study"
+    IMAGE_SWAP:         "Replace image with image from a different subject's study"
+    SIGNAL_SWAP:        "Replace signal with signal from a different subject's study"
+    HARD_NEGATIVE_TEXT: "Replace text with text from a same-HR-bucket, different-subject study"
+    PARTIAL_MISMATCH:   "Replace two modalities, keep one anchor-aligned"
+
+# =============================================================================
+# 4.A — Plan A tasks (main paper). Conditional on config/decision.yaml
+# chosen_path == 'plan_a' (currently true, frozen 2026-06-03T08:53:27Z).
+# =============================================================================
 tasks:
-  B1_measurement_blind:
-    name: "Measurement-Blind Physiological Inference"
-    description: "Predict binned HR, QRS duration, and QTc from raw signal only. Labels from machine measurements — must not appear in model inputs."
-    dataset: "processed/taskB1_measurement_blind.jsonl"
-    targets:
-      hr_label:
-        type: classification
-        classes: [bradycardia, normal, tachycardia]
-        primary_metric: AUPRC
-        secondary_metric: AUROC
-      qrs_label:
-        type: classification
-        classes: [normal, borderline, wide]
-        primary_metric: AUPRC
-        secondary_metric: AUROC
-      qtc_label:
-        type: classification
-        classes: [short, normal, prolonged]
-        primary_metric: AUPRC
-        secondary_metric: AUROC
-    allowed_inputs: [signal_lead2]
-    forbidden_inputs: [report_text, machine_measurements, structured_features]
-    algorithmic_baseline: "NeuroKit2 R-peak detector → HR; QRS detector → QRS duration"
-    subgroup_analysis: ["by_cart_id", "by_sqi_tier"]
-    notes: "Doc §6.2: report performance by SQI tier and by cart_id. Include NeuroKit2 baseline."
 
+  # ---------------------------------------------------------------------------
+  A1_ecg_diagnosis:
+    plan: A
+    name: "EHR Diagnosis Prediction (multi-label ICD)"
+    spec_section: "§4.A.1"
+    description: |
+      Predict whether each of five ICD-grouped diagnoses was assigned to the
+      encounter the ECG overlaps with. Multi-label binary heads.
+    label_timing: "encounter-associated, NOT prospective — the ICD code is assigned at end of admission (§4.A.1.3)"
+    cohort:
+      primary_filter: "link_tier == 'L3' AND icd_available == True AND waveform_qc.decode_ok == True"
+      sensitivity_filter: "link_tier in {L3, L2}"
+      n_ecg_expected_primary: 468176      # L3 pool; ICD-available subset measured at build time
+      label_source_primary: hosp
+      label_source_secondary: ed
+      pool_hosp_and_ed: false
+      boundary_flag: "included in primary; excluded set reported as sensitivity (±2 h of admittime/dischtime)"
+    label_map: "config/icd_label_map_LOCKED.yaml"
+    targets:
+      type: multi_label_binary
+      n_heads: 5
+      heads: [label_atrial_fibrillation_flutter, label_heart_failure_narrow,
+              label_acute_myocardial_infarction, label_conduction_disorder,
+              label_ventricular_arrhythmia_or_arrest]
+      output: "sigmoid x 5"
+    loss: {fn: BCEWithLogitsLoss, pos_weight: "per head, (1 - prev) / prev from TRAIN only, capped at 20"}
+    metrics:
+      primary:   [macro_AUPRC_over_5_heads, per_head_AUPRC]
+      secondary: [macro_AUROC, per_head_AUROC, per_head_F1_at_val_optimal_threshold]
+      calibration: not_reported
+      threshold: "per-head Youden's J on val ROC"
+    baselines:
+      - {tier: algorithmic,        model: "Logistic regression on machine-measurement summary stats (HR/QRS/QTc bins, axis)", required: true, note: "BASELINE-ONLY; these fields are forbidden as model input (§4.A.1.4)"}
+      - {tier: signal,             model: "1D ResNet-18 on raw_lead2", required: true}
+      - {tier: signal_preprocessed,model: "1D ResNet-18 on preprocessed_lead2", required: true}
+      - {tier: image,              model: "ResNet-50 on image_clean_lead2", required: true}
+      - {tier: text,               model: "Bio-ClinicalBERT and TF-IDF on report_text", required: true}
+      - {tier: multimodal,         model: "LateFusionMLP on raw_lead2 + image_clean_lead2 + report_text", required: true}
+      - {tier: multimodal_12lead,  model: "LateFusionMLP on raw_12lead + image_clean_12lead + report_text", required: true}
+    sensitivity_analyses:
+      - l3_only_vs_l3_l2
+      - boundary_excluded
+      - raw_vs_preprocessed_signal
+      - per_sqi_tier
+      - per_cart_id_top5
+      - hosp_icd_only_vs_hosp_plus_ed
+      - first_ecg_per_admission_vs_all
+      - no_text_ablation
+      - tfidf_vs_bioclinicalbert
+    subgroup_analysis: [by_sqi_tier, by_cart_id, by_linkage_tier, by_boundary_flag]
+
+  # ---------------------------------------------------------------------------
+  A2_measurement_blind:
+    plan: A
+    name: "Measurement-Blind Physiological Inference (L3 cohort)"
+    spec_section: "§4.A.2"
+    description: |
+      Sanity-check task: predict binned HR, QRS duration and QTc from signal
+      alone. Plan A/B §5.4 — "Use this task as a sanity check, not as the main
+      novelty claim." Same labels as B1; A2 differs only in cohort scope.
+    cohort:
+      primary_filter: "link_tier == 'L3' AND machine HR/QRS/QTc present and valid AND decode_ok AND length_ok AND sqi_tier == 'high'"
+      sensitivity_filter: "sqi_tier in {high, medium}; link_tier in {L3, L2}"
+      n_ecg_expected_primary: 3110        # MEASURED 2026-08-26, see spec_conflict below
+      spec_conflict:
+        raised_at: "Stage P2.0, 2026-08-26"
+        status: OPEN
+        blocks: "02_build_A2_measurement_blind.py (Stage P2.1)"
+        detail: |
+          §4.A.2.2 states the A2 primary cohort is link_tier == 'L3' AND
+          sqi_tier == 'high', and estimates "~445 K primary". The measured
+          high-SQI population is 4,166 studies in the whole 749,112-row clean
+          cohort (0.56 %), of which 3,110 are L3. The spec's estimate is off by
+          two orders of magnitude, so an A2 built to the letter of §4.A.2.2
+          would train on 3,110 ECGs.
+        measured:
+          clean_cohort: 749112
+          sqi_high: 4166
+          sqi_medium: 460963
+          sqi_low: 283983
+          sqi_high_and_l3: 3110
+        options:
+          - "keep sqi high as primary and accept a 3,110-ECG A2 (defensible, but the
+             task stops being the whole-cohort sanity check §5.4 intends)"
+          - "make sqi in {high, medium} the primary cohort (~285 K L3 ECGs, close to
+             the spec's own ~445 K expectation) and report high-only as the
+             sensitivity slice instead"
+          - "re-examine the Phase 1 SQI tier thresholds — sqi_aggregate has median
+             0.617 and max 0.869, so the 'high' cut may simply be set too far out"
+        assumed_default: "option 2 — sqi in {high, medium} primary, high-only as sensitivity"
+    targets:
+      type: multi_class_3_heads
+      heads:
+        hr_label:  {classes: [bradycardia, normal, tachycardia]}
+        qrs_label: {classes: [normal, borderline, wide]}
+        qtc_label: {classes: [short, normal, prolonged]}
+      definitions: "shared_label_defs.measurement_bins"
+      output: "softmax x 3 heads (3/3/3 classes)"
+    loss: {fn: CrossEntropyLoss, class_weights: none_by_default, optional: "--balanced-sampler weighted random sampler"}
+    metrics:
+      primary:   [per_head_macro_AUPRC]
+      secondary: [per_class_AUPRC, per_class_F1_at_val_optimal_threshold]
+      threshold: "per-class Youden's J on val"
+    baselines:
+      - {tier: algorithmic,         model: "NeuroKit2 R-peak detector -> mean instantaneous HR; NeuroKit2 wavelet QRS delineator -> mean QRS duration", required: true}
+      - {tier: signal,              model: "1D ResNet-18 on raw_lead2", required: true}
+      - {tier: signal_preprocessed, model: "1D ResNet-18 on preprocessed_lead2", required: true}
+      - {tier: signal_12lead,       model: "1D ResNet-18 on raw_12lead", required: true}
+    sensitivity_analyses:
+      - per_sqi_tier
+      - per_cart_id_top5
+      - lead2_vs_12lead
+      - l3_only_vs_l3_l2
+    subgroup_analysis: [by_sqi_tier, by_cart_id]
+    notes: "Plan A/B §5.4 mandates reporting by SQI tier to show where automatic label reproduction fails."
+
+  # ---------------------------------------------------------------------------
+  A3_lab_abnormality:
+    plan: A
+    name: "Lab Abnormality Prediction (7 labs x 5 windows)"
+    spec_section: "§4.A.3"
+    description: |
+      Predict whether each of seven primary labs is abnormal in time-windowed
+      proximity to the ECG. 35 heads, 5 classes each.
+    cohort:
+      primary_filter: "link_tier == 'L3'"
+      sensitivity_filter: "link_tier in {L3, L2}"
+      n_ecg_expected_primary: 468176
+      join_policy: "same_subject (primary); same_subject AND same_hadm_id is a required sensitivity sweep — OPEN QUESTION #1, resolve before running the A3 builder"
+    lab_map: "config/lab_itemid_map_LOCKED.yaml"
+    targets:
+      type: multi_class_5_x_35_heads
+      n_heads: 35
+      head_key: "lab_<name>_<window>_label"
+      labs: [K, Na, creatinine, troponin, lactate, Ca, Mg]
+      windows: [pm24h, pre_24h, post_24h, pm6h, pm12h]
+      primary_window: pm24h
+      classes: [missing, low_abnormal, high_abnormal, abnormal_unknown_direction, normal]
+      missing_class_dropped: false
+      output: "softmax x 35 (5-class each)"
+    loss: {fn: CrossEntropyLoss, class_weights: "TRAIN inverse-frequency", note: "'missing' is a real class and is NOT down-weighted"}
+    metrics:
+      primary:   [per_lab_window_AUPRC_low_abnormal, per_lab_window_AUPRC_high_abnormal,
+                  per_lab_window_AUPRC_any_abnormal, macro_AUPRC_over_7_labs_at_pm24h]
+      headline:  macro_AUPRC_over_7_labs_at_pm24h
+      calibration: {required: true, heads: [K, troponin, Na, creatinine], window: pm24h,
+                    outputs: [reliability_diagram, ECE, brier]}
+      threshold: "not reported per-class (multi-class); macro-AUPRC is the threshold-free headline (§6.5)"
+      supplementary:
+        missingness_model: "logistic regression predicting missing vs not_missing from ECG features — documents the modelable missingness process (Plan A/B §5.5)"
+    baselines:
+      - {tier: algorithmic,         model: null, required: false, note: "no rule-based ECG -> lab predictor exists"}
+      - {tier: signal,              model: "1D ResNet-18 on raw_lead2", required: true}
+      - {tier: signal_preprocessed, model: "1D ResNet-18 on preprocessed_lead2", required: true}
+      - {tier: image,               model: "ResNet-50 on image_clean_lead2", required: true}
+      - {tier: text,                model: "Bio-ClinicalBERT and TF-IDF on report_text", required: true}
+      - {tier: multimodal,          model: "LateFusionMLP on signal + image + text", required: true}
+      - {tier: multimodal_12lead,   model: "LateFusionMLP on 12-lead signal + 12-lead image + text", required: true}
+    sensitivity_analyses:
+      - lab_window_sweep_pm6h_pm12h_pre24h_post24h_pm24h
+      - pre_24h_vs_post_24h_causality_check
+      - l3_only_vs_l3_l2
+      - per_sqi_tier
+      - same_hadm_restriction
+      - no_text_ablation
+      - tfidf_vs_bioclinicalbert
+    subgroup_analysis: [by_sqi_tier, by_cart_id, by_linkage_tier]
+
+  # ---------------------------------------------------------------------------
+  A4_event_localization:
+    plan: A
+    name: "Temporal / Waveform Event Localization (R-peaks + QRS bounds)"
+    spec_section: "§4.A.4"
+    description: |
+      Predict R-peak sample positions and QRS onset/offset spans within the
+      10-second Lead-II strip.
+    cohort:
+      primary_filter: "link_tier == 'L3' AND decode_ok AND length_ok AND sqi_tier in {high, medium} AND ground-truth R-peaks exist"
+      sensitivity_filter: "full clean cohort regardless of link_tier"
+      n_ecg_expected_primary: 468176
+    ground_truth:
+      source: "data/processed/fiducials_lead2.parquet"
+      produced_by: "scripts/phase2_tasks_benchmark_and_paper/00_extract_fiducials.py (Stage P2.1)"
+      method: "NeuroKit2 wavelet delineation, re-run at build time"
+      binding_constraint: |
+        MUST reuse the CORRECTED Pan-Tompkins R-peak code path from the Phase 1
+        regen. The detector bug fixed there (~74 K false labels) must not be
+        reintroduced by a fresh implementation (Round 5.2 / progress-doc trap 2).
+      storage: "sparse peak positions, not dense 5000-sample masks; the dataloader expands to dense at batch time"
+      schema: {r_peaks_lead2: "list<int32>", qrs_onsets_lead2: "list<int32>",
+               qrs_offsets_lead2: "list<int32>", n_peaks: int32}
+    targets:
+      type: per_sample_sequence
+      output: "per-sample sigmoid (5000) + QRS onset/offset regression"
+      n_samples: 5000
+      fs_hz: 500
+    loss: {fn: BCEWithLogitsLoss, reduction: "summed over samples, normalized per study", pos_weight: 14}
+    metrics:
+      primary:   [R_peak_F1_at_10ms_tolerance, mean_absolute_R_peak_timing_error_ms]
+      secondary: [QRS_onset_F1_at_10ms, QRS_offset_F1_at_10ms, mean_absolute_QRS_duration_error_ms]
+      tolerance_ms: 10          # = +/-5 samples at 500 Hz
+      supplementary: [event_count_distribution_predicted_vs_true]
+    baselines:
+      - {tier: algorithmic,         model: "NeuroKit2 Pan-Tompkins R-peak + wavelet QRS delineator", required: true,
+         note: "same algorithm that produced ground truth -> F1 = 1.0 by construction; reported as an ORACLE reference, not a competitor"}
+      - {tier: signal,              model: "1D U-Net-style seq2seq head on raw_lead2", required: true}
+      - {tier: signal_preprocessed, model: "same on preprocessed_lead2", required: true}
+    sensitivity_analyses:
+      - per_sqi_tier
+      - l3_only_vs_full_clean_cohort
+      - raw_vs_preprocessed_signal
+      - per_cart_id_top5
+    subgroup_analysis: [by_sqi_tier, by_cart_id]
+
+  # ---------------------------------------------------------------------------
+  A5_cross_modal_verification:
+    plan: A
+    name: "Cross-Modal Verification + Masked Attribute Prediction"
+    spec_section: "§4.A.5"
+    description: |
+      Two heads on a shared tri-encoder: (1) verify that a signal+image+text
+      triple belongs to one study; (2) given signal+image, predict masked
+      HR/QRS/QTc bins from an attribute-masked report.
+    cohort:
+      primary_filter: "full clean cohort, any link_tier; requires text+image+signal availability (drop studies where text_ok == False)"
+      n_ecg_expected_primary: 749112
+    targets:
+      verification:
+        type: binary
+        output: "sigmoid x 1"
+        rows_per_anchor: 7
+        positives_per_anchor: 2       # clean image + scanlike image
+        negatives_per_anchor: 5
+        negative_types: [TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, HARD_NEGATIVE_TEXT, PARTIAL_MISMATCH]
+        hard_negative_condition: "HARD_NEGATIVE_TEXT emitted only when a same-HR-bucket, different-subject alternative exists"
+        anchor_pool: "OPEN QUESTION #2 — random or stratified over the 5 negative types; resolve before running the A5 builder"
+      masked_attribute:
+        type: multi_class_3_heads
+        output: "softmax x 3 heads"
+        heads: [hr_label, qrs_label, qtc_label]
+        definitions: "shared_label_defs.measurement_bins"
+        masking: "numeric mentions of HR, QRS, QT, QTc, axis and intervals replaced with [MASK]"
+        separate_parquet: "tasks/A5_cross_modal_verification/masked_attribute_{train,val,test}.parquet"
+    loss:
+      verification: {fn: BCEWithLogitsLoss, imbalance: "hard-negative oversampling — every batch contains >= 1 HARD_NEGATIVE_TEXT example"}
+      masked_attribute: {fn: CrossEntropyLoss}
+    metrics:
+      verification: {primary: [AUPRC], secondary: [AUROC, macro_F1, per_neg_type_F1], retrieval_secondary: "Recall@1 over a 100-candidate pool"}
+      masked_attribute: {primary: [per_head_macro_AUPRC], note: "matches the A2 metric so the two are directly comparable"}
+      retrieval_pool: {size: 100, composition: "50 same-HR-bucket + 50 different-HR-bucket non-anchor subjects", seed: "2026 + anchor_id"}
+    baselines:
+      - {tier: embedding,       model: "cosine similarity between frozen S/I/T embeddings", required: true}
+      - {tier: tri_encoder,     model: "tri-encoder + small fusion MLP", required: true}
+      - {tier: cross_attention, model: "tri-encoder + cross-attention fusion", required: true}
+      - {tier: algorithmic,     model: null, required: false, note: "no rule baseline exists for cross-modal verification"}
+    sensitivity_analyses:
+      - per_neg_type_F1
+      - clean_vs_scanlike_image
+      - lead2_vs_12lead_image
+      - with_vs_without_hard_negative_text_in_train
+      - masked_attribute_with_vs_without_verification_head
+      - no_text_ablation
+      - tfidf_vs_bioclinicalbert
+    subgroup_analysis: [by_neg_type, by_image_type, by_sqi_tier]
+
+  # ---------------------------------------------------------------------------
+  A6_risk_stratification:
+    plan: A
+    name: "Risk Stratification (mortality + readmission at 30 d and 90 d)"
+    spec_section: "§4.A.6"
+    description: |
+      Predict observed 30- and 90-day mortality and readmission after the ECG.
+      Index time is ecg_time; no post-ECG features.
+    cohort:
+      primary_filter: "link_tier == 'L3'"
+      mortality_head_filter: "mortality_observable == True; ED-only ECGs INCLUDED (patients.dod is observable regardless of admission)"
+      readmission_head_filter: "link_type in {hospital_exact, hospital_tolerance}; ED-only ECGs EXCLUDED (Plan A/B §5.8)"
+      sensitivity_filter: "link_tier in {L3, L2}"
+      n_ecg_expected_primary: 468176
+      n_mortality_observable_l3: 416440
+      n_readmission_eligible_l3: 408754
+      boundary_flag: "included in primary; excluded set reported as sensitivity"
+    targets:
+      type: multi_label_binary
+      n_heads: 4
+      heads: [mortality_30d, mortality_90d, readmission_30d, readmission_90d]
+      output: "sigmoid x 4"
+      definitions:
+        death_time: "patients.dod if not null else admissions.deathtime[hadm_id]"
+        mortality_30d: "death_time is not null AND 0 < (death_time - ecg_time) <= 30 days"
+        mortality_90d: "death_time is not null AND 0 < (death_time - ecg_time) <= 90 days"
+        readmission_30d: "(next_admission.admittime - dischtime) <= 30 days"
+        readmission_90d: "(next_admission.admittime - dischtime) <= 90 days"
+        next_admission: "earliest admittime > dischtime for the same subject, different hadm_id, excluding pure transfers"
+      censoring: "rows whose horizon cannot be observed are flagged (mortality_observable / readmission_eligible), not silently zeroed"
+    loss: {fn: BCEWithLogitsLoss, pos_weight: "per head from TRAIN prevalence",
+           recalibration: "post-hoc Platt scaling fit on VAL only if ECE > 0.05; isotonic if still > 0.05 (§6.8)"}
+    metrics:
+      primary:   [per_head_AUPRC]
+      secondary: [per_head_AUROC, precision_at_recall_0.5, recall_at_precision_0.5]
+      calibration: {required: true, outputs: [reliability_diagram_10_quantile_bins, ECE, brier, log_loss]}
+      threshold: "per-head Youden's J on val; ALSO report at clinical risk thresholds 0.05 / 0.10 / 0.20"
+      supplementary: [decision_curve_analysis_net_benefit_at_5_10_20_pct]
+    baselines:
+      - {tier: algorithmic,        model: "Cox proportional hazards on age + sex + machine HR + QRS + QTc", required: true,
+         note: "BASELINE-ONLY; machine features are forbidden as model input (§4.A.6.4)"}
+      - {tier: signal,             model: "1D ResNet-18 on raw_lead2", required: true}
+      - {tier: signal_12lead,      model: "1D ResNet-18 on raw_12lead", required: true}
+      - {tier: image,              model: "ResNet-50 on image_clean_lead2", required: true}
+      - {tier: text,               model: "Bio-ClinicalBERT and TF-IDF on report_text", required: true}
+      - {tier: multimodal,         model: "LateFusionMLP on raw_lead2 + image_clean_lead2 + report_text", required: true}
+      - {tier: multimodal_12lead,  model: "LateFusionMLP on raw_12lead + image_clean_12lead + report_text", required: true}
+    sensitivity_analyses:
+      - first_ecg_per_admission
+      - first_ecg_per_patient
+      - l3_only_vs_l3_l2
+      - boundary_excluded
+      - mortality_observable_only
+      - per_sqi_tier
+      - per_cart_id_top5
+      - raw_vs_preprocessed_signal
+      - no_text_ablation
+      - tfidf_vs_bioclinicalbert
+    subgroup_analysis: [by_sqi_tier, by_cart_id, by_linkage_tier, by_boundary_flag]
+
+# =============================================================================
+# 4.B — Plan B tasks (supplementary). No EHR linkage required; full clean cohort.
+# =============================================================================
+
+  # ---------------------------------------------------------------------------
+  B1_measurement_blind:
+    plan: B
+    name: "Measurement-Blind Physiological Inference (full clean cohort)"
+    spec_section: "§4.B.1"
+    description: |
+      Same labels and same input policy as A2, on the full clean cohort rather
+      than the L3-restricted one. Plan A/B §6.2 — one of the central Plan B tasks.
+    cohort:
+      primary_filter: "ecg_metadata_clean AND decode_ok AND length_ok"
+      n_ecg_expected_primary: 749112
+      link_tier: "populated for all rows; may be L0 for unlinked ECGs"
+    targets:
+      type: multi_class_3_heads
+      heads:
+        hr_label:  {classes: [bradycardia, normal, tachycardia]}
+        qrs_label: {classes: [normal, borderline, wide]}
+        qtc_label: {classes: [short, normal, prolonged]}
+      definitions: "shared_label_defs.measurement_bins"
+      output: "softmax x 3 heads"
+    loss: {fn: CrossEntropyLoss, class_weights: none_by_default}
+    metrics:
+      primary:   [per_head_macro_AUPRC]
+      secondary: [per_class_AUPRC, per_class_F1_at_val_optimal_threshold]
+    baselines:
+      - {tier: algorithmic,         model: "NeuroKit2 R-peak -> HR; NeuroKit2 wavelet QRS -> QRS duration", required: true}
+      - {tier: signal,              model: "1D ResNet-18 on raw_lead2", required: true}
+      - {tier: signal_preprocessed, model: "1D ResNet-18 on preprocessed_lead2", required: true}
+      - {tier: signal_12lead,       model: "1D ResNet-18 on raw_12lead", required: true}
+    sensitivity_analyses:
+      - per_sqi_tier
+      - per_cart_id_top5
+      - per_linkage_tier_l3_l2_l1_l0
+      - lead2_vs_12lead
+    subgroup_analysis: [by_sqi_tier, by_cart_id, by_linkage_tier]
+    notes: "The per-linkage-tier breakdown is a Plan-B-distinct claim: does the model perform uniformly across linkage status?"
+
+  # ---------------------------------------------------------------------------
   B2_noise_robustness:
+    plan: B
     name: "Noise-Robustness Curriculum"
-    dataset: "processed/taskB2_noise_robustness.jsonl"
+    spec_section: "§4.B.2, §7.3"
+    description: |
+      Quantify degradation of the B1 model on corrupted signals across three
+      strictly separated evaluation regimes.
+    base_task: B1_measurement_blind
+    recipes: "config/corruption_recipes_LOCKED.yaml"
+    cohort:
+      anchor_pool: "test-split ECGs, taken in study_id order (see spec_conflict)"
+      anchors_requested: 2000
+      anchors_materialised: 1998
+      spec_conflict:
+        raised_at: "Stage P2.0, 2026-08-26"
+        status: OPEN
+        blocks: "08_build_B2_noise_robustness.py (Stage P2.2) — description only, not the data"
+        detail: |
+          §4.B.2.2 describes the anchor pool as "Test-split ECGs with
+          sqi_tier='high'". Phase 1 Stage 8 did not filter on SQI: it took the
+          raw_lead2 manifest rows for test-split subjects, sorted by
+          (study_id, subject_id) with a stable mergesort, and truncated to the
+          first 2,000. The frozen anchors are therefore SQI-representative, not
+          high-SQI.
+        measured_anchor_sqi: {high: 8, medium: 1119, low: 745}
+        note: |
+          The corrupted set is frozen and Phase 2 must never regenerate it
+          (§9.3), so this cannot be fixed by rebuilding. The correct action is to
+          amend §4.B.2.2's description to match what Stage 8 actually did, and to
+          state in the paper that B2 anchors are an SQI-representative test-split
+          sample. That is arguably the better design anyway — a high-SQI-only
+          anchor set would overstate robustness — but it must be described
+          accurately.
+        assumed_default: "amend the spec text; keep the frozen anchors as they are"
+      corrupted_variants: {source: "data/processed/signals_corrupted.parquet", n_rows: 79920, grid: "1998 anchors x 8 families x 5 SNRs"}
+      held_out_clean_test: "the same anchors' clean signal from signals/lead2_raw.h5"
+      natural_sqi_test: "test-split ECGs stratified by waveform_qc.sqi_tier (~78 K)"
+      regeneration_in_phase2: forbidden
     corruption_types: [gaussian, baseline_wander, powerline, emg, electrode_motion, lead_dropout, gain_drift, saturation]
     snr_levels_db: [30, 20, 10, 5, 0]
-    evaluation_regimes:
-      regime_1: "clean-trained model evaluated on corrupted test set"
-      regime_2: "noise-augmented model evaluated on corrupted test set"
-      regime_3: "natural SQI-tier evaluation (using existing QC flags)"
-    primary_metrics:
-      - area_under_corruption_curve
-      - relative_performance_drop
-      - collapse_threshold
-    allowed_inputs: [signal_lead2]
-    base_task: B1_measurement_blind
-    notes: "Doc §6.3: keep regimes strictly separated. Collapse threshold = performance drops below 50% of clean."
-
-  B3_temporal_grounding:
-    name: "Waveform Event Localization"
-    dataset: "processed/taskB_temporal_grounding.jsonl"
     targets:
-      queries: [HIGH_HEART_RATE, LOW_HEART_RATE, WIDE_QRS]
-      granularity: "1-second bins (10 bins per signal)"
-      label_type: binary_per_bin
-    primary_metric: temporal_IoU
-    secondary_metrics: [F1_per_bin, event_count_distribution]
-    allowed_inputs: [signal_lead2, signal_12lead]
-    notes: "Doc §6.4: use temporal IoU only when target intervals have meaningful onset/offset. Report event-count distribution."
+      type: multi_class_3_heads
+      heads: [hr_label, qrs_label, qtc_label]
+      inherit_labels_from: "the anchor's clean B1 labels; corrupted variants inherit the anchor's labels unchanged"
+      output: "softmax x 3 heads (same head shape as B1, separate weights)"
+    loss: {fn: CrossEntropyLoss}
+    evaluation_regimes:
+      regime_1: "clean-trained model evaluated on the frozen corrupted test set"
+      regime_2: "noise-augmented model (on-the-fly corruption, DIFFERENT RNG stream) evaluated on the same corrupted test set"
+      regime_3: "clean-trained model evaluated on natural test signals stratified by SQI tier"
+    metrics:
+      primary:   [area_under_corruption_curve_per_family, relative_performance_drop_per_type_snr, collapse_threshold]
+      collapse_threshold_definition: "the SNR at which AUPRC falls below 50 % of the clean AUPRC"
+      tables:    ["per-(corruption_type, snr_db) AUPRC, an 8 x 5 grid", "regime_1 vs regime_2 average drop", "regime_3 per-SQI-tier"]
+    baselines:
+      - {tier: algorithmic,          model: "NeuroKit2 R-peak detector + thresholded HR, evaluated on corrupted signals", required: true}
+      - {tier: signal_clean_train,   model: "1D ResNet-18 trained clean, tested corrupted (regime_1)", required: true}
+      - {tier: signal_noise_aug,     model: "1D ResNet-18 with on-the-fly corruption augmentation (regime_2)", required: true}
+      - {tier: signal_preprocessed,  model: "same on preprocessed_lead2 — does preprocessing help?", required: true}
+    sensitivity_analyses:
+      - regime_1_vs_regime_2_on_identical_test_set
+      - per_corruption_family_ranking
+      - per_sqi_tier_natural_regime_3
+      - raw_vs_preprocessed_across_regimes
+    subgroup_analysis: [by_corruption_type, by_snr_db, by_sqi_tier]
 
+  # ---------------------------------------------------------------------------
+  B3_temporal_grounding:
+    plan: B
+    name: "Temporal Grounding (10-bin queries)"
+    spec_section: "§4.B.3"
+    description: |
+      Predict per-bin presence of four physiological queries within the
+      10-second strip, at 1-second granularity.
+    cohort:
+      primary_filter: "full clean cohort"
+      n_ecg_expected_primary: 749112
+    ground_truth: "data/processed/fiducials_lead2.parquet — the same file A4 uses (00_extract_fiducials.py)"
+    targets:
+      type: per_bin_binary_x_query
+      n_bins: 10
+      bin_seconds: 1
+      output: "per-bin sigmoid (10) x 4 queries"
+      queries:
+        HIGH_HEART_RATE: "bin = 1 if local instantaneous HR (NeuroKit2 RR midpoints falling in the bin) > 100 bpm"
+        LOW_HEART_RATE:  "bin = 1 if local instantaneous HR < 60 bpm"
+        WIDE_QRS:        "bin = 1 if any beat whose QRS onset falls in the bin has duration > 60 samples (120 ms)"
+        NOISY_SEGMENT:   "bin = 1 if per-second SQI (windowed NeuroKit2 ecg_quality) < noisy_sqi_threshold"
+      noisy_sqi_threshold:
+        value: null
+        status: "TO BE LOCKED by 09_build_B3_temporal_grounding.py at Stage P2.2"
+        derivation: "25th percentile of the per-bin SQI distribution computed on the TRAIN split only"
+        binding: "the doc mandates the threshold come from train only; once computed it is written back into this file and never recomputed"
+      fallback_flag: "fallback_used = True when R-peak detection failed for the study"
+    loss: {fn: BCEWithLogitsLoss}
+    metrics:
+      primary:   [mIoU_across_queries]
+      secondary: [Recall_at_1_IoU_ge_0.3, Recall_at_1_IoU_ge_0.5, no_evidence_accuracy, per_query_bin_level_AUPRC]
+      supplementary: [event_count_distribution_per_query, example_successes_and_failures]
+    baselines:
+      - {tier: algorithmic,         model: "rule-based per-bin labeler from NeuroKit2 R-peaks + per-bin SQI", required: true, note: "oracle by construction"}
+      - {tier: signal,              model: "1D U-Net query-conditioned per-bin head on raw_lead2", required: true}
+      - {tier: signal_preprocessed, model: "same on preprocessed_lead2", required: true}
+    sensitivity_analyses:
+      - per_query_mIoU
+      - per_sqi_tier
+      - lead2_vs_12lead
+    subgroup_analysis: [by_query, by_sqi_tier, by_cart_id]
+
+  # ---------------------------------------------------------------------------
   B4_cross_modal_verification:
-    name: "Cross-Modal Reconstruction and Verification"
-    dataset: "processed/taskA_verification.jsonl"
-    task_type: retrieval_and_verification
-    modality_pairs:
-      - [signal, image]
-      - [signal, text]
-      - [image, text]
-    primary_metric: Recall_at_1
-    secondary_metrics: [Recall_at_5, Recall_at_10, MRR]
-    difficulty_levels: "neg_type field in dataset"
-    allowed_inputs: [signal_lead2, image_clean, image_scanlike, report_text]
-    notes: "Doc §6.5/6.7: prefer retrieval and masked attribute prediction over free-text generation."
+    plan: B
+    name: "Cross-Modal Verification (Plan B counterpart to A5)"
+    spec_section: "§4.B.4"
+    description: |
+      Verification-only counterpart to A5 — the same 5-negative-type
+      construction, without the masked-attribute head.
+    cohort:
+      primary_filter: "full clean cohort — identical to A5"
+      n_ecg_expected_primary: 749112
+    targets:
+      type: binary
+      output: "sigmoid x 1"
+      negative_types: [TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, HARD_NEGATIVE_TEXT, PARTIAL_MISMATCH]
+      construction: "identical to A5's verification head"
+    loss: {fn: BCEWithLogitsLoss, imbalance: "hard-negative oversampling — every batch contains >= 1 HARD_NEGATIVE_TEXT example"}
+    metrics:
+      primary:   [AUPRC]
+      secondary: [AUROC, macro_F1, per_neg_type_F1, Recall_at_1_retrieval]
+    baselines:
+      - {tier: embedding,       model: "cosine similarity between frozen S/I/T embeddings", required: true}
+      - {tier: tri_encoder,     model: "tri-encoder + small fusion MLP", required: true}
+      - {tier: cross_attention, model: "tri-encoder + cross-attention fusion", required: true}
+    sensitivity_analyses:
+      - per_neg_type_F1
+      - clean_vs_scanlike_image
+      - lead2_vs_12lead_image
+      - with_vs_without_hard_negative_text_in_train
+      - b4_vs_a5_verification_does_multitask_help_or_hurt
+      - no_text_ablation
+      - tfidf_vs_bioclinicalbert
+    subgroup_analysis: [by_neg_type, by_image_type]
 
+  # ---------------------------------------------------------------------------
   B5_contradiction_detection:
+    plan: B
     name: "Contradiction Detection in Reports"
-    dataset: "processed/taskC_plausibility.jsonl"
-    task_type: binary_classification
-    target: "SUPPORTED vs CONTRADICTED (label field)"
-    balance: "50/50 clean/corrupted"
-    primary_metric: AUPRC
-    secondary_metrics: [AUROC, F1, accuracy]
-    allowed_inputs: [report_text, signal_lead2]
-    notes: "Doc §6.6: safe contradictions only (HR<=50 or HR>=120). Current dataset uses claim+label format. Doc also requires original_report_text, corrupted_report_text, span fields — see B5 format gap."
+    spec_section: "§4.B.5"
+    description: |
+      Detect injected contradictions in machine reports and localize the
+      corrupted span. Four families: HR, QRS, axis, PR.
+    cohort:
+      primary_filter: "full clean cohort; per-family, ECGs with a valid measurement for that family"
+      n_ecg_expected_primary: 749112
+      balance: "one is_corrupted=False row per ECG; a corrupted row with 50 % probability where the injection conditions hold"
+    claim_dictionary: "config/claim_dictionary_LOCKED.yaml"
+    families: [HR, QRS, axis, PR]
+    targets:
+      binary_head: {type: binary, field: is_corrupted, output: "sigmoid x 1"}
+      class_head:  {type: multi_class_5, field: label,
+                    classes: [clean, corrupted_HR, corrupted_QRS, corrupted_axis, corrupted_PR],
+                    output: "softmax x 5"}
+      span_head:   {type: regression, fields: [corrupted_span_start, corrupted_span_end],
+                    units: "character offsets into corrupted_report_text",
+                    defined_on: "is_corrupted == True rows only; loss masked otherwise",
+                    offset_convention: "OPEN QUESTION #3 — character-level (assumed here) vs token-level; resolve before running the B5 builder"}
+    loss:
+      binary: {fn: BCEWithLogitsLoss, imbalance: "balanced 50/50 by dataset design (Round 2 decision)"}
+      class:  {fn: CrossEntropyLoss, role: auxiliary}
+      span:   {fn: SmoothL1Loss, normalization: "by report length", masked_when: "is_corrupted == False"}
+    metrics:
+      primary:   [AUPRC_is_corrupted, macro_F1_over_5_class_label]
+      secondary: [char_IoU_of_predicted_vs_true_span, per_family_detection_rate]
+    baselines:
+      - {tier: rule,       model: "NeuroKit2 HR/QRS detector vs report-text regex -> inconsistency flag", required: true, note: "oracle-style"}
+      - {tier: text_only,  model: "Bio-ClinicalBERT on report_text — does the report self-contradict?", required: true}
+      - {tier: signal_only,model: "1D ResNet-18 predicts HR/QRS/axis/PR, then compares to report-text claims", required: true}
+      - {tier: multimodal, model: "tri-encoder (signal + text) with cross-attention; joint detection + span heads", required: true}
+    sensitivity_analyses:
+      - per_family_detection_AUPRC
+      - per_sqi_tier
+      - per_cart_id_top5
+      - lead2_vs_12lead
+      - tfidf_vs_bioclinicalbert
+    subgroup_analysis: [by_contradiction_family, by_sqi_tier, by_cart_id]
+    notes: |
+      B5 is the one task whose parquet stores derived TEXT
+      (corrupted_report_text) directly, because it is a derived artifact rather
+      than a raw modality (§4.C invariant 3, explicit exception).
 
+  # ---------------------------------------------------------------------------
   B6_difficulty_stratified:
+    plan: B
     name: "Difficulty-Stratified Cross-Modal Verification"
-    dataset: "processed/taskA_verification.jsonl"
-    description: "Subset of B4 stratified by neg_type difficulty level"
-    primary_metric: Recall_at_1_per_difficulty_level
-    notes: "Covered by neg_type field in taskA_verification.jsonl."
+    spec_section: "§4.B.6"
+    description: |
+      An EVALUATION-TIME stratification of B4 by negative-type difficulty, not
+      a separate trained task. B6 reuses B4's trained models and B4's rows.
+    evaluation_time_only: true
+    base_task: B4_cross_modal_verification
+    cohort:
+      primary_filter: "identical to B4; the actual rows live in the B4 parquet"
+      pointer_table: "data/processed/tasks/B6_difficulty_stratified/eval_keys.parquet"
+      pointer_schema: [study_id, subject_id, neg_type, difficulty_tier, split]
+    difficulty_tiers:
+      easy:   {neg_types: [TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH], description: "cross-subject swaps"}
+      medium: {neg_types: [HARD_NEGATIVE_TEXT], description: "same-HR-bucket swap"}
+      hard:   {neg_types: [], status: RESERVED,
+               description: "Round 3 open item: add a same-cohort, same-HR-bucket, SAME-SUBJECT swap? Not yet decided; the tier ships empty until it is."}
+    targets:
+      type: binary
+      output: "sigmoid x 1 (the B4 head, unchanged)"
+    metrics:
+      primary:   [per_difficulty_tier_Recall_at_1, per_difficulty_tier_AUPRC]
+      secondary: [per_difficulty_per_neg_type_table]
+    baselines: "inherited from B4 — same models, different evaluation slice"
+    sensitivity_analyses:
+      - per_difficulty_per_neg_type
+    subgroup_analysis: [by_difficulty_tier, by_neg_type]
+
+# =============================================================================
+# Cross-task invariants (§4.C) — restated here because they bind every builder.
+# =============================================================================
+invariants:
+  no_subject_in_two_splits: |
+    Every task cohort is a subset of data/processed/splits_subject_level.parquet
+    joined on subject_id. The `split` column is ALWAYS populated from that join,
+    never re-derived and never reshuffled.
+  deterministic_provenance: |
+    Every label-generation step is deterministic given the Phase 1 artifacts plus
+    the LOCKED YAMLs. Re-running a builder on the same Phase 1 dataset produces
+    byte-identical parquets.
+  manifest_passthrough: |
+    Task parquets carry study_id only, for modality lookup through
+    _dataset_lib/modality.py::read_modality. No task parquet stores signal or
+    image bytes. Sole exception: B5_contradiction_detection stores
+    corrupted_report_text, a derived text artifact.
+  audit_gate_before_training: |
+    No training script may run until leakage_audit_phase2.md, split_audit_phase2.md
+    and cohort_audit.md are PASS for EVERY task. 30_train.py reads these files at
+    start and halts if any is missing or FAIL.

@@ -1,0 +1,144 @@
+# =============================================================================
+# icd_label_map_LOCKED.yaml — A1 (EHR diagnosis prediction) label map
+# =============================================================================
+# LOCKED at Stage P2.0 (Phase 2). Source of truth:
+#   docs/PHASE2_SOURCE_OF_TRUTH.md §4.A.1.3
+#   ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx Appendix B
+#   Round 2.1 decision (5 clinically meaningful ICD groups)
+#
+# Mutating this file after the lock invalidates every A1 result and
+# re-triggers the §11 reviewer check.
+#
+# MATCHING CONTRACT (binding on 01_build_A1_ecg_diagnosis.py):
+#   1. `diagnoses_icd.icd_code` is stripped of leading/trailing whitespace
+#      before matching. `icd_version` is preserved and matched exactly —
+#      an icd9_* pattern never matches an icd_version==10 row and vice versa.
+#   2. `icd10_prefix` / `icd9_prefix` use str.startswith on the stripped code.
+#      `icd10_exact` / `icd9_exact` use equality on the stripped code.
+#   3. A study's label for a group is True if ANY ICD row on the linked
+#      admission matches ANY pattern in that group. Groups are independent
+#      (multi-label); a single code may contribute to more than one group.
+#   4. The builder writes the resolved `long_title` list (joined from
+#      `d_icd_diagnoses`) into `cohort_manifest.parquet` so the reviewer can
+#      read every included code, per Appendix B ("Validate every included
+#      pattern by joining to d_icd_diagnoses and reading the long_title list").
+# =============================================================================
+
+lock:
+  locked_at: "2026-08-26"
+  locked_by_stage: "P2.0"
+  spec_section: "docs/PHASE2_SOURCE_OF_TRUTH.md §4.A.1.3"
+  source_document: "Plan A/B Appendix B"
+  decision_round: "Round 2.1"
+  label_timing_classification: |
+    A1 is ENCOUNTER-ASSOCIATED diagnosis prediction, not strict prospective
+    diagnosis. The ICD code is assigned at the end of the admission, after the
+    ECG. Phase 2 does NOT claim prospective diagnosis prediction (§4.A.1.3).
+
+reference_tables:
+  code_dictionary: "data/raw/ehr_cache/d_icd_diagnoses.parquet"
+  assignments: "data/raw/ehr_cache/diagnoses_icd.parquet"
+  ed_assignments: "data/raw/ehr_cache/ed_diagnosis.parquet"   # secondary analysis only
+
+label_source_policy:
+  primary: "hosp"
+  secondary: "ed"
+  pooling_allowed: false
+  rationale: |
+    Plan A/B §5.3 — "Do not mix hospital and ED labels without a provenance
+    column." The primary A1 cohort is hospital ICD only. ED-linked diagnoses
+    are a separate sensitivity run, always tagged in the `label_source` column.
+
+groups:
+
+  atrial_fibrillation_flutter:
+    icd10_prefix: ["I48"]
+    icd9_exact:   ["42731", "42732"]
+
+  heart_failure_narrow:
+    icd10_prefix:         ["I50"]
+    icd10_exact_optional: ["I110", "I130", "I132"]
+    icd9_prefix:          ["428"]
+
+  acute_myocardial_infarction:
+    icd10_prefix: ["I21", "I22"]
+    icd9_prefix:  ["410"]
+
+  conduction_disorder:
+    icd10_prefix: ["I44", "I45"]
+    icd9_prefix:  ["426"]
+
+  ventricular_arrhythmia_or_arrest:
+    icd10_prefix: ["I472", "I490", "I46"]
+    icd9_prefix:  ["4271", "4274"]
+
+# -----------------------------------------------------------------------------
+# Pattern validation performed at lock time (Stage P2.0).
+# Resolved against d_icd_diagnoses (112,107 codes) and diagnoses_icd
+# (6,364,488 assignment rows) as they exist in data/raw/ehr_cache/.
+# `n_codes_matched` counts distinct dictionary codes; `n_diagnosis_rows` counts
+# assignment rows across the whole MIMIC-IV Hosp cache (NOT the A1 cohort — the
+# cohort-restricted prevalence is measured at build time and lands in
+# cohort_audit.md).
+# -----------------------------------------------------------------------------
+validation_at_lock:
+  validated_at: "2026-08-26"
+  d_icd_diagnoses_rows: 112107
+  diagnoses_icd_rows: 6364488
+  groups:
+    atrial_fibrillation_flutter:
+      n_codes_matched: 15
+      n_codes_with_zero_occurrences: 2
+      n_diagnosis_rows: 87366
+      top_codes:
+        - {icd_version: 9,  icd_code: "42731", n: 37070, long_title: "Atrial fibrillation"}
+        - {icd_version: 10, icd_code: "I4891", n: 21022, long_title: "Unspecified atrial fibrillation"}
+        - {icd_version: 10, icd_code: "I480",  n: 13399, long_title: "Paroxysmal atrial fibrillation"}
+        - {icd_version: 9,  icd_code: "42732", n: 3898,  long_title: "Atrial flutter"}
+        - {icd_version: 10, icd_code: "I4892", n: 3888,  long_title: "Unspecified atrial flutter"}
+    heart_failure_narrow:
+      n_codes_matched: 47
+      n_codes_with_zero_occurrences: 6
+      n_diagnosis_rows: 144450
+      top_codes:
+        - {icd_version: 9,  icd_code: "4280",  n: 36606, long_title: "Congestive heart failure, unspecified"}
+        - {icd_version: 10, icd_code: "I110",  n: 15423, long_title: "Hypertensive heart disease with heart failure"}
+        - {icd_version: 10, icd_code: "I130",  n: 12946, long_title: "Hypertensive heart and chronic kidney disease with heart failure and stage 1 through stage 4 chronic kidney disease, or unspecified chronic kidney disease"}
+        - {icd_version: 10, icd_code: "I5032", n: 10787, long_title: "Chronic diastolic (congestive) heart failure"}
+        - {icd_version: 9,  icd_code: "42832", n: 8358,  long_title: "Chronic diastolic heart failure"}
+    acute_myocardial_infarction:
+      n_codes_matched: 53
+      n_codes_with_zero_occurrences: 12
+      n_diagnosis_rows: 16829
+      top_codes:
+        - {icd_version: 10, icd_code: "I214",  n: 5253, long_title: "Non-ST elevation (NSTEMI) myocardial infarction"}
+        - {icd_version: 9,  icd_code: "41071", n: 4261, long_title: "Subendocardial infarction, initial episode of care"}
+        - {icd_version: 10, icd_code: "I21A1", n: 3217, long_title: "Myocardial infarction type 2"}
+        - {icd_version: 9,  icd_code: "41072", n: 760,  long_title: "Subendocardial infarction, subsequent episode of care"}
+        - {icd_version: 9,  icd_code: "41041", n: 421,  long_title: "Acute myocardial infarction of other inferior wall, initial episode of care"}
+    conduction_disorder:
+      n_codes_matched: 46
+      n_codes_with_zero_occurrences: 7
+      n_diagnosis_rows: 17664
+      top_codes:
+        - {icd_version: 10, icd_code: "I447",  n: 2726, long_title: "Left bundle-branch block, unspecified"}
+        - {icd_version: 10, icd_code: "I442",  n: 2121, long_title: "Atrioventricular block, complete"}
+        - {icd_version: 10, icd_code: "I4510", n: 1917, long_title: "Unspecified right bundle-branch block"}
+        - {icd_version: 10, icd_code: "I4581", n: 1426, long_title: "Long QT syndrome"}
+        - {icd_version: 9,  icd_code: "4263",  n: 1412, long_title: "Other left bundle branch block"}
+      note: |
+        The ICD-10 I45 block is titled "Other conduction disorders" and
+        therefore includes I4581 Long QT syndrome. This is inside the Appendix B
+        template as written and is kept; it is disclosed here so a reviewer
+        reading the per-code table is not surprised by it.
+    ventricular_arrhythmia_or_arrest:
+      n_codes_matched: 14
+      n_codes_with_zero_occurrences: 5
+      n_diagnosis_rows: 9025
+      top_codes:
+        - {icd_version: 10, icd_code: "I472",  n: 3613, long_title: "Ventricular tachycardia"}
+        - {icd_version: 9,  icd_code: "4271",  n: 2895, long_title: "Paroxysmal ventricular tachycardia"}
+        - {icd_version: 10, icd_code: "I469",  n: 704,  long_title: "Cardiac arrest, cause unspecified"}
+        - {icd_version: 10, icd_code: "I4901", n: 632,  long_title: "Ventricular fibrillation"}
+        - {icd_version: 9,  icd_code: "42741", n: 528,  long_title: "Ventricular fibrillation"}
+  result: "PASS — all 5 groups resolve to non-empty code sets with non-zero assignment counts."

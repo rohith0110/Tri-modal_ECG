@@ -1,0 +1,199 @@
+# =============================================================================
+# lab_itemid_map_LOCKED.yaml — A3 (lab abnormality prediction) lab universe
+# =============================================================================
+# LOCKED at Stage P2.0 (Phase 2). Source of truth:
+#   docs/PHASE2_SOURCE_OF_TRUTH.md §4.A.3.2 / §4.A.3.3
+#   ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx Appendix C
+#   Round 2.2 decision (7-lab universe)
+#
+# This file is the superset of config/key_labs.yaml — same 7 labs, same
+# itemids, plus the unit / fluid provenance, the window definitions and the
+# abnormality rule that key_labs.yaml does not carry. key_labs.yaml remains
+# the Phase 1 artifact consumed by
+# phase1_dataset_generation/44_label_availability.py; this file is the Phase 2
+# lock. The two itemid lists are identical and a P2.0 validation check asserts
+# that they stay identical.
+# =============================================================================
+
+lock:
+  locked_at: "2026-08-26"
+  locked_by_stage: "P2.0"
+  spec_section: "docs/PHASE2_SOURCE_OF_TRUTH.md §4.A.3"
+  source_document: "Plan A/B Appendix C"
+  decision_round: "Round 2.2"
+  supersedes: "config/key_labs.yaml (same itemids; this file adds provenance)"
+
+reference_tables:
+  dictionary: "data/raw/ehr_cache/d_labitems.parquet"
+  events: "data/raw/ehr_cache/labevents.parquet"
+  availability: "data/processed/linkage/label_availability.parquet"
+
+# -----------------------------------------------------------------------------
+# The 7-lab universe. `fluid: Blood` for every itemid — Appendix C step 2
+# requires serum/blood only; urine, CSF and other-body-fluid assays are
+# excluded by construction (see excluded_candidates below).
+# -----------------------------------------------------------------------------
+labs:
+
+  K:
+    label: "Potassium"
+    itemids: [50822, 50971, 52610]
+    items:
+      - {itemid: 50822, label: "Potassium, Whole Blood", fluid: "Blood", category: "Blood Gas",  valueuom: "mEq/L", n_events: 333554}
+      - {itemid: 50971, label: "Potassium",              fluid: "Blood", category: "Chemistry", valueuom: "mEq/L", n_events: 4149507}
+      - {itemid: 52610, label: "Potassium",              fluid: "Blood", category: "Chemistry", valueuom: "mEq/L", n_events: 1310}
+
+  Na:
+    label: "Sodium"
+    itemids: [50824, 50983, 52623]
+    items:
+      - {itemid: 50824, label: "Sodium, Whole Blood", fluid: "Blood", category: "Blood Gas",  valueuom: "mEq/L", n_events: 159073}
+      - {itemid: 50983, label: "Sodium",              fluid: "Blood", category: "Chemistry", valueuom: "mEq/L", n_events: 4111289}
+      - {itemid: 52623, label: "Sodium",              fluid: "Blood", category: "Chemistry", valueuom: "mEq/L", n_events: 1309}
+
+  creatinine:
+    label: "Creatinine"
+    itemids: [50912, 52546]
+    items:
+      - {itemid: 50912, label: "Creatinine", fluid: "Blood", category: "Chemistry", valueuom: "mg/dL", n_events: 4319091}
+      - {itemid: 52546, label: "Creatinine", fluid: "Blood", category: "Chemistry", valueuom: "mg/dL", n_events: 1273}
+
+  troponin:
+    label: "Troponin"
+    itemids: [51002, 51003, 52642]
+    items:
+      - {itemid: 51002, label: "Troponin I", fluid: "Blood", category: "Chemistry", valueuom: "ng/mL", n_events: 0}
+      - {itemid: 51003, label: "Troponin T", fluid: "Blood", category: "Chemistry", valueuom: "ng/mL", n_events: 459872}
+      - {itemid: 52642, label: "Troponin I", fluid: "Blood", category: "Chemistry", valueuom: "ng/mL", n_events: 670}
+    note: |
+      itemid 51002 (Troponin I) has ZERO rows in the cached labevents extract —
+      the MIMIC-IV Hosp release routes essentially all troponin through
+      51003 (Troponin T). The itemid is retained so the mapping stays faithful
+      to Appendix C and so a future MIMIC release with 51002 data needs no
+      config change. Troponin assay generations differ (conventional vs
+      high-sensitivity); A3 therefore relies on the per-row reference range,
+      never on a hard-coded threshold.
+
+  lactate:
+    label: "Lactate"
+    itemids: [50813, 52442, 53154]
+    items:
+      - {itemid: 50813, label: "Lactate", fluid: "Blood", category: "Blood Gas",  valueuom: "mmol/L", n_events: 670016}
+      - {itemid: 52442, label: "Lactate", fluid: "Blood", category: "Blood Gas",  valueuom: "mmol/L", n_events: 0}
+      - {itemid: 53154, label: "Lactate", fluid: "Blood", category: "Chemistry", valueuom: "mmol/L", n_events: 104}
+
+  Ca:
+    label: "Calcium"
+    itemids: [50808, 50893, 51624]
+    items:
+      - {itemid: 50808, label: "Free Calcium",   fluid: "Blood", category: "Blood Gas",  valueuom: "mmol/L", n_events: 370407}
+      - {itemid: 50893, label: "Calcium, Total", fluid: "Blood", category: "Chemistry", valueuom: "mg/dL",  n_events: 2969587}
+      - {itemid: 51624, label: "Free Calcium",   fluid: "Blood", category: "Chemistry", valueuom: "mmol/L", n_events: 1233}
+    note: |
+      Free (ionized) calcium in mmol/L and total calcium in mg/dL are different
+      measurands with different reference ranges. They are pooled into a single
+      `Ca` head because the A3 label is derived from each ROW's own
+      `ref_range_lower` / `ref_range_upper` (§4.A.3.3), never from a
+      cross-assay threshold, so mixing units is safe here. The chosen row's
+      itemid is recorded per study as provenance.
+
+  Mg:
+    label: "Magnesium"
+    itemids: [50960]
+    items:
+      - {itemid: 50960, label: "Magnesium", fluid: "Blood", category: "Chemistry", valueuom: "mg/dL", n_events: 2933220}
+
+# -----------------------------------------------------------------------------
+# Appendix C step 1/2 search evidence: every d_labitems row whose label matches
+# /calcium|magnesium/i, and why it is in or out.
+# -----------------------------------------------------------------------------
+excluded_candidates:
+  - {itemid: 51029, label: "Calcium, Body Fluid",       fluid: "Other Body Fluid", reason: "not serum/blood (Appendix C step 2)"}
+  - {itemid: 51037, label: "Magnesium, Body Fluid",     fluid: "Other Body Fluid", reason: "not serum/blood"}
+  - {itemid: 51066, label: "24 hr Calcium",             fluid: "Urine",            reason: "urine assay"}
+  - {itemid: 51077, label: "Calcium, Urine",            fluid: "Urine",            reason: "urine assay"}
+  - {itemid: 51088, label: "Magnesium, Urine",          fluid: "Urine",            reason: "urine assay"}
+  - {itemid: 51468, label: "Calcium Carbonate Crystals",fluid: "Urine",            reason: "urine microscopy, not a serum concentration"}
+  - {itemid: 51469, label: "Calcium Oxalate Crystals",  fluid: "Urine",            reason: "urine microscopy"}
+  - {itemid: 51470, label: "Calcium Phosphate Crystals",fluid: "Urine",            reason: "urine microscopy"}
+  - {itemid: 52029, label: "% Ionized Calcium",         fluid: "Blood",            reason: "percentage, not a concentration; 0 rows in labevents"}
+  - {itemid: 52034, label: "Total Calcium",             fluid: "Blood",            reason: "0 rows in labevents; duplicate measurand of 50893"}
+  - {itemid: 52035, label: "Total Calcium",             fluid: "Blood",            reason: "0 rows in labevents; duplicate measurand of 50893"}
+
+# -----------------------------------------------------------------------------
+# Time windows — §4.A.3.3. 7 labs × 5 windows = 35 binary/5-class heads.
+# -----------------------------------------------------------------------------
+windows:
+  pm24h:     {primary: true,  lower_hours: -24, upper_hours:  24, description: "nearest lab in [-24h, +24h]"}
+  pre_24h:   {primary: false, lower_hours: -24, upper_hours:   0, description: "nearest lab in [-24h, 0]"}
+  post_24h:  {primary: false, lower_hours:   0, upper_hours:  24, description: "nearest lab in [0, +24h]"}
+  pm6h:      {primary: false, lower_hours:  -6, upper_hours:   6, description: "sensitivity: nearest lab in [-6h, +6h]"}
+  pm12h:     {primary: false, lower_hours: -12, upper_hours:  12, description: "sensitivity: nearest lab in [-12h, +12h]"}
+
+# -----------------------------------------------------------------------------
+# Abnormality rule — §4.A.3.3, verbatim precedence order.
+# -----------------------------------------------------------------------------
+label_rule:
+  classes: ["missing", "low_abnormal", "high_abnormal", "abnormal_unknown_direction", "normal"]
+  selection: "within the window, choose the lab event with the smallest |labevent_time - ecg_time|"
+  precedence:
+    - {when: "valuenum is null",                                     label: "missing",                     method: "null"}
+    - {when: "ref_range_lower is not null and valuenum < ref_range_lower", label: "low_abnormal",          method: "ref_range"}
+    - {when: "ref_range_upper is not null and valuenum > ref_range_upper", label: "high_abnormal",         method: "ref_range"}
+    - {when: "flag indicates abnormal",                              label: "abnormal_unknown_direction",  method: "flag"}
+    - {when: "otherwise",                                            label: "normal",                      method: "ref_range"}
+  missing_class_is_real: true
+  missing_class_note: |
+    Plan A/B §5.5 — "Selection bias: Labs are drawn because clinicians suspect
+    problems. Report lab availability as a modelable missingness process."
+    The `missing` class is NOT dropped; it is a real class in the cohort table
+    and A3 additionally ships a separate missing-vs-not-missing logistic
+    regression in the supplementary.
+
+join_policy:
+  subject_match: required
+  hadm_match: "OPEN QUESTION #1 (progress doc §5) — primary is same_subject; the
+    same_hadm_id restriction is a required sensitivity sweep (§7.2). Resolve
+    before running 03_build_A3_lab_abnormality.py."
+
+# -----------------------------------------------------------------------------
+# §4.A.3.2 step 5 gate: Ca and Mg ±24h coverage in the L3 cohort must be ≥ 50 %
+# or the locked set downgrades to the 5-lab default.
+# Measured at lock time from data/processed/linkage/label_availability.parquet.
+# -----------------------------------------------------------------------------
+coverage_gate:
+  measured_at: "2026-08-26"
+  cohort: "link_tier == 'L3'"
+  n_ecg: 468176
+  threshold_pct: 50.0
+  coverage_pm24h_pct:
+    K:          96.24
+    Na:         95.93
+    creatinine: 96.19
+    troponin:   45.90
+    lactate:    34.60
+    Ca:         75.81
+    Mg:         77.25
+    any_key_lab: 96.59
+  gate_labs: ["Ca", "Mg"]
+  gate_result: "PASS — Ca 75.81 % and Mg 77.25 % both ≥ 50 %; the 7-lab universe is locked."
+  note: |
+    troponin (45.90 %) and lactate (34.60 %) sit below 50 %, but the §4.A.3.2
+    step-5 gate applies only to the two newly added labs (Ca, Mg). Troponin and
+    lactate were in the Round 2.2 7-lab universe from the start and their low
+    coverage IS the modelable missingness process the task is designed to
+    report; the `missing` class carries it. Their coverage is restated in
+    cohort_audit.md.
+
+phase1_rerun:
+  script: "scripts/phase1_dataset_generation/44_label_availability.py"
+  status: "already complete"
+  evidence:
+    - "outputs/stage_reports/stage_1_44_label_availability_rerun.log"
+    - "outputs/stage_reports/stage_1_44_label_availability_rerun_after_dynamic_cols.log"
+    - "data/processed/linkage/label_availability.parquet carries lab_Ca_within_{6h,24h} and lab_Mg_within_{6h,24h}"
+    - "config/decision.yaml key_labs: block already lists Ca [50808, 50893, 51624] and Mg [50960]"
+  note: |
+    §4.A.3.2 steps 3–4 (stamp the lab set into decision.yaml / dataset_versions
+    and re-run 44_label_availability.py) were completed during Phase 1, not at
+    P2.0. Verified on disk at lock time; no incremental rerun was required.

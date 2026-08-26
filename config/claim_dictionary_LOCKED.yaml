@@ -1,0 +1,240 @@
+# =============================================================================
+# claim_dictionary_LOCKED.yaml — B5 contradiction-injection rules
+# =============================================================================
+# LOCKED at Stage P2.0, 2026-08-26. Source of truth:
+#   docs/PHASE2_SOURCE_OF_TRUTH.md §4.B.5.3 (families, thresholds, injection-free zones)
+#   Plan A/B §6.6 ("Inject only when measurement is far from decision boundary")
+#   Round 2 decision (4 families: HR, QRS, axis, PR)
+#
+# The dictionary defines, per family: the measurement that decides truth, the
+# "clear" zones in which an injection is allowed, the injection-free gap around
+# the decision boundary, and the surface forms in the machine report text that
+# may be swapped. Every injection is a SWAP of text that is actually present,
+# so `corrupted_span_start/end` always points at real characters. The builder
+# never invents a claim the report did not make.
+# =============================================================================
+
+lock:
+  locked_at: "2026-08-26"
+  locked_by_stage: "P2.0"
+  spec_section: "docs/PHASE2_SOURCE_OF_TRUTH.md §4.B.5"
+  source_document: "Plan A/B §6.6"
+  decision_round: "Round 2 (4 families)"
+  n_families: 4
+
+report_text:
+  column: T_machine
+  table: "data/processed/index/ecg_metadata_clean_with_measurements.parquet"
+  n_rows: 749112
+  n_non_null: 749112
+
+# =============================================================================
+# MEASUREMENT SOURCE — RESOLVED 2026-08-26 (user decision at Stage P2.0).
+# =============================================================================
+# §4.B.5.3's PR row says "Requires structured_features.parquet.pr_ms present".
+# That column is the NeuroKit2-derived interval, not the machine measurement:
+#   - structured_features.pr_ms   : median 120 ms, max 9468 ms, 561,533 non-null
+#   - structured_features.qrs_ms  : byte-identical to structured_features.qrs_dur_ms
+#                                   (the NeuroKit value), max 9688 ms — NOT the
+#                                   machine qrs_end - qrs_onset that §4.A.2.3 defines
+# Using the NeuroKit PR would place 425,562 studies in the "clear normal PR"
+# zone and would ship 9,035 studies whose report already says "1st degree A-V
+# block" as CLEAN rows. The machine PR produces only 1,083 such disagreements
+# against 13,111 coherent ones.
+#
+# DECISION: every B5 threshold reads the MACHINE measurement. The same reading
+# is binding for the A2 / B1 / A5-masked-attribute measurement bins
+# (task_definitions.yaml shared_label_defs.measurement_bins), which is what
+# §4.A.2.3's own formulas literally say.
+#
+# This is a DOCUMENTED DEVIATION from the §4.B.5.3 parenthetical and must be
+# disclosed in the paper's supplementary material.
+# =============================================================================
+measurement_source:
+  table: "data/processed/index/ecg_metadata_clean_with_measurements.parquet"
+  resolved_at: "2026-08-26"
+  resolved_by: "user decision, Stage P2.0"
+  deviation_from_spec: "§4.B.5.3 named structured_features.parquet.pr_ms; superseded here"
+  disclose_in_supplementary: true
+  columns:
+    hr_bpm:  {column: machine_hr_bpm, derivation: "60000 / rr_interval"}
+    qrs_ms:  {column: machine_qrs_ms, derivation: "qrs_end - qrs_onset"}
+    pr_ms:   {column: null,           derivation: "qrs_onset - p_onset"}
+    qrs_axis: {column: qrs_axis,      derivation: "machine axis, degrees"}
+
+# -----------------------------------------------------------------------------
+# MISSING-VALUE SENTINEL — a Phase 1 trap found at P2.0.
+# The `*_missing` boolean columns (p_onset_missing, qrs_onset_missing,
+# qrs_end_missing, qrs_axis_missing, rr_interval_missing, ...) are ALL FALSE for
+# all 749,112 rows. They do not mark missingness. The real encoding is the
+# literal value 29999 in the integer measurement columns:
+#     p_onset == 29999 : 119,385 rows      qrs_onset == 29999 :   341 rows
+#     qrs_end == 29999 :     341 rows      rr_interval == 29999 :  487 rows
+#     qrs_axis == 29999 :  1,531 rows      p_axis  == 29999   : 119,483 rows
+# Masking the sentinel turns PR from mean -4600 ms into mean 162.7 ms
+# (median 160, sd 37) — a textbook distribution. EVERY Phase 2 builder that
+# touches a machine measurement must apply this rule.
+# -----------------------------------------------------------------------------
+validity:
+  missing_sentinel: 29999
+  missing_flag_columns_are_unusable: true
+  rule: "a measurement is valid only if none of its source columns equals the sentinel AND the derived value falls inside plausible_range"
+  plausible_range:
+    hr_bpm:   {min: 20,   max: 300}
+    qrs_ms:   {min: 40,   max: 300}
+    pr_ms:    {min: 50,   max: 400}
+    qrs_axis: {min: -180, max: 180}
+  n_valid:
+    hr_bpm:   748619
+    qrs_ms:   748476
+    pr_ms:    628685
+    qrs_axis: 745871
+
+# =============================================================================
+# The 4 families.
+# =============================================================================
+# Per family:
+#   measurement        — which validity/measurement key decides truth
+#   clear_zones        — the "far from the decision boundary" regions where an
+#                        injection is permitted (Plan A/B §6.6)
+#   injection_free_zone— the mid-range gap in which NO injection ever happens
+#   surface_forms      — regex over the LOWERCASED report text, with the
+#                        replacement applied to the ORIGINAL-CASE text
+# A study is eligible for a family only when BOTH hold:
+#   (a) the measurement is valid and inside a clear zone, AND
+#   (b) the report contains a surface form whose polarity matches that zone.
+# The swap then replaces that surface form with its opposite, producing a
+# report that contradicts the signal. `corrupted_span_start/end` are the
+# character offsets of the replacement inside corrupted_report_text.
+# =============================================================================
+families:
+
+  HR:
+    order: 0
+    measurement: hr_bpm
+    clear_zones:
+      brady: {condition: "hr_bpm <= 50",  truth: bradycardia, spec: "clear brady"}
+      tachy: {condition: "hr_bpm >= 120", truth: tachycardia, spec: "clear tachy"}
+    injection_free_zone: {lower: 58, upper: 105, rule: "58 <= hr_bpm <= 105 -> never inject"}
+    surface_forms:
+      - {polarity: brady, pattern: "bradycardi", example: "Sinus bradycardia", replace_with: "tachycardi",
+         morphology: "preserve the matched suffix — bradycardia -> tachycardia, bradycardic -> tachycardic"}
+      - {polarity: tachy, pattern: "tachycardi", example: "Sinus tachycardia", replace_with: "bradycardi",
+         morphology: "preserve the matched suffix"}
+    case_policy: "match case-insensitively; re-apply the original capitalisation of the first replaced character"
+    eligible_counts: {brady_to_tachy: 20025, tachy_to_brady: 18428}
+
+  QRS:
+    order: 1
+    measurement: qrs_ms
+    clear_zones:
+      wide:   {condition: "qrs_ms >= 140", truth: wide,   spec: "clear wide"}
+      normal: {condition: "qrs_ms <= 90",  truth: normal, spec: "clear normal"}
+    injection_free_zone: {lower: 95, upper: 135, rule: "95 <= qrs_ms <= 135 -> never inject"}
+    surface_forms:
+      - {polarity: wide, pattern: "(?<!incomplete )left bundle branch block",  replace_with: "normal QRS duration"}
+      - {polarity: wide, pattern: "(?<!incomplete )right bundle branch block", replace_with: "normal QRS duration"}
+      - {polarity: wide, pattern: "(?<!incomplete )\\blbbb\\b",                replace_with: "normal QRS duration"}
+      - {polarity: wide, pattern: "(?<!incomplete )\\brbbb\\b",                replace_with: "normal QRS duration"}
+      - {polarity: wide, pattern: "intraventricular conduction delay",         replace_with: "normal QRS duration"}
+      - {polarity: wide, pattern: "iv conduction defect",                      replace_with: "normal QRS duration"}
+      - {polarity: wide, pattern: "wide qrs",                                  replace_with: "narrow QRS"}
+      - {polarity: wide, pattern: "wide complex",                              replace_with: "narrow complex"}
+    incomplete_exclusion:
+      rule: "a bundle-branch-block form preceded by 'incomplete' is NEVER treated as a wide-QRS claim"
+      rationale: |
+        Incomplete RBBB/LBBB is defined by QRS < 120 ms, so an "incomplete right
+        bundle branch block" report is consistent with a narrow QRS. Without
+        this exclusion the naive pattern produced 29,755 spurious
+        report-says-wide / measurement-says-narrow pairs; with it, 23 remain.
+    normal_direction_note: |
+      The qrs_ms <= 90 zone yields only 23 eligible studies, because MIMIC
+      machine reports essentially never assert a narrow QRS explicitly
+      ("narrow" appears 0 times in the 749,112 reports). The QRS family is
+      therefore wide -> normal in practice. This is a property of the source
+      vocabulary, not a modelling choice, and it is recorded so the per-family
+      detection-rate table can be read correctly.
+    eligible_counts: {wide_to_normal: 54037, normal_to_wide: 23}
+
+  axis:
+    order: 2
+    measurement: qrs_axis
+    clear_zones:
+      lad: {condition: "qrs_axis < -45",  truth: left_axis_deviation,  spec: "clear LAD"}
+      rad: {condition: "qrs_axis > 105",  truth: right_axis_deviation, spec: "clear RAD"}
+    injection_free_zone: {lower: -35, upper: 95, rule: "-35 <= qrs_axis <= 95 -> never inject"}
+    surface_forms:
+      - {polarity: lad, pattern: "left axis deviation",  replace_with: "right axis deviation"}
+      - {polarity: lad, pattern: "leftward axis",        replace_with: "rightward axis"}
+      - {polarity: rad, pattern: "right axis deviation", replace_with: "left axis deviation"}
+      - {polarity: rad, pattern: "rightward axis",       replace_with: "leftward axis"}
+    eligible_counts: {lad_to_rad: 45591, rad_to_lad: 7030}
+
+  PR:
+    order: 3
+    measurement: pr_ms
+    clear_zones:
+      first_degree_avb: {condition: "pr_ms > 240",  truth: first_degree_av_block, spec: "clear first-deg AVB"}
+      normal:           {condition: "pr_ms <= 160", truth: normal_pr,             spec: "clear normal PR"}
+    injection_free_zone: {lower: 165, upper: 230, rule: "165 <= pr_ms <= 230 -> never inject"}
+    surface_forms:
+      - {polarity: first_degree_avb, pattern: "1st degree a-v block",   replace_with: "normal PR interval"}
+      - {polarity: first_degree_avb, pattern: "first degree a-v block", replace_with: "normal PR interval"}
+      - {polarity: first_degree_avb, pattern: "1st degree av block",    replace_with: "normal PR interval"}
+      - {polarity: first_degree_avb, pattern: "prolonged pr interval",  replace_with: "normal PR interval"}
+    drop_rows_where_measurement_null: true
+    normal_direction_note: |
+      Like QRS, the pr_ms <= 160 direction is unproductive: MIMIC machine
+      reports do not assert a normal PR ("normal PR" appears 0 times), so there
+      is no true claim to swap. The PR family is first-degree-AVB -> normal in
+      practice.
+    eligible_counts: {avb_to_normal: 13111, normal_to_avb: 0}
+
+# -----------------------------------------------------------------------------
+# Injection policy and measured yield.
+# -----------------------------------------------------------------------------
+injection_policy:
+  swap_only: true
+  swap_only_rationale: |
+    §4.B.5.3 specifies a SWAP and requires a recorded span. Inserting a claim
+    the report never made would (a) produce a span with no original counterpart
+    and (b) make the corrupted class detectable by length or by the presence of
+    a phrase style absent from the clean class. Restricting to swaps keeps the
+    two classes stylistically indistinguishable apart from the contradiction
+    itself.
+  one_family_per_corrupted_row: true
+  family_choice: "uniform over the families for which the study is eligible"
+  probability_of_corruption: 0.5
+  rng: {key_template: "b5|{study_id}", digest: sha256, bytes_used: 4, modulus: 2147483648,
+        generator: "numpy.random.default_rng", note: "deterministic per study — re-running the builder reproduces the identical dataset"}
+  measured_eligibility:
+    measured_at: "2026-08-26"
+    clean_cohort: 749112
+    eligible_for_at_least_one_family: 128653
+    eligible_pct: 17.2
+    per_family: {HR: 38453, QRS: 54060, axis: 52621, PR: 13111}
+    note: "per-family counts sum above the union total because a study can be eligible for more than one family"
+
+open_decisions:
+  - id: 5
+    question: "B5 row emission — how is 'balanced 50/50' achieved?"
+    blocks: "11_build_B5_contradiction_detection.py (Stage P2.2)"
+    detail: |
+      §4.B.5.3 reads "for each ECG, generate one uncorrupted row and (with 50 %
+      probability — balanced) one corrupted row", which yields 749,112 clean vs
+      ~64,000 corrupted — 12:1, not balanced. §6.4 separately asserts "balanced
+      50/50 clean/corrupted by dataset design". The two cannot both hold.
+    assumed_default: |
+      Emit exactly ONE row per ELIGIBLE study: corrupted with p = 0.5, clean
+      with p = 0.5. This gives an exact 50/50 balance over a 128,653-row cohort
+      and is the only reading under which "with 50 % probability" and "balanced"
+      are simultaneously true.
+    alternative: |
+      Keep every clean row (749,112) and accept the 12:1 imbalance, handling it
+      with pos_weight instead of by design. Larger cohort, but contradicts §6.4
+      and weakens the headline AUPRC's interpretability.
+  - id: 3
+    question: "B5 span offsets: character-level or token-level?"
+    blocks: "11_build_B5_contradiction_detection.py"
+    assumed_default: character_level
+    note: "§4.B.5.5 declares corrupted_span_start/end as char offsets, so character-level is what the schema already implies"

@@ -1,0 +1,144 @@
+{
+  "stage": "P2.2",
+  "script": "07_build_B1_measurement_blind",
+  "done": true,
+  "started_at": "2026-08-26T19:19:10Z",
+  "updated_at": "2026-08-26T19:19:31Z",
+  "finished_at": "2026-08-26T19:19:31Z",
+  "n_rows_total": 748454,
+  "splits_total": {
+    "train": 523464,
+    "val": 75444,
+    "test": 149546
+  },
+  "linkage_tier_breakdown": {
+    "L3": 421755,
+    "L1": 234311,
+    "L2": 78262,
+    "L0": 14126
+  },
+  "sqi_tier_breakdown": {
+    "medium": 460659,
+    "low": 283630,
+    "high": 4165
+  },
+  "labels": {
+    "hr_label": {
+      "bradycardia": {
+        "n": 112209,
+        "pct": 14.992
+      },
+      "normal": {
+        "n": 532583,
+        "pct": 71.158
+      },
+      "tachycardia": {
+        "n": 103662,
+        "pct": 13.85
+      }
+    },
+    "hr_label_by_split": {
+      "train": {
+        "bradycardia": 15.007,
+        "normal": 71.178,
+        "tachycardia": 13.815
+      },
+      "val": {
+        "bradycardia": 15.028,
+        "normal": 71.09,
+        "tachycardia": 13.882
+      },
+      "test": {
+        "bradycardia": 14.921,
+        "normal": 71.122,
+        "tachycardia": 13.957
+      }
+    },
+    "qrs_label": {
+      "normal": {
+        "n": 481548,
+        "pct": 64.339
+      },
+      "borderline": {
+        "n": 143341,
+        "pct": 19.152
+      },
+      "wide": {
+        "n": 123565,
+        "pct": 16.509
+      }
+    },
+    "qrs_label_by_split": {
+      "train": {
+        "normal": 64.261,
+        "borderline": 19.167,
+        "wide": 16.572
+      },
+      "val": {
+        "normal": 64.686,
+        "borderline": 18.958,
+        "wide": 16.355
+      },
+      "test": {
+        "normal": 64.438,
+        "borderline": 19.196,
+        "wide": 16.366
+      }
+    },
+    "qtc_label": {
+      "short": {
+        "n": 720,
+        "pct": 0.096
+      },
+      "normal": {
+        "n": 441981,
+        "pct": 59.053
+      },
+      "prolonged": {
+        "n": 305753,
+        "pct": 40.851
+      }
+    },
+    "qtc_label_by_split": {
+      "train": {
+        "short": 0.103,
+        "normal": 58.9,
+        "prolonged": 40.997
+      },
+      "val": {
+        "short": 0.068,
+        "normal": 59.54,
+        "prolonged": 40.393
+      },
+      "test": {
+        "short": 0.088,
+        "normal": 59.34,
+        "prolonged": 40.573
+      }
+    }
+  },
+  "measurement_summary": {
+    "hr_bpm": {
+      "mean": 78.34,
+      "median": 75.0
+    },
+    "qrs_ms": {
+      "mean": 99.77,
+      "median": 93.0
+    },
+    "qtc_ms": {
+      "mean": 444.69,
+      "median": 441.96
+    }
+  },
+  "n_shared_with_A2_primary": 275088,
+  "n_rows": 748454,
+  "n_subjects": 154079,
+  "n_rows_train": 523464,
+  "n_subjects_train": 107841,
+  "n_rows_val": 75444,
+  "n_subjects_val": 15395,
+  "n_rows_test": 149546,
+  "n_subjects_test": 30843,
+  "subject_overlap": 0
+}

@@ -1,0 +1,165 @@
+{
+  "stage": "P2.2",
+  "script": "08_build_B2_noise_robustness_dev",
+  "done": true,
+  "started_at": "2026-08-26T19:20:55Z",
+  "updated_at": "2026-08-26T19:20:58Z",
+  "finished_at": "2026-08-26T19:20:58Z",
+  "n_rows_total": 14473,
+  "splits_total": {
+    "train": 3440,
+    "val": 487,
+    "test": 10546
+  },
+  "rows_per_regime": {
+    "regime_2": 8607,
+    "regime_1": 4797,
+    "regime_3": 1069
+  },
+  "rows_per_row_role": {
+    "corrupted": 9360,
+    "augment_on_the_fly": 3927,
+    "natural": 1069,
+    "clean_reference": 117
+  },
+  "n_anchors_in_corrupted_file": 1998,
+  "n_anchors_with_labels": 117,
+  "anchor_sqi_tier_mix": {
+    "medium": 74,
+    "low": 35,
+    "high": 8
+  },
+  "corruption_types": [
+    "baseline_wander",
+    "electrode_motion",
+    "emg",
+    "gain_drift",
+    "gaussian",
+    "lead_dropout",
+    "powerline",
+    "saturation"
+  ],
+  "snr_levels_db": [
+    0,
+    5,
+    10,
+    20,
+    30
+  ],
+  "grid_cells": 40,
+  "grid_min_rows": 117,
+  "grid_max_rows": 117,
+  "anchor_label_mix": {
+    "hr_label": {
+      "bradycardia": {
+        "n": 18,
+        "pct": 15.385
+      },
+      "normal": {
+        "n": 79,
+        "pct": 67.521
+      },
+      "tachycardia": {
+        "n": 20,
+        "pct": 17.094
+      }
+    },
+    "hr_label_by_split": {
+      "train": {
+        "bradycardia": 0.0,
+        "normal": 0.0,
+        "tachycardia": 0.0
+      },
+      "val": {
+        "bradycardia": 0.0,
+        "normal": 0.0,
+        "tachycardia": 0.0
+      },
+      "test": {
+        "bradycardia": 15.385,
+        "normal": 67.521,
+        "tachycardia": 17.094
+      }
+    },
+    "qrs_label": {
+      "normal": {
+        "n": 76,
+        "pct": 64.957
+      },
+      "borderline": {
+        "n": 22,
+        "pct": 18.803
+      },
+      "wide": {
+        "n": 19,
+        "pct": 16.239
+      }
+    },
+    "qrs_label_by_split": {
+      "train": {
+        "normal": 0.0,
+        "borderline": 0.0,
+        "wide": 0.0
+      },
+      "val": {
+        "normal": 0.0,
+        "borderline": 0.0,
+        "wide": 0.0
+      },
+      "test": {
+        "normal": 64.957,
+        "borderline": 18.803,
+        "wide": 16.239
+      }
+    },
+    "qtc_label": {
+      "short": {
+        "n": 0,
+        "pct": 0.0
+      },
+      "normal": {
+        "n": 73,
+        "pct": 62.393
+      },
+      "prolonged": {
+        "n": 44,
+        "pct": 37.607
+      }
+    },
+    "qtc_label_by_split": {
+      "train": {
+        "short": 0.0,
+        "normal": 0.0,
+        "prolonged": 0.0
+      },
+      "val": {
+        "short": 0.0,
+        "normal": 0.0,
+        "prolonged": 0.0
+      },
+      "test": {
+        "short": 0.0,
+        "normal": 62.393,
+        "prolonged": 37.607
+      }
+    }
+  },
+  "regime_2_augmentation_policy": {
+    "p_corrupt_per_sample": 0.5,
+    "family": {
+      "distribution": "uniform_choice",
+      "over": "all_8_families"
+    },
+    "snr_db": {
+      "distribution": "uniform_choice",
+      "over": [
+        30,
+        20,
+        10,
+        5,
+        0
+      ]
+    }
+  },
+  "spec_anchor_pool_note": "\u00a74.B.2.2 describes the anchors as sqi_tier == 'high'. Phase 1 Stage 8 applied no SQI filter; the measured mix is {'medium': 74, 'low': 35, 'high': 8}. The corrupted set is frozen and Phase 2 never regenerates it (\u00a79.3), so the spec text is what must change."
+}

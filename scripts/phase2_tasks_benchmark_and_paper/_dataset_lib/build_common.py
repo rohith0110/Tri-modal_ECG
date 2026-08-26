@@ -57,6 +57,29 @@ BATCH_SIZE = 32                 # ProcessPoolExecutor chunksize (Phase 1 §6.1)
 MISSING_SENTINEL = 29999        # trap 8 / spec §12.8.2
 SPLITS = ("train", "val", "test")
 
+# --- dev-mode output isolation ------------------------------------------------
+# A --dev smoke test must never write where the full-scale run writes. Without
+# this, a two-minute sanity check silently replaces a task's real parquets with
+# 5,000 dev-sample rows, and nothing downstream can tell. set_dev(True)
+# redirects every task output under data/processed/tasks/_dev/.
+_DEV_MODE = False
+
+
+def set_dev(dev: bool) -> None:
+    """Route task outputs to the dev tree. Call once, right after arg parsing."""
+    global _DEV_MODE
+    _DEV_MODE = bool(dev)
+
+
+def tasks_root() -> Path:
+    return TASKS_DIR / "_dev" if _DEV_MODE else TASKS_DIR
+
+
+def task_dir(task_key: str) -> Path:
+    path = tasks_root() / task_key
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -532,8 +555,7 @@ def write_task_split_parquets(
     split_column: str = "split",
 ) -> dict[str, int]:
     """Write ``{train,val,test}.parquet`` (or ``<prefix>{train,...}``) for one task."""
-    out_dir = TASKS_DIR / task_key
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = task_dir(task_key)
     counts: dict[str, int] = {}
     for split in SPLITS:
         part = df[df[split_column] == split]
@@ -557,8 +579,7 @@ def write_task_split_parquets(
 
 def write_cohort_manifest(df: pd.DataFrame, task_key: str,
                           name: str = "cohort_manifest.parquet") -> int:
-    out_dir = TASKS_DIR / task_key
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = task_dir(task_key)
     tmp = out_dir / (name + ".tmp")
     pq.write_table(pa.Table.from_pandas(df, preserve_index=False), tmp, compression="snappy")
     atomic_replace(tmp, out_dir / name)
@@ -566,8 +587,7 @@ def write_cohort_manifest(df: pd.DataFrame, task_key: str,
 
 
 def write_task_readme(task_key: str, body: str) -> Path:
-    out_dir = TASKS_DIR / task_key
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = task_dir(task_key)
     path = out_dir / "README.md"
     path.write_text(body.rstrip() + "\n", encoding="utf-8")
     return path

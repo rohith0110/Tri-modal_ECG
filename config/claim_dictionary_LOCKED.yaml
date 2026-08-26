@@ -148,13 +148,38 @@ families:
         this exclusion the naive pattern produced 29,755 spurious
         report-says-wide / measurement-says-narrow pairs; with it, 23 remain.
     normal_direction_note: |
-      The qrs_ms <= 90 zone yields only 23 eligible studies, because MIMIC
-      machine reports essentially never assert a narrow QRS explicitly
-      ("narrow" appears 0 times in the 749,112 reports). The QRS family is
-      therefore wide -> normal in practice. This is a property of the source
-      vocabulary, not a modelling choice, and it is recorded so the per-family
-      detection-rate table can be read correctly.
-    eligible_counts: {wide_to_normal: 54037, normal_to_wide: 23}
+      The QRS family is wide -> normal in practice: MIMIC machine reports never
+      assert a narrow QRS explicitly ("narrow" appears 0 times in the 749,112
+      reports), so the qrs_ms <= 90 zone has no true claim to swap. This is a
+      property of the source vocabulary, not a modelling choice, and it is
+      recorded so the per-family detection-rate table can be read correctly.
+    normal_direction_correction:
+      corrected_at: "2026-08-27, Stage P2.2"
+      corrected_by: "scripts/phase2_tasks_benchmark_and_paper/11_build_B5_contradiction_detection.py"
+      was: {wide_to_normal: 54037, normal_to_wide: 23}
+      now: {wide_to_normal: 54037, normal_to_wide: 0}
+      why: |
+        The 23 studies counted at P2.0 as normal_to_wide are not injection sites.
+        They are the qrs_ms <= 90 studies whose report ALREADY asserts a wide
+        QRS -- report-says-wide / measurement-says-narrow disagreements, the
+        residue the incomplete_exclusion rule left behind. An injection turns a
+        TRUE claim into a FALSE one (Round 6.3); these reports' claims are
+        already at odds with the machine, so swapping one would produce text
+        that AGREES with the measurement while carrying the label "corrupted".
+        Inspected, all 23 are "--- Pediatric criteria used ---" reports, where a
+        QRS of 86-90 ms genuinely IS an intraventricular conduction defect: the
+        adult 120 ms threshold does not apply, so the report is right and the
+        adult clear zone is what misfires. Excluding them is correct on both
+        readings.
+        Effect: 21 fewer rows (two of the 23 are eligible via another family),
+        128,674 -> 128,653, a change of 0.016 %.
+      pediatric_note: |
+        659 of the 749,112 clean reports (0.088 %, 654 subjects) use paediatric
+        criteria. Their median HR (74 bpm) and QRS (94 ms) sit within a beat or a
+        millisecond of the adult medians, so the adult bins in A2 / B1 are not
+        materially affected; this QRS clear zone is the one place the difference
+        bit.
+    eligible_counts: {wide_to_normal: 54037, normal_to_wide: 0}
 
   axis:
     order: 2
@@ -220,13 +245,21 @@ injection_policy:
   measured_eligibility:
     measured_at: "2026-08-26"
     clean_cohort: 749112
-    eligible_for_at_least_one_family: 128674
-    eligible_pct: 17.2
-    n_subjects: 38438
-    split: {train: 89855, val: 12944, test: 25875}
-    per_family: {HR: 38453, QRS: 54060, axis: 52621, PR: 13111}
-    families_per_eligible_study: {1: 101238, 2: 25370, 3: 1997, 4: 69}
+    eligible_for_at_least_one_family: 128653
+    eligible_pct: 17.174
+    n_subjects: 38432
+    split: {train: 89842, val: 12941, test: 25870}
+    per_family: {HR: 38453, QRS: 54037, axis: 52621, PR: 13111}
     note: "per-family counts sum above the union total because a study can be eligible for more than one family"
+    superseded_measurement:
+      measured_at: "2026-08-26, Stage P2.0"
+      values: {eligible: 128674, n_subjects: 38438, per_family_QRS: 54060,
+               split: {train: 89855, val: 12944, test: 25875}}
+      why_superseded: |
+        The P2.0 figure counted 23 QRS studies that are not injection sites; see
+        families.QRS.normal_direction_correction. The builder re-measures
+        eligibility from this file on every run and asserts the union against the
+        corrected number, so the two cannot drift apart again.
 
 resolved_decisions:
   - id: 5

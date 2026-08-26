@@ -1,0 +1,62 @@
+{
+  "stage": "P2.2",
+  "script": "09_build_B3_temporal_grounding_dev",
+  "done": true,
+  "started_at": "2026-08-26T19:23:32Z",
+  "updated_at": "2026-08-26T19:23:35Z",
+  "finished_at": "2026-08-26T19:23:35Z",
+  "n_rows_total": 20000,
+  "n_studies": 5000,
+  "splits_total": {
+    "train": 13768,
+    "val": 1948,
+    "test": 4284
+  },
+  "n_queries": 4,
+  "noisy_sqi_threshold": 0.429425,
+  "noisy_threshold_source": "train split, 25th percentile",
+  "noisy_threshold_was_already_locked": false,
+  "train_sqi_bin_percentiles": {
+    "5": 0.0328,
+    "25": 0.4294,
+    "50": 0.7069,
+    "75": 0.877,
+    "95": 0.9785
+  },
+  "per_query": {
+    "HIGH_HEART_RATE": {
+      "n_rows": 5000,
+      "bin_positive_rate_pct": 19.11,
+      "studies_with_any_positive_pct": 33.62,
+      "mean_positive_bins": 1.911
+    },
+    "LOW_HEART_RATE": {
+      "n_rows": 5000,
+      "bin_positive_rate_pct": 12.762,
+      "studies_with_any_positive_pct": 28.94,
+      "mean_positive_bins": 1.276
+    },
+    "WIDE_QRS": {
+      "n_rows": 5000,
+      "bin_positive_rate_pct": 20.842,
+      "studies_with_any_positive_pct": 54.42,
+      "mean_positive_bins": 2.084
+    },
+    "NOISY_SEGMENT": {
+      "n_rows": 5000,
+      "bin_positive_rate_pct": 25.078,
+      "studies_with_any_positive_pct": 98.58,
+      "mean_positive_bins": 2.508
+    }
+  },
+  "pct_fallback_used": 0.14,
+  "n_rows": 20000,
+  "n_subjects": 4761,
+  "n_rows_train": 13768,
+  "n_subjects_train": 3272,
+  "n_rows_val": 1948,
+  "n_subjects_val": 468,
+  "n_rows_test": 4284,
+  "n_subjects_test": 1021,
+  "subject_overlap": 0
+}

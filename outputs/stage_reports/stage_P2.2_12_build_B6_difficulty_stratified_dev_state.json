@@ -1,0 +1,30 @@
+{
+  "stage": "P2.2",
+  "script": "12_build_B6_difficulty_stratified_dev",
+  "done": true,
+  "started_at": "2026-08-26T19:18:46Z",
+  "updated_at": "2026-08-26T19:18:46Z",
+  "finished_at": "2026-08-26T19:18:46Z",
+  "n_rows": 35000,
+  "n_studies": 5000,
+  "rows_per_tier": {
+    "easy": 20000,
+    "positive": 10000,
+    "medium": 5000
+  },
+  "test_rows_per_tier": {
+    "easy": 4284,
+    "positive": 2142,
+    "medium": 1071
+  },
+  "test_rows_per_neg_type": {
+    "<NA>": 2142,
+    "IMAGE_SWAP": 1071,
+    "PARTIAL_MISMATCH": 1071,
+    "SIGNAL_SWAP": 1071,
+    "TEXT_SWAP": 1071,
+    "HARD_NEGATIVE_TEXT": 1071
+  },
+  "hard_tier_status": "RESERVED, empty (progress-doc question 13, stated default)",
+  "n_subjects": 4761
+}

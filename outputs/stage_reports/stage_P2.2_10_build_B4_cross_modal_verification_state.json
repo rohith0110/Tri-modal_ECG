@@ -1,0 +1,57 @@
+{
+  "stage": "P2.2",
+  "script": "10_build_B4_cross_modal_verification",
+  "done": true,
+  "started_at": "2026-08-26T19:19:34Z",
+  "updated_at": "2026-08-26T19:20:28Z",
+  "finished_at": "2026-08-26T19:20:28Z",
+  "n_rows": 5243784,
+  "n_anchors": 749112,
+  "n_subjects": 154092,
+  "positive_rate_pct": 28.571,
+  "rows_per_neg_type": {
+    "positive": 1498224,
+    "HARD_NEGATIVE_TEXT": 749112,
+    "IMAGE_SWAP": 749112,
+    "PARTIAL_MISMATCH": 749112,
+    "SIGNAL_SWAP": 749112,
+    "TEXT_SWAP": 749112
+  },
+  "image_type_counts": {
+    "clean": 4494672,
+    "scanlike": 749112
+  },
+  "by_split": {
+    "train": {
+      "n_rows": 3667615,
+      "n_anchors": 523945,
+      "n_positive": 1047890,
+      "n_negative": 2619725
+    },
+    "val": {
+      "n_rows": 528675,
+      "n_anchors": 75525,
+      "n_positive": 151050,
+      "n_negative": 377625
+    },
+    "test": {
+      "n_rows": 1047494,
+      "n_anchors": 149642,
+      "n_positive": 299284,
+      "n_negative": 748210
+    }
+  },
+  "splits": {
+    "train": 3667615,
+    "val": 528675,
+    "test": 1047494
+  },
+  "identical_to_A5_verification": true,
+  "n_rows_train": 3667615,
+  "n_subjects_train": 107851,
+  "n_rows_val": 528675,
+  "n_subjects_val": 15397,
+  "n_rows_test": 1047494,
+  "n_subjects_test": 30844,
+  "subject_overlap": 0
+}

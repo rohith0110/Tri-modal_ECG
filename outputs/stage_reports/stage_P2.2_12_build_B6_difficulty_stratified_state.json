@@ -1,0 +1,30 @@
+{
+  "stage": "P2.2",
+  "script": "12_build_B6_difficulty_stratified",
+  "done": true,
+  "started_at": "2026-08-26T19:20:33Z",
+  "updated_at": "2026-08-26T19:20:45Z",
+  "finished_at": "2026-08-26T19:20:45Z",
+  "n_rows": 5243784,
+  "n_studies": 749112,
+  "rows_per_tier": {
+    "easy": 2996448,
+    "positive": 1498224,
+    "medium": 749112
+  },
+  "test_rows_per_tier": {
+    "easy": 598568,
+    "positive": 299284,
+    "medium": 149642
+  },
+  "test_rows_per_neg_type": {
+    "<NA>": 299284,
+    "IMAGE_SWAP": 149642,
+    "PARTIAL_MISMATCH": 149642,
+    "SIGNAL_SWAP": 149642,
+    "TEXT_SWAP": 149642,
+    "HARD_NEGATIVE_TEXT": 149642
+  },
+  "hard_tier_status": "RESERVED, empty (progress-doc question 13, stated default)",
+  "n_subjects": 154092
+}

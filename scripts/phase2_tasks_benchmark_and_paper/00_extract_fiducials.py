@@ -226,6 +226,7 @@ def main() -> int:
     bc.add_std_args(parser)
     parser.add_argument("--workers", type=int, default=bc.MAX_WORKERS)
     args = parser.parse_args()
+    bc.set_dev(args.dev)
 
     log = bc.setup_logging(SCRIPT, stage=STAGE)
     part_name = PART_NAME + ("_dev" if args.dev else "")

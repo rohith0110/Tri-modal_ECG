@@ -47,6 +47,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     bc.add_std_args(parser)
     args = parser.parse_args()
+    bc.set_dev(args.dev)
 
     log = bc.setup_logging(SCRIPT, stage=STAGE)
     state = bc.StageState(STAGE, SCRIPT + ("_dev" if args.dev else ""))

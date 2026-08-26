@@ -1,0 +1,143 @@
+{
+  "stage": "P2.2",
+  "script": "11_build_B5_contradiction_detection_dev",
+  "done": true,
+  "started_at": "2026-08-26T19:25:24Z",
+  "updated_at": "2026-08-26T19:25:28Z",
+  "finished_at": "2026-08-26T19:25:28Z",
+  "n_rows": 852,
+  "n_eligible_studies": 852,
+  "eligible_pct_of_clean_cohort": 17.04,
+  "splits": {
+    "train": 573,
+    "val": 90,
+    "test": 189
+  },
+  "corrupted_rate_pct": 50.117,
+  "corrupted_rate_by_split_pct": {
+    "train": 48.866,
+    "val": 52.222,
+    "test": 52.91
+  },
+  "eligible_per_family": {
+    "HR": 306,
+    "QRS": 327,
+    "axis": 315,
+    "PR": 74
+  },
+  "eligible_per_zone": {
+    "HR": {
+      "brady": 136,
+      "tachy": 170
+    },
+    "QRS": {
+      "wide": 327,
+      "normal": 0
+    },
+    "axis": {
+      "lad": 261,
+      "rad": 54
+    },
+    "PR": {
+      "first_degree_avb": 74,
+      "normal": 0
+    }
+  },
+  "families_per_eligible_study": {
+    "1": 700,
+    "2": 135,
+    "3": 16,
+    "4": 1
+  },
+  "label_distribution": {
+    "clean": 425,
+    "corrupted_HR": 148,
+    "corrupted_QRS": 128,
+    "corrupted_axis": 124,
+    "corrupted_PR": 27
+  },
+  "contradiction_family_distribution": {
+    "QRS_wide": 128,
+    "axis_lad": 100,
+    "HR_tachy": 83,
+    "HR_brady": 65,
+    "PR_first_degree_avb": 27,
+    "axis_rad": 24
+  },
+  "span_length_median_chars": 19,
+  "swap_failures": 0,
+  "surface_form_hits_in_zone": {
+    "HR|brady|bradycardi": 136,
+    "HR|tachy|tachycardi": 170,
+    "QRS|wide|(?<!incomplete )left bundle branch block": 84,
+    "QRS|wide|(?<!incomplete )right bundle branch block": 101,
+    "QRS|wide|(?<!incomplete )\\blbbb\\b": 0,
+    "QRS|wide|(?<!incomplete )\\brbbb\\b": 89,
+    "QRS|wide|intraventricular conduction delay": 2,
+    "QRS|wide|iv conduction defect": 51,
+    "QRS|wide|wide qrs": 1,
+    "QRS|wide|wide complex": 0,
+    "axis|lad|left axis deviation": 261,
+    "axis|lad|leftward axis": 0,
+    "axis|rad|right axis deviation": 46,
+    "axis|rad|rightward axis": 8,
+    "PR|first_degree_avb|1st degree a-v block": 64,
+    "PR|first_degree_avb|first degree a-v block": 3,
+    "PR|first_degree_avb|1st degree av block": 0,
+    "PR|first_degree_avb|prolonged pr interval": 7
+  },
+  "n_subjects": 826,
+  "n_rows_train": 573,
+  "n_subjects_train": 560,
+  "n_rows_val": 90,
+  "n_subjects_val": 85,
+  "n_rows_test": 189,
+  "n_subjects_test": 181,
+  "subject_overlap": 0,
+  "examples": [
+    {
+      "study_id": 40000565,
+      "family": "axis_lad",
+      "original": "Sinus tachycardia Left axis deviation Inferior infarct - age undetermined Abnormal ECG",
+      "corrupted": "Sinus tachycardia Right axis deviation Inferior infarct - age undetermined Abnormal ECG",
+      "span": [
+        18,
+        38
+      ],
+      "measurement": "{\"measurement_name\": \"qrs_axis\", \"value\": -51.0, \"clear_zone\": \"lad\"}"
+    },
+    {
+      "study_id": 40000857,
+      "family": "axis_lad",
+      "original": "Possible atrial flutter Left axis deviation RBBB with left anterior fascicular block Possible anterior infarct - age undetermined ",
+      "corrupted": "Possible atrial flutter Right axis deviation RBBB with left anterior fascicular block Possible anterior infarct - age undetermined",
+      "span": [
+        24,
+        44
+      ],
+      "measurement": "{\"measurement_name\": \"qrs_axis\", \"value\": -67.0, \"clear_zone\": \"lad\"}"
+    },
+    {
+      "study_id": 40001588,
+      "family": "PR_first_degree_avb",
+      "original": "Sinus bradycardia with 1st degree A-V block. Prolonged QT interval Possible anterior infarct - age undetermined Low QRS voltages i",
+      "corrupted": "Sinus bradycardia with normal PR interval. Prolonged QT interval Possible anterior infarct - age undetermined Low QRS voltages in ",
+      "span": [
+        23,
+        41
+      ],
+      "measurement": "{\"measurement_name\": \"pr_ms\", \"value\": 258.0, \"clear_zone\": \"first_degree_avb\"}"
+    },
+    {
+      "study_id": 40001630,
+      "family": "HR_tachy",
+      "original": "Sinus tachycardia Lead(s) unsuitable for analysis: V2 ST junctional depression is nonspecific Borderline ECG",
+      "corrupted": "Sinus bradycardia Lead(s) unsuitable for analysis: V2 ST junctional depression is nonspecific Borderline ECG",
+      "span": [
+        6,
+        16
+      ],
+      "measurement": "{\"measurement_name\": \"hr_bpm\", \"value\": 138.24884792626727, \"clear_zone\": \"tachy\"}"
+    }
+  ]
+}

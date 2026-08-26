@@ -1,0 +1,143 @@
+{
+  "stage": "P2.2",
+  "script": "11_build_B5_contradiction_detection",
+  "done": true,
+  "started_at": "2026-08-26T19:30:28Z",
+  "updated_at": "2026-08-26T19:31:10Z",
+  "finished_at": "2026-08-26T19:31:10Z",
+  "n_rows": 128653,
+  "n_eligible_studies": 128653,
+  "eligible_pct_of_clean_cohort": 17.174,
+  "splits": {
+    "train": 89842,
+    "val": 12941,
+    "test": 25870
+  },
+  "corrupted_rate_pct": 49.917,
+  "corrupted_rate_by_split_pct": {
+    "train": 49.72,
+    "val": 50.321,
+    "test": 50.402
+  },
+  "eligible_per_family": {
+    "HR": 38453,
+    "QRS": 54037,
+    "axis": 52621,
+    "PR": 13111
+  },
+  "eligible_per_zone": {
+    "HR": {
+      "brady": 20025,
+      "tachy": 18428
+    },
+    "QRS": {
+      "wide": 54037,
+      "normal": 0
+    },
+    "axis": {
+      "lad": 45591,
+      "rad": 7030
+    },
+    "PR": {
+      "first_degree_avb": 13111,
+      "normal": 0
+    }
+  },
+  "families_per_eligible_study": {
+    "1": 101219,
+    "2": 25368,
+    "3": 1997,
+    "4": 69
+  },
+  "label_distribution": {
+    "clean": 64433,
+    "corrupted_QRS": 20748,
+    "corrupted_axis": 20230,
+    "corrupted_HR": 17866,
+    "corrupted_PR": 5376
+  },
+  "contradiction_family_distribution": {
+    "QRS_wide": 20748,
+    "axis_lad": 17397,
+    "HR_brady": 9174,
+    "HR_tachy": 8692,
+    "PR_first_degree_avb": 5376,
+    "axis_rad": 2833
+  },
+  "span_length_median_chars": 19,
+  "swap_failures": 0,
+  "surface_form_hits_in_zone": {
+    "HR|brady|bradycardi": 20025,
+    "HR|tachy|tachycardi": 18428,
+    "QRS|wide|(?<!incomplete )left bundle branch block": 14546,
+    "QRS|wide|(?<!incomplete )right bundle branch block": 15663,
+    "QRS|wide|(?<!incomplete )\\blbbb\\b": 381,
+    "QRS|wide|(?<!incomplete )\\brbbb\\b": 13813,
+    "QRS|wide|intraventricular conduction delay": 310,
+    "QRS|wide|iv conduction defect": 9255,
+    "QRS|wide|wide qrs": 31,
+    "QRS|wide|wide complex": 68,
+    "axis|lad|left axis deviation": 45591,
+    "axis|lad|leftward axis": 0,
+    "axis|rad|right axis deviation": 5994,
+    "axis|rad|rightward axis": 1036,
+    "PR|first_degree_avb|1st degree a-v block": 10969,
+    "PR|first_degree_avb|first degree a-v block": 713,
+    "PR|first_degree_avb|1st degree av block": 0,
+    "PR|first_degree_avb|prolonged pr interval": 1429
+  },
+  "n_subjects": 38422,
+  "n_rows_train": 89842,
+  "n_subjects_train": 26776,
+  "n_rows_val": 12941,
+  "n_subjects_val": 3900,
+  "n_rows_test": 25870,
+  "n_subjects_test": 7746,
+  "subject_overlap": 0,
+  "examples": [
+    {
+      "study_id": 40000305,
+      "family": "axis_lad",
+      "original": "Sinus tachycardia Left axis deviation IV conduction defect Possible anterior infarct - age undetermined Possible lateral infarct -",
+      "corrupted": "Sinus tachycardia Right axis deviation IV conduction defect Possible anterior infarct - age undetermined Possible lateral infarct ",
+      "span": [
+        18,
+        38
+      ],
+      "measurement": "{\"measurement_name\": \"qrs_axis\", \"value\": -60.0, \"clear_zone\": \"lad\"}"
+    },
+    {
+      "study_id": 40000306,
+      "family": "QRS_wide",
+      "original": "Atrial fibrillation with rapid ventricular response. Left axis deviation RBBB with left anterior fascicular block Possible septal ",
+      "corrupted": "Atrial fibrillation with rapid ventricular response. Left axis deviation Normal QRS duration with left anterior fascicular block P",
+      "span": [
+        73,
+        92
+      ],
+      "measurement": "{\"measurement_name\": \"qrs_ms\", \"value\": 150.0, \"clear_zone\": \"wide\"}"
+    },
+    {
+      "study_id": 40000565,
+      "family": "axis_lad",
+      "original": "Sinus tachycardia Left axis deviation Inferior infarct - age undetermined Abnormal ECG",
+      "corrupted": "Sinus tachycardia Right axis deviation Inferior infarct - age undetermined Abnormal ECG",
+      "span": [
+        18,
+        38
+      ],
+      "measurement": "{\"measurement_name\": \"qrs_axis\", \"value\": -51.0, \"clear_zone\": \"lad\"}"
+    },
+    {
+      "study_id": 40000799,
+      "family": "QRS_wide",
+      "original": "Sinus tachycardia with borderline 1st degree A-V block. Possible right atrial abnormality Leftward axis Left bundle branch block A",
+      "corrupted": "Sinus tachycardia with borderline 1st degree A-V block. Possible right atrial abnormality Leftward axis Normal QRS duration Abnorm",
+      "span": [
+        104,
+        123
+      ],
+      "measurement": "{\"measurement_name\": \"qrs_ms\", \"value\": 166.0, \"clear_zone\": \"wide\"}"
+    }
+  ]
+}

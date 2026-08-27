@@ -86,6 +86,22 @@ STAGES: dict[str, dict[str, Any]] = {
             bc.CONFIG_DIR / "eval_configs" / "cross_modal.yaml",
         ],
     },
+    "P2.3": {
+        "name": "The three Phase 2 audits — leakage, cohort, split",
+        "spec": "§9.4",
+        "scripts": [
+            "20_audit_tasks_leakage.py",
+            "21_audit_tasks_cohort.py",
+            "22_audit_tasks_split.py",
+            "_dataset_lib/audit_common.py",
+        ],
+        "tasks": [],
+        "extra_outputs": [
+            bc.PROJECT_ROOT / "outputs" / "audit_reports" / "leakage_audit_phase2.md",
+            bc.PROJECT_ROOT / "outputs" / "audit_reports" / "cohort_audit.md",
+            bc.PROJECT_ROOT / "outputs" / "audit_reports" / "split_audit_phase2.md",
+        ],
+    },
     "P2.2": {
         "name": "Build Plan B task datasets",
         "spec": "§9.3",
@@ -279,6 +295,63 @@ def p24_validation() -> list[str]:
     return lines
 
 
+def p23_validation() -> list[str]:
+    """Read the three audit verdicts back off the reports they wrote.
+
+    §9.4's validation bullet is "all four audits PASS", and §4.C invariant 4
+    makes it the gate before any training. Nothing here restates a verdict: the
+    reports are parsed with the same `audit_common.report_verdict` that
+    `30_train.py` uses, so this section and the training gate cannot disagree.
+    """
+    from _dataset_lib import audit_common as ac
+
+    directory = bc.PROJECT_ROOT / "outputs" / "audit_reports"
+    lines: list[str] = []
+    verdicts: dict[str, str] = {}
+    for name, script in (("leakage_audit_phase2.md", "20_audit_tasks_leakage.py"),
+                         ("cohort_audit.md", "21_audit_tasks_cohort.py"),
+                         ("split_audit_phase2.md", "22_audit_tasks_split.py")):
+        path = directory / name
+        if not path.exists():
+            verdicts[name] = "MISSING"
+            lines.append(f"- **`{name}`: MISSING** — `{script}` has not been run.")
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        verdicts[name] = ac.report_verdict(text)
+        summary = next((l for l in text.splitlines() if l.startswith("**VERDICT:")),
+                       "(no verdict line)")
+        lines.append(f"- **`{name}`** — {summary}  "
+                     f"({human(path.stat().st_size)}, written by `{script}`)")
+    lines.append("")
+
+    gate = all(v == ac.PASS for v in verdicts.values())
+    lines += [
+        f"- **§4.C invariant 4 audit gate: {'OPEN' if gate else 'CLOSED'}.** "
+        f"`30_train.py::check_audit_gate` reads exactly these three files and parses "
+        f"their `**VERDICT:**` line; measured now, it returns "
+        f"{ {k: v for k, v in verdicts.items()} }.",
+        "",
+    ]
+
+    per_script = load_states("P2.3")
+    if per_script:
+        lines.append("- Per-script check counts, read from the state files:")
+        for script, data in sorted(per_script.items()):
+            lines.append(f"  - `{script}` — {data.get('verdict')}, "
+                         f"{data.get('n_checks')} checks, "
+                         f"{data.get('n_violations')} violations, "
+                         f"{data.get('elapsed_s')} s")
+        lines.append("")
+    lines += [
+        "- **`threshold_audit.md` is deliberately still absent.** §9.4 lists it as a "
+        "pre-flight artifact with empty threshold values; `_train_lib/threshold.py` "
+        "appends to it, and only a full-scale `30_train.py` run has thresholds to "
+        "append. Nothing in Stage P2.3 selects a threshold.",
+        "",
+    ]
+    return lines
+
+
 def _dev_result(task: str, arch_tier: str, metric: str) -> float | None:
     """One overall metric value out of a dev results CSV, or None."""
     path = bc.PROJECT_ROOT / "outputs" / "results" / "_dev" / f"{task}.csv"
@@ -319,6 +392,38 @@ MANUAL_TESTS: dict[str, list[str]] = {
         "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/50_run_baselines_algorithmic.py --dev --limit 60 --workers 4",
         "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/31_eval.py --task A4_event_localization --arch-tier algorithmic --dev --bootstrap-n 100",
         "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/31_eval.py --task B3_temporal_grounding --arch-tier algorithmic --dev --bootstrap-n 100",
+    ],
+    "P2.3": [
+        "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/audit_common.py",
+        "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/20_audit_tasks_leakage.py",
+        "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/21_audit_tasks_cohort.py",
+        "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/22_audit_tasks_split.py",
+    ],
+}
+
+MANUAL_TEST_NOTES: dict[str, list[str]] = {
+    "P2.4": [
+        "Every module above prints its own PASS line and exits non-zero on failure. "
+        "`smoke_test.py` is the one that exercises the whole stack: crash recovery, "
+        "determinism, the leakage and threshold gates, then train + eval for every "
+        "(task, arch tier) the input policy allows.",
+    ],
+    "P2.3": [
+        "Each audit exits 0 on PASS and 1 on a violation, reads only artifacts already "
+        "on disk, and writes only its own report — so all three are safe to re-run at "
+        "any time, and re-running them is the intended way to re-open the training gate "
+        "after any rebuild. `audit_common.py` runs the gate-contract self-check.",
+        "",
+        "The gate itself can be exercised directly:",
+        "",
+        "```",
+        "./ecg_env/Scripts/python.exe -c \"import sys, logging; "
+        "sys.path.insert(0, 'scripts/phase2_tasks_benchmark_and_paper'); "
+        "import importlib.util as u; "
+        "s = u.spec_from_file_location('t', 'scripts/phase2_tasks_benchmark_and_paper/30_train.py'); "
+        "m = u.module_from_spec(s); s.loader.exec_module(m); "
+        "print(m.check_audit_gate(False, logging.getLogger()))\"",
+        "```",
     ],
 }
 
@@ -374,6 +479,8 @@ def render(stage: str) -> str:
     out += ["## 6. Validation results", ""]
     if stage == "P2.4":
         out += p24_validation()
+    if stage == "P2.3":
+        out += p23_validation()
     out += ["- Pre-flight: PASS — every builder calls `build_common.preflight()`, which "
             "asserts its inputs exist and records free disk and free RAM before any work "
             "starts. Phase 1 completion was verified at Stage P2.0 and is unchanged.", ""]
@@ -423,10 +530,7 @@ def render(stage: str) -> str:
     out += ["## 7. Manual test procedure", ""]
     if stage in MANUAL_TESTS:
         out += ["```"] + MANUAL_TESTS[stage] + ["```", ""]
-        out += ["Every module above prints its own PASS line and exits non-zero on "
-                "failure. `smoke_test.py` is the one that exercises the whole stack: "
-                "crash recovery, determinism, the leakage and threshold gates, then "
-                "train + eval for every (task, arch tier) the input policy allows.", ""]
+        out += MANUAL_TEST_NOTES.get(stage, []) + [""]
         out += ["## 8. Assumptions requiring user confirmation", ""]
         out += ASSUMPTIONS.get(stage, ["none"]) + [""]
         if missing:
@@ -457,11 +561,30 @@ def render(stage: str) -> str:
 
 WORKER_SCRIPTS: dict[str, list[str]] = {
     "P2.1": ["00_extract_fiducials.py"],
+    "P2.3": ["20_audit_tasks_leakage.py", "21_audit_tasks_cohort.py",
+             "22_audit_tasks_split.py"],
     "P2.2": ["00_extract_fiducials.py"],
     "P2.4": ["50_run_baselines_algorithmic.py"],
 }
 
 MODIFIED: dict[str, list[str]] = {
+    "P2.3": [
+        "- `scripts/.../30_train.py`  ::  `check_audit_gate` now parses the audit's "
+        "`**VERDICT:**` line through `audit_common.report_verdict` instead of scanning "
+        "the report body for the token. The old scan read a clean leakage audit as "
+        "blocked, because that audit lists every column of every task and A1's heads are "
+        "named `label_heart_failure_narrow`.",
+        "- `scripts/.../_dataset_lib/task_dataset.py`  ::  `_join_masked_attributes` "
+        "lifted to a module-level `join_masked_attributes(frame, masked)`; the method now "
+        "calls it. A5's HR/QRS/QTc labels live in `masked_attribute_<split>.parquet`, so "
+        "the cohort audit has to perform the same join the loader does — through the same "
+        "function, not a second copy of it.",
+        "- `scripts/.../_dataset_lib/stage_report.py`  ::  a P2.3 stage entry, "
+        "`p23_validation()` (which parses the three reports rather than restating them), "
+        "and `MANUAL_TEST_NOTES` so §7's prose is per-stage instead of P2.4's.",
+        "- `docs/PHASE2_PROGRESS.md`  ::  header, §4 decision 19, §6 ledger (Step 10 and "
+        "the §1.2 audit checklist), §7 trap 20, §8 session log.",
+    ],
     "P2.4": [
         "- `config/decision_phase2.yaml`  ::  Bio-ClinicalBERT revision SHA recorded "
         "(`d5892b39a4adaed74b92212a44081509db72f87b`); `transformers` 4.57.6 and "
@@ -481,6 +604,51 @@ MODIFIED: dict[str, list[str]] = {
 }
 
 DECISIONS: dict[str, list[str]] = {
+    "P2.3": [
+        "- **A forbidden quantity may sit in a task parquet only where §4 puts it there, "
+        "and only if the dataloader is shown not to reach it**  ::  §9.4 says to flag any "
+        "forbidden column, but §4.A.2.5 lists `hr_bpm`, `qrs_ms` and `qtc_ms` under the "
+        "comment `# provenance` and §4.B.5.5 lists `source_measurement`. Read literally, "
+        "the two rules contradict each other and A2, B1 and B5 would be permanent "
+        "violations of a spec that mandated their own schemas. The audit instead names "
+        "every such column with the section that mandates it, treats an unlisted one as a "
+        "violation, and proves unreachability by constructing the real `TaskDataset` for "
+        "every (task, arch-tier family) and checking the tensor keys it returns.",
+        "- **An unclassified column is a violation**  ::  a column list is only an audit if "
+        "every entry has been looked at. Each column resolves to a role from `task_spec`, "
+        "`task_definitions.yaml` or §4's output schema; anything left over blocks. That is "
+        "what makes a column added by a future builder edit fail loudly instead of "
+        "arriving unexamined.",
+        "- **The training gate parses a verdict LINE, not the word 'FAIL' anywhere in the "
+        "body**  ::  `30_train.py` used to scan the whole report for the token. The "
+        "leakage audit lists every column of every task, and A1's heads are named "
+        "`label_heart_failure_narrow` — so a clean report was read as a blocked one. "
+        "`audit_common.report_verdict` is now the single parser and `30_train.py` imports "
+        "it; each audit parses its own rendered report with it before the file lands, so "
+        "an audit cannot emit a report the gate would misread.",
+        "- **An absent CLASS is reported, not failed; an undefined METRIC is failed**  ::  "
+        "A3's `abnormal_unknown_direction` occurs once in 500,471 rows and troponin has no "
+        "`low_abnormal` at all. Neither is a build defect — they are facts about MIMIC-IV "
+        "lab data, and `multiclass_macro_auprc` averages over the classes present in the "
+        "slice. What the cohort audit does fail on is a head with fewer than two label "
+        "values in some split, because that head's AUPRC is NaN and the paper has a cell "
+        "it cannot fill.",
+        "- **The split audit checks donor containment, not just anchor disjointness**  ::  "
+        "§9.4 asks for zero subject overlap. An A5/B4 row points at up to three studies, "
+        "so §4.C invariant 1 is about the bytes a row loads, not its anchor: a train row "
+        "pointing at a test subject's signal carries test bytes into training and anchor-"
+        "level disjointness would never show it. All three pointer columns are resolved to "
+        "subjects and checked against the row's own split, and a swapped modality on a "
+        "negative is checked to come from a different subject.",
+        "- **Every task's split is checked against the frozen global partition, not only "
+        "against itself**  ::  a task can partition its own rows perfectly and still have "
+        "re-derived the split, which §4.C invariant 1 forbids. Agreement with "
+        "`splits_subject_level.parquet` is what makes the twelve tasks consistent with "
+        "each other rather than each internally consistent.",
+        "- **A partial run cannot PASS**  ::  both `--tasks` and `--skip-dataloader` record "
+        "their own omission as a violation. An audit that skipped a task is not a weaker "
+        "PASS; it is not a PASS.",
+    ],
     "P2.1": [
         "- **Fiducials are extracted over the full clean cohort, not A4's slice**  ::  "
         "A4's primary cohort is L3 x {high, medium} SQI, but §4.A.4.8 requires a "
@@ -594,6 +762,34 @@ DECISIONS: dict[str, list[str]] = {
     ],}
 
 ASSUMPTIONS: dict[str, list[str]] = {
+    "P2.3": [
+        "- **The declared-provenance allowlist is a reading of §4, and a reviewer may "
+        "disagree with an entry**  ::  `20_audit_tasks_leakage.py::PROVENANCE` names every "
+        "column that stays in a task parquet despite naming a forbidden quantity, each "
+        "with its section. The strongest case is A2/B1's `hr_bpm`/`qrs_ms`/`qtc_ms`, which "
+        "§4.A.2.5 marks `# provenance` in the schema itself; the ones worth a second look "
+        "are B5's `source_measurement` (non-null exactly on the corrupted rows, so it is "
+        "label-equivalent) and A6's `days_to_death`/`days_to_readmission`. None is "
+        "reachable — gate 3 checks the tensor keys — but if a reviewer would rather they "
+        "were not on disk at all, that is a builder change plus a rebuild of that task, "
+        "not an audit change.",
+        "- **A3's `abnormal_unknown_direction` class is effectively empty**  ::  1 row in "
+        "500,471, in the test split, and it is the only row where §4.A.3.3's `flag`-only "
+        "branch fired. Troponin has no `low_abnormal` row at all. Both are reported rather "
+        "than failed, and `multiclass_macro_auprc` averages over the classes present. If "
+        "the paper needs a per-class row for every declared class, those cells will be "
+        "empty by construction and should be marked n/a rather than 0.",
+        "- **B6's hard tier is still empty**  ::  the audit checks the tier vocabulary "
+        "against `task_definitions.yaml`, where `hard` is `RESERVED` with an empty "
+        "`neg_types` list (progress-doc question 13's default). The check passes because "
+        "the config and the data agree; it would start failing the moment the tier is "
+        "given members without the pointer table being rebuilt.",
+        "- **`threshold_audit.md` is not produced by this stage**  ::  §9.4 lists a "
+        "pre-flight version with empty threshold values, but nothing in P2.3 selects a "
+        "threshold and `_train_lib/threshold.py` appends the file's rows on the first "
+        "full-scale training run. The three audits the §4.C gate actually reads are all "
+        "present and PASS.",
+    ],
     "P2.1": [
         "- **QTc source (decision 14)**  ::  A2/B1/B2/A5 define their `qtc_label` head "
         "against `machine_qtc_ms`. If the intent was genuinely the NeuroKit Bazett value, "

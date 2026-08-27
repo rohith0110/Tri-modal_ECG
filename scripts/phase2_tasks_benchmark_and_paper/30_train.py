@@ -49,6 +49,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _dataset_lib import audit_common as ac                            # noqa: E402
 from _dataset_lib import build_common as bc                            # noqa: E402
 from _dataset_lib.task_dataset import TaskDataset, plan_from_config    # noqa: E402
 from _dataset_lib.task_spec import get_task                            # noqa: E402
@@ -89,16 +90,14 @@ def check_audit_gate(dev: bool, log: logging.Logger, allow_missing: bool = False
             problems.append(f"{name} does not exist")
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        # The audit writes a verdict line; anything that is not an explicit PASS
-        # blocks, including a report that only says FAIL somewhere in the body.
-        if "FAIL" in text.upper().replace("FAILURE MODE", ""):
-            status[name] = "FAIL"
-            problems.append(f"{name} contains a FAIL")
-        elif "PASS" not in text.upper():
-            status[name] = "NO_VERDICT"
-            problems.append(f"{name} carries no PASS verdict")
-        else:
-            status[name] = "PASS"
+        # The audit's `**VERDICT: ...**` line, parsed by the one reader in
+        # `audit_common`. Scanning the whole body for the block token instead
+        # would misread a clean leakage audit: it lists every column of every
+        # task, and A1's heads are named `label_heart_failure_narrow`.
+        verdict = ac.report_verdict(text)
+        status[name] = verdict
+        if verdict != ac.PASS:
+            problems.append(f"{name} reads {verdict}")
 
     if not problems:
         log.info("audit gate: PASS (%s)", ", ".join(f"{k}={v}" for k, v in status.items()))

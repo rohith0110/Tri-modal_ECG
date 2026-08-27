@@ -85,6 +85,28 @@ def check_input_policy(task_key: str, kinds: Sequence[str]) -> None:
             )
 
 
+def join_masked_attributes(frame: pd.DataFrame, masked: pd.DataFrame) -> pd.DataFrame:
+    """Attach A5's masked-attribute targets to its verification rows.
+
+    Module-level so the P2.3 cohort audit sees the same rows the loader does --
+    A5's HR/QRS/QTc labels live in `masked_attribute_<split>.parquet`, not in
+    the verification parquet, and an audit that read only the latter would
+    report three heads as label-less.
+
+    The head is valid only where the signal AND the image are still the
+    anchor's own. Elsewhere the row shows another subject's ECG, so the
+    anchor's HR/QRS/QTc bins are not its labels and the head contributes no
+    loss (`mask_column='masked_attr_valid'`).
+    """
+    masked = masked.rename(columns={"study_id": "anchor_study_id"})
+    out = frame.merge(masked, on="anchor_study_id", how="left")
+    aligned = (out["signal_id"] == out["anchor_study_id"]) & \
+              (out["image_id"] == out["anchor_study_id"])
+    out["masked_attr_valid"] = aligned & out["hr_label"].notna() & \
+        out["qrs_label"].notna() & out["qtc_label"].notna()
+    return out
+
+
 @dataclass
 class ModalityPlan:
     """Which modality kinds this run reads, resolved from the model config."""
@@ -281,23 +303,11 @@ class TaskDataset(Dataset):
         return frame
 
     def _join_masked_attributes(self, frame: pd.DataFrame, split: str) -> pd.DataFrame:
-        """Attach the masked-attribute targets to A5's verification rows.
-
-        The head is valid only where the signal AND the image are still the
-        anchor's own. Elsewhere the row shows another subject's ECG, so the
-        anchor's HR/QRS/QTc bins are not its labels and the head contributes
-        no loss (`mask_column='masked_attr_valid'`).
-        """
         masked = pd.read_parquet(
             self._task_path(f"masked_attribute_{split}.parquet"),
             columns=["study_id", "hr_label", "qrs_label", "qtc_label"],
-        ).rename(columns={"study_id": "anchor_study_id"})
-        out = frame.merge(masked, on="anchor_study_id", how="left")
-        aligned = (out["signal_id"] == out["anchor_study_id"]) & \
-                  (out["image_id"] == out["anchor_study_id"])
-        out["masked_attr_valid"] = aligned & out["hr_label"].notna() & \
-            out["qrs_label"].notna() & out["qtc_label"].notna()
-        return out
+        )
+        return join_masked_attributes(frame, masked)
 
     @staticmethod
     def _resolve_b5_text(frame: pd.DataFrame) -> pd.DataFrame:

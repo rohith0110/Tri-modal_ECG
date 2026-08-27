@@ -4,15 +4,21 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-27 (session 4)
-- **Current stage:** Stages P2.1/P2.2 complete; **Step 3 (+ Step 11) — the
-  training and evaluation code — is written and smoke-tested.** Report:
-  `outputs/stage_reports/stage_P2.4_report.md`.
-- **Next action:** Step 10 / Stage P2.3 — the three audits (leakage, cohort,
-  split). §4.C invariant 4 makes them the gate before any training, and
-  `30_train.py` now **enforces** that gate: a full-scale run halts until all
-  three are PASS. They also gate the first upload (Round 6.12) and the
-  full-scale algorithmic-baseline pass.
+- **Last updated:** 2026-08-27 (session 5)
+- **Current stage:** Stages P2.1/P2.2/P2.3 complete and Step 3 (+ Step 11)
+  written and smoke-tested. **The §4.C invariant-4 audit gate is OPEN:** all
+  three audits are PASS on disk and `30_train.py::check_audit_gate` returns
+  PASS for each. Reports: `stage_P2.3_report.md`, `stage_P2.4_report.md`.
+- **Next action:** Step 11's full-scale algorithmic-baseline pass and Step 4
+  (chunk-cutter + campaign launchers), then Step 6's first upload. Nothing is
+  gated any more — Step 10 was the gate for all three.
+- **Audit gate (Step 10 / Stage P2.3) — DONE 2026-08-27.**
+  `leakage_audit_phase2.md` **PASS** (88 checks), `cohort_audit.md` **PASS**
+  (184 checks), `split_audit_phase2.md` **PASS** (75 checks); 347 checks, zero
+  violations, all measured off the task parquets rather than restated from a
+  builder's state file. Re-run any of them freely — they read only artifacts
+  already on disk and write only their own report, and re-running them is how
+  the gate is re-opened after any rebuild.
 - **Blockers:** none. The A3 lab-cache prerequisite is **DONE** (§4 decision 13).
   Every §5 question is now resolved, dissolved, or proceeding under its stated
   default — see §5.
@@ -317,6 +323,31 @@ Round 8 (2026-08-27, session 4 — forced by the data while writing Step 3):
     implemented in `_dataset_lib/task_dataset.py::build_image_transform`.
     **Disclose in the supplementary.**
 
+Round 9 (2026-08-27, session 5 — forced by the audits in Step 10):
+
+19. **A declared-provenance column is not a leak; an unreachable one is proven,
+    not asserted.** §9.4 says to flag any forbidden column in a task parquet,
+    and §11.2 calls that CRITICAL — but §4.A.2.5 lists `hr_bpm`, `qrs_ms` and
+    `qtc_ms` under the comment `# provenance`, and §4.B.5.5 lists
+    `source_measurement`. Read literally the two rules contradict each other and
+    A2, B1 and B5 would permanently violate a spec that mandated their own
+    schemas. `20_audit_tasks_leakage.py` therefore names every such column with
+    the §4 section that mandates it (`PROVENANCE`), treats an unlisted one as a
+    violation, treats an **unclassified** column as a violation too, and proves
+    unreachability by constructing the real `TaskDataset` for every (task,
+    arch-tier family) the policy allows and checking the tensor keys it hands
+    the model. A column list alone would have been both too weak — the leakage
+    surface is the dataloader, not the schema — and too strong.
+
+20. **The audit gate parses a verdict LINE.** `30_train.py::check_audit_gate`
+    used to scan the whole report for the substring `FAIL`. The leakage audit
+    lists every column of every task and A1's heads are named
+    `label_heart_failure_narrow`, so a clean report was read as a blocked one.
+    `_dataset_lib/audit_common.report_verdict` is now the single parser of
+    `**VERDICT: PASS|FAIL**` and `30_train.py` imports it; every audit parses its
+    own rendered report with it before the file lands, so an audit cannot emit a
+    report the gate would misread. See trap 20.
+
 Earlier rounds (spec §12.1–12.6) remain binding: Plan A primary + Plan B
 supplementary, seeds 42/123/456, patient-level bootstrap n=10,000 BCa, AUPRC
 primary for imbalanced tasks, thresholds from train+val only, 70/10/20 patient
@@ -498,11 +529,40 @@ now happen inside Steps 2 and 3 rather than after Step 8.
 
 - [x] **Step 9 — Run the 12 task builders + fiducial extraction at full scale,
       locally** (folded into Step 2) — DONE 2026-08-27
-- [ ] **Step 10 — Run the three audits (leakage / cohort / split)** — *all must
-      PASS before any GPU time is spent, and now before the first upload too*
+- [x] **Step 10 — Run the three audits (leakage / cohort / split)** —
+      **DONE 2026-08-27, all three PASS, 347 checks, 0 violations.** Report:
+      `outputs/stage_reports/stage_P2.3_report.md`. Every number is measured off
+      the task parquets, so an audit can contradict a builder's own state file.
+  - [x] `_dataset_lib/audit_common.py` — the report writer plus
+        `report_verdict()`, the single parser of the `**VERDICT:**` line that
+        `30_train.py` now imports (§4 decision 20, trap 20)
+  - [x] `20_audit_tasks_leakage.py` — **PASS, 88 checks.** Six gates: the §9.4
+        column inventory (every column of all 12 tasks classified; a forbidden
+        reference outside §4's declared provenance, or an unclassified column,
+        blocks); all 94 model configs resolved to modality kinds and pushed
+        through `check_input_policy`; a real `TaskDataset` built for each of the
+        30 (task, arch-tier family) pairs with its tensor keys checked against
+        the allowlist; B5 proven to be fed exactly one report per row; A5's
+        masked-attribute head proven text-independent **by forward pass**
+        (change `text_vec`, the three attribute heads stay bit-identical while
+        `y_match` moves); and a source-tree scan showing no module on the model
+        path reads `structured_features.parquet` or a machine measurement
+  - [x] `21_audit_tasks_cohort.py` — **PASS, 184 checks.** n_ECG, n_subjects,
+        per-class counts and prevalence, missingness, linkage-tier and SQI-tier
+        breakdowns, cart_id top-5 — plus the assertions: every head has ≥2 label
+        values in every split (or its AUPRC is NaN), a masked head has a label
+        wherever its mask is True, the primary cohort obeys its §4 rule, and a
+        §12-locked cohort size still measures the same (A2 275,088; B5 128,653)
+  - [x] `22_audit_tasks_split.py` — **PASS, 75 checks.** Zero subject overlap
+        (§9.4's requirement) plus the four things it does not cover: the split
+        column matches the file it is stored in; every subject's split equals
+        the frozen `splits_subject_level.parquet`; no study crosses a split; and
+        **donor containment** — every A5/B4 `signal_id`/`image_id`/`text_id`
+        resolves to a subject in the row's own split, and a swapped modality on
+        a negative comes from a different subject than the anchor
 - [~] **Step 11 — Algorithmic baselines, locally** (folded into Step 3).
-      **Code written and smoke-tested; the full-scale pass is queued behind
-      Step 10.** `_model_lib/algorithmic_baselines.py` +
+      **Code written and smoke-tested; the full-scale pass is now UNBLOCKED —
+      Step 10 passed 2026-08-27.** `_model_lib/algorithmic_baselines.py` +
       `50_run_baselines_algorithmic.py` cover all eight doc-mandated tasks —
       A1 (logistic regression on machine measurements), A2/B1/B2 (NeuroKit2
       detector → HR/QRS/QTc bins), A4 and B3 (oracles), A6 (Cox PH on
@@ -515,7 +575,9 @@ now happen inside Steps 2 and 3 rather than after Step 8.
       PASS. Two baseline-only exemptions are used and declared: A1 and A6 read
       machine measurements, which are forbidden as MODEL input.
 - [ ] **Step 12 — Review the cohort report.** Nothing to pull down; it is all
-      already here. **This is the gate that releases Step 6's first upload.**
+      already here — `outputs/audit_reports/cohort_audit.md`, written 2026-08-27.
+      **This is the gate that releases Step 6's first upload**, and it is a human
+      read of a report that already exists, not another run.
 
 ### Part 4 — Campaigns 1–4 (~1 week)
 
@@ -541,7 +603,9 @@ now happen inside Steps 2 and 3 rather than after Step 8.
 
 ### Audits that must all be PASS before submission (spec §1.2)
 
-- [ ] `leakage_audit_phase2.md` · [ ] `split_audit_phase2.md` · [ ] `cohort_audit.md`
+- [x] `leakage_audit_phase2.md` · [x] `split_audit_phase2.md` · [x] `cohort_audit.md`
+      — all three PASS 2026-08-27 (88 / 75 / 184 checks). Re-run them after any
+      task rebuild; a stale PASS is worse than no PASS.
 - [ ] `threshold_audit.md` · [ ] `calibration_audit.md` · [ ] `sensitivity_audit.md`
 - [ ] `reproducibility_audit.md`
 
@@ -668,6 +732,30 @@ now happen inside Steps 2 and 3 rather than after Step 8.
    `yaml.safe_dump` refuses it.** It killed the first `train_config.yaml` write.
    `seed.environment_fingerprint()` now coerces every value with `str()`. Any
    new field added to a YAML snapshot needs the same treatment.
+
+20. **The audit gate reads a verdict LINE; do not go back to scanning the body
+   for `FAIL`.** `30_train.py::check_audit_gate` originally blocked whenever the
+   substring appeared anywhere in an audit report. The leakage audit's whole job
+   is to list every column of every task, and A1's heads are named
+   `label_heart_failure_narrow` / `label_ventricular_arrhythmia_or_arrest` — so
+   a clean, 88-check, zero-violation report was read as a violation and blocked
+   all training. The parser is now
+   `_dataset_lib/audit_common.report_verdict()`, matching
+   `**VERDICT: PASS|FAIL**` on its own line, and it is the ONLY reader: the
+   audits parse their own rendered report with it before writing, and
+   `30_train.py` imports it. A second copy of that logic anywhere is how the two
+   drift apart. §4 decision 20.
+
+21. **A5's HR/QRS/QTc labels are not in `A5_.../{train,val,test}.parquet`.**
+   They live in `masked_attribute_<split>.parquet` and reach a row through
+   `task_dataset.join_masked_attributes()`, which also computes
+   `masked_attr_valid` — True only where the signal AND the image are still the
+   anchor's own. Anything that reads the verification parquet alone (an audit, a
+   table script, a figure) will conclude that three of A5's four heads have no
+   label column. Call the join function; do not re-implement it. Note that
+   `PARTIAL_MISMATCH` swaps the image as well as the text (§4.A.5.3: "replace
+   two modalities"), so those rows are correctly `masked_attr_valid = False` and
+   the head is scored on 4 of the 7 rows per anchor, not 5.
 
 19. **A checkpoint loaded with `map_location="cuda"` brings its RNG tensors back
    on the GPU, and `torch.set_rng_state` demands a CPU `ByteTensor`.** Resume
@@ -894,3 +982,70 @@ Append a short entry per session: what changed, what to do next. Newest last.
   `22_audit_tasks_split.py`). They now gate three things, not one: the first
   upload, the full-scale algorithmic-baseline pass, and every `30_train.py` run.
   After that, Step 4 (chunk-cutter + campaign launchers).
+
+
+### Session 5 — 2026-08-27
+
+- **Step 10 / Stage P2.3 is DONE. All three audits PASS: 347 checks, zero
+  violations.** Report: `outputs/stage_reports/stage_P2.3_report.md`. The
+  §4.C invariant-4 gate is open — `30_train.py::check_audit_gate` was run
+  against the three files on disk and returns PASS for each, so a full-scale
+  training run, the full-scale algorithmic-baseline pass and the first upload
+  are all unblocked.
+- **`20_audit_tasks_leakage.py` — PASS, 88 checks.** §9.4 asks for a column
+  inventory cross-checked against `task_input_policy.yaml`. That alone would
+  have been wrong in both directions, so the audit runs six gates:
+  1. the column inventory — every column of all 12 tasks classified, with an
+     **unclassified** column counting as a violation;
+  2. all 94 model configs resolved to modality kinds and pushed through the same
+     `check_input_policy` a run calls;
+  3. a real `TaskDataset` constructed on the **test** split for each of the 30
+     (task, arch-tier family) pairs, and its tensor keys checked against an
+     allowlist — this is what proves the provenance columns are unreachable;
+  4. B5 fed exactly one report per row, measured on the whole test split
+     (13,039 corrupted rows show `corrupted_report_text`, 12,831 clean rows show
+     `original_report_text`, and the resolver drops both source columns);
+  5. A5's masked-attribute head proven **text-independent by forward pass** —
+     change `text_vec`, the three attribute heads stay bit-identical while
+     `y_match` moves (the control that proves the change reached the model);
+  6. a source-tree scan: no module on the model path reads
+     `structured_features.parquet` or a machine measurement. The single reader
+     is `algorithmic_baselines.py`, under the A1/A6 exemptions the policy file
+     declares.
+- **`21_audit_tasks_cohort.py` — PASS, 184 checks.** Every §9.4 description
+  (n_ECG, n_subjects, per-class counts and prevalence, missingness, linkage and
+  SQI tiers, cart_id top-5) plus the assertions that decide the verdict: ≥2
+  label values per head per split, a label wherever a mask is True, the §4
+  primary-cohort rule per task, and the §12-locked sizes still measuring the
+  same (**A2 275,088**, **B5 128,653**, A5 rows == B4 rows, B2's 8x5 grid
+  complete with 1,871 frozen anchors, B3 4 queries per study, A5/B4 7 rows per
+  anchor).
+- **`22_audit_tasks_split.py` — PASS, 75 checks.** Zero subject overlap in every
+  task, and the four things that requirement does not cover on its own: the
+  split column matching its file, agreement with the frozen
+  `splits_subject_level.parquet` (§4.C invariant 1 — a task can partition its
+  own rows perfectly and still have re-derived them), no study crossing a split,
+  and **donor containment** — all 5,243,784 A5 rows and all 5,243,784 B4 rows
+  have every `signal_id`/`image_id`/`text_id` resolving to a subject in the
+  row's own split, and no negative takes its swapped modality from the anchor's
+  own subject.
+- **One real defect found and fixed, in the gate rather than in an audit.**
+  `30_train.py` blocked on the substring `FAIL` appearing anywhere in a report;
+  the leakage audit lists every column of every task and A1's heads are named
+  `label_heart_failure_narrow`, so a clean report read as blocked. The verdict
+  is now a parsed line (`audit_common.report_verdict`), with one parser shared
+  by the audits and the trainer. §4 decisions 19–20, traps 20–21.
+- **No builder needed a fix.** Every task cohort, split and column set is as
+  Stages P2.1/P2.2 left it; the only source changes outside the new audit
+  scripts are the gate parser, `task_dataset.join_masked_attributes` lifted to
+  module level so the cohort audit joins A5's labels through the same function
+  the loader uses, and the P2.3 entry in `stage_report.py`.
+- Regression-checked after those edits: `task_dataset`, `task_spec` and
+  `audit_common` self-checks PASS, and a `--dev` A5 multimodal run trained,
+  passed both gates, selected val-only thresholds and wrote
+  `val_predictions.parquet` with the masked-attribute heads correctly masked on
+  `IMAGE_SWAP` rows.
+- **Next:** Step 11's full-scale algorithmic-baseline pass (resumable, hours of
+  NeuroKit2 over the test split) and Step 4 (chunk-cutter + campaign launchers),
+  then Step 5 and the Step 6 uploads. Re-run all three audits after any task
+  rebuild — a stale PASS is worse than no PASS.

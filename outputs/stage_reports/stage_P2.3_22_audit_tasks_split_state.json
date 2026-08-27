@@ -1,0 +1,13 @@
+{
+  "stage": "P2.3",
+  "script": "22_audit_tasks_split",
+  "done": true,
+  "started_at": "2026-08-27T12:20:52Z",
+  "updated_at": "2026-08-27T12:21:20Z",
+  "finished_at": "2026-08-27T12:21:20Z",
+  "verdict": "PASS",
+  "n_checks": 75,
+  "n_violations": 0,
+  "report": "outputs\\audit_reports\\split_audit_phase2.md",
+  "elapsed_s": 27.7
+}

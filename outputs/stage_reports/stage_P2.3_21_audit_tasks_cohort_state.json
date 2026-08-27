@@ -1,0 +1,13 @@
+{
+  "stage": "P2.3",
+  "script": "21_audit_tasks_cohort",
+  "done": true,
+  "started_at": "2026-08-27T12:17:25Z",
+  "updated_at": "2026-08-27T12:18:20Z",
+  "finished_at": "2026-08-27T12:18:20Z",
+  "verdict": "PASS",
+  "n_checks": 184,
+  "n_violations": 0,
+  "report": "outputs\\audit_reports\\cohort_audit.md",
+  "elapsed_s": 55.5
+}

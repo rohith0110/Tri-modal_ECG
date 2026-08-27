@@ -1,14 +1,14 @@
 # Stage P2.4 — Training + evaluation code, and the algorithmic baselines — report
 
-Spec §5, §6, §7, §9.5. Generated 2026-08-27T11:42:54Z by `_dataset_lib/stage_report.py` from the per-script state files, the artifacts on disk and the run logs — every number below is read back from what the stage produced.
+Spec §5, §6, §7, §9.5. Generated 2026-08-27T16:50:19Z by `_dataset_lib/stage_report.py` from the per-script state files, the artifacts on disk and the run logs — every number below is read back from what the stage produced.
 
 ## 1. Files created
 
-- `scripts/phase2_tasks_benchmark_and_paper/30_train.py`  (23.4 KB, sha256 00b3925626d9)
+- `scripts/phase2_tasks_benchmark_and_paper/30_train.py`  (23.5 KB, sha256 45a69e2e15f2)
 - `scripts/phase2_tasks_benchmark_and_paper/31_eval.py`  (37.5 KB, sha256 550cf07023ae)
 - `scripts/phase2_tasks_benchmark_and_paper/50_run_baselines_algorithmic.py`  (24.0 KB, sha256 f873658b0758)
 - `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/task_spec.py`  (15.5 KB, sha256 dcc73f08728b)
-- `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/task_dataset.py`  (24.6 KB, sha256 b91e6a36bb10)
+- `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/task_dataset.py`  (25.0 KB, sha256 b650a097a546)
 - `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/bootstrap.py`  (10.1 KB, sha256 b6e60a7f6196)
 - `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/corruption.py`  (6.3 KB, sha256 f379e57a4a26)
 - `scripts/phase2_tasks_benchmark_and_paper/_model_lib/signal_encoders.py`  (7.5 KB, sha256 bd42006f9a36)
@@ -111,6 +111,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _dataset_lib import audit_common as ac                            # noqa: E402
 from _dataset_lib import build_common as bc                            # noqa: E402
 from _dataset_lib.task_dataset import TaskDataset, plan_from_config    # noqa: E402
 from _dataset_lib.task_spec import get_task                            # noqa: E402
@@ -151,16 +152,14 @@ def check_audit_gate(dev: bool, log: logging.Logger, allow_missing: bool = False
             problems.append(f"{name} does not exist")
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        # The audit writes a verdict line; anything that is not an explicit PASS
-        # blocks, including a report that only says FAIL somewhere in the body.
-        if "FAIL" in text.upper().replace("FAILURE MODE", ""):
-            status[name] = "FAIL"
-            problems.append(f"{name} contains a FAIL")
-        elif "PASS" not in text.upper():
-            status[name] = "NO_VERDICT"
-            problems.append(f"{name} carries no PASS verdict")
-        else:
-            status[name] = "PASS"
+        # The audit's `**VERDICT: ...**` line, parsed by the one reader in
+        # `audit_common`. Scanning the whole body for the block token instead
+        # would misread a clean leakage audit: it lists every column of every
+        # task, and A1's heads are named `label_heart_failure_narrow`.
+        verdict = ac.report_verdict(text)
+        status[name] = verdict
+        if verdict != ac.PASS:
+            problems.append(f"{name} reads {verdict}")
 
     if not problems:
         log.info("audit gate: PASS (%s)", ", ".join(f"{k}={v}" for k, v in status.items()))
@@ -2303,6 +2302,28 @@ def check_input_policy(task_key: str, kinds: Sequence[str]) -> None:
             )
 
 
+def join_masked_attributes(frame: pd.DataFrame, masked: pd.DataFrame) -> pd.DataFrame:
+    """Attach A5's masked-attribute targets to its verification rows.
+
+    Module-level so the P2.3 cohort audit sees the same rows the loader does --
+    A5's HR/QRS/QTc labels live in `masked_attribute_<split>.parquet`, not in
+    the verification parquet, and an audit that read only the latter would
+    report three heads as label-less.
+
+    The head is valid only where the signal AND the image are still the
+    anchor's own. Elsewhere the row shows another subject's ECG, so the
+    anchor's HR/QRS/QTc bins are not its labels and the head contributes no
+    loss (`mask_column='masked_attr_valid'`).
+    """
+    masked = masked.rename(columns={"study_id": "anchor_study_id"})
+    out = frame.merge(masked, on="anchor_study_id", how="left")
+    aligned = (out["signal_id"] == out["anchor_study_id"]) & \
+              (out["image_id"] == out["anchor_study_id"])
+    out["masked_attr_valid"] = aligned & out["hr_label"].notna() & \
+        out["qrs_label"].notna() & out["qtc_label"].notna()
+    return out
+
+
 @dataclass
 class ModalityPlan:
     """Which modality kinds this run reads, resolved from the model config."""
@@ -2499,23 +2520,11 @@ class TaskDataset(Dataset):
         return frame
 
     def _join_masked_attributes(self, frame: pd.DataFrame, split: str) -> pd.DataFrame:
-        """Attach the masked-attribute targets to A5's verification rows.
-
-        The head is valid only where the signal AND the image are still the
-        anchor's own. Elsewhere the row shows another subject's ECG, so the
-        anchor's HR/QRS/QTc bins are not its labels and the head contributes
-        no loss (`mask_column='masked_attr_valid'`).
-        """
         masked = pd.read_parquet(
             self._task_path(f"masked_attribute_{split}.parquet"),
             columns=["study_id", "hr_label", "qrs_label", "qtc_label"],
-        ).rename(columns={"study_id": "anchor_study_id"})
-        out = frame.merge(masked, on="anchor_study_id", how="left")
-        aligned = (out["signal_id"] == out["anchor_study_id"]) & \
-                  (out["image_id"] == out["anchor_study_id"])
-        out["masked_attr_valid"] = aligned & out["hr_label"].notna() & \
-            out["qrs_label"].notna() & out["qtc_label"].notna()
-        return out
+        )
+        return join_masked_attributes(frame, masked)
 
     @staticmethod
     def _resolve_b5_text(frame: pd.DataFrame) -> pd.DataFrame:
@@ -7044,25 +7053,119 @@ if __name__ == "__main__":
   - Full transcript: `outputs/stage_reports/stage_P2.4_smoke_test.log`
 
 - **§9.5 oracle validation** (the check §9.5 names explicitly: "A4 / B3 should hit F1=1.0 within the algorithmic-baseline's own noise tolerance"):
-  - PASS — A4_event_localization algorithmic `r_peak_f1` = 1.0000 (expected 1.0000)
-  - PASS — B3_temporal_grounding algorithmic `mIoU` = 1.0000 (expected 1.0000)
+  - PASS — A4_event_localization algorithmic `r_peak_f1` = 1.000000 (expected 1.0000) over 55,140 rows on the full test split; precision 1.000000, recall 1.000000, mean |offset| 0.0000 ms
+  - PASS — A4_event_localization algorithmic `qrs_onset_f1` = 1.000000 (expected 1.0000) over 55,140 rows on the full test split; precision 1.000000, recall 1.000000, mean |offset| 0.0000 ms
+  - PASS — A4_event_localization algorithmic `qrs_offset_f1` = 1.000000 (expected 1.0000) over 55,140 rows on the full test split; precision 1.000000, recall 1.000000, mean |offset| 0.0000 ms
+  - PASS — B3_temporal_grounding algorithmic `mIoU` = 1.000000 (expected 1.0000) over 598,568 rows on the full test split; 598,568/598,568 rows bin-for-bin exact
+  - the same check on `dev_sample/`, from the smoke run's results CSV:
+    - PASS — A4_event_localization algorithmic `r_peak_f1` = 1.0000 (expected 1.0000)
+    - PASS — B3_temporal_grounding algorithmic `mIoU` = 1.0000 (expected 1.0000)
 
-- **Algorithmic baselines (§5.1): 8/8 doc-mandated tasks produced predictions**, missing_mandated = none
-  - A1_ecg_diagnosis, A2_measurement_blind, A4_event_localization, A6_risk_stratification, B1_measurement_blind, B2_noise_robustness, B3_temporal_grounding, B5_contradiction_detection
+- **Algorithmic baselines (§5.1) on the full test split: 8/8 doc-mandated tasks produced predictions**, missing_mandated = none
+  - `A1_ecg_diagnosis` — 75,187 rows, ok
+  - `A2_measurement_blind` — 55,181 rows, ok
+  - `A4_event_localization` — 55,140 rows, ok
+  - `A6_risk_stratification` — 84,348 rows, ok
+  - `B1_measurement_blind` — 149,546 rows, ok
+  - `B2_noise_robustness` — 301,097 rows, ok
+  - `B3_temporal_grounding` — 598,568 rows, ok
+  - `B5_contradiction_detection` — 25,870 rows, ok
+
+- **Algorithmic baselines (§5.1) on the `dev_sample/`: 8/8 doc-mandated tasks produced predictions**, missing_mandated = none
+  - `A1_ecg_diagnosis` — 60 rows, ok
+  - `A2_measurement_blind` — 60 rows, ok
+  - `A4_event_localization` — 60 rows, ok
+  - `A6_risk_stratification` — 60 rows, ok
+  - `B1_measurement_blind` — 60 rows, ok
+  - `B2_noise_robustness` — 60 rows, ok
+  - `B3_temporal_grounding` — 60 rows, ok
+  - `B5_contradiction_detection` — 60 rows, ok
 
 - **Module self-checks** — every module in §5 has a runnable `_self_check()`; each was executed and passed during this stage. Re-run any of them directly, e.g. `./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/bootstrap.py`.
 - **P2.0 gate re-run after this stage's config edits: 26/26 PASS** (`_dataset_lib/schema_validators.py`).
-- **No paper number was produced.** Every run in this stage used `--dev`, wrote under `outputs/model_runs/_dev/`, and was logged as bypassing the §4.C audit gate. `outputs/audit_reports/threshold_audit.md` is deliberately still absent — only a full-scale run writes it.
+- **No trained-model paper number was produced.** Every `30_train.py` / `31_eval.py` run in this stage used `--dev`, wrote under `outputs/model_runs/_dev/`, and was logged as bypassing the §4.C audit gate. `outputs/audit_reports/threshold_audit.md` is deliberately still absent — only a full-scale training run writes it. The algorithmic baselines are the one exception: they have no learned parameters and no threshold to select, so their full-test-split predictions above ARE final and are what §5.1 asks for.
+- **The baselines' patient-level bootstrap CIs are not computed here.** §6.7's 10,000 BCa replicates re-evaluate the metric on a resampled frame each time, which for A4's 55 K event-matched rows or B3's 598 K bin rows is a campaign-scale job, not a report-generation one. The oracle check above is the point estimate on the full test split — exactly the quantity §9.5 names — and the CIs are produced by `31_eval.py` alongside the trained arms, so a baseline and a ResNet get identical treatment.
 
 - Pre-flight: PASS — every builder calls `build_common.preflight()`, which asserts its inputs exist and records free disk and free RAM before any work starts. Phase 1 completion was verified at Stage P2.0 and is unchanged.
 
 ### Per-script validation (read back from the state files)
 
+**`50_baseline_A2_measurement_blind`** — PASS
+
+```json
+{
+  "done": true,
+  "n_units": 55181,
+  "n_done": 55181,
+  "n_pending": 0,
+  "rate_per_s": 46.9,
+  "eta_minutes": 0.1,
+  "finished_at": "2026-08-27T16:48:18Z",
+  "n_rows": 55181
+}
+```
+
+**`50_baseline_B1_measurement_blind`** — PASS
+
+```json
+{
+  "done": true,
+  "n_units": 149546,
+  "n_done": 149546,
+  "n_pending": 0,
+  "rate_per_s": 48.42,
+  "eta_minutes": 1.6,
+  "finished_at": "2026-08-27T16:48:54Z",
+  "n_rows": 149546
+}
+```
+
+**`50_baseline_B2`** — PASS
+
+```json
+{
+  "done": true,
+  "n_units": 301097,
+  "n_done": 301097,
+  "n_pending": 0,
+  "rate_per_s": 48.81,
+  "eta_minutes": 0.4,
+  "finished_at": "2026-08-27T16:48:57Z",
+  "n_rows": 301097
+}
+```
+
+**`50_baseline_B5`** — PASS
+
+```json
+{
+  "done": true,
+  "n_units": 25870,
+  "n_done": 25870,
+  "n_pending": 0,
+  "rate_per_s": 37.67,
+  "eta_minutes": 0.4,
+  "finished_at": "2026-08-27T16:49:14Z",
+  "n_rows": 25870
+}
+```
+
 ### Logging-hygiene checklist (Phase 1 §8.14)
 
 - [x] Terminal showed one tqdm bar, no interleaving — workers redirect fd 1/2 into their own PID log in the pool initializer (`build_common.worker_log_init`), so no worker writes to the parent's stdout/stderr.
 - [x] `aggregate.log` exists; first and last 5 lines:
-(no worker logs produced -- every builder in this stage is single-process)
+- `outputs\stage_reports\stage_P2.4_run\50_run_baselines_algorithmic\aggregate.log` (75 worker files archived into `archive_20260827T165036Z/`)
+      
+      ===== worker_14864.log =====
+      
+      ===== worker_22920.log =====
+      
+      ...
+      ===== worker_64004.log =====
+      
+      ===== worker_64412.log =====
+      
+      ===== worker_7028.log =====
 - [x] no `print(` in worker bodies:
 ```
 (no match for '^\\s*print(' -- clean)
@@ -7078,7 +7181,7 @@ if __name__ == "__main__":
 525:                   mininterval=0.5, desc=desc or name)
 ```
 
-- Disk free at report time: 177.1 GB on D:\
+- Disk free at report time: 177.0 GB on D:\
 
 ## 7. Manual test procedure
 
@@ -7100,17 +7203,21 @@ if __name__ == "__main__":
 ./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_train_lib/trainer.py
 ./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_train_lib/smoke_test.py
 ./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/50_run_baselines_algorithmic.py --dev --limit 60 --workers 4
+./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/50_run_baselines_algorithmic.py
 ./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/31_eval.py --task A4_event_localization --arch-tier algorithmic --dev --bootstrap-n 100
 ./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/31_eval.py --task B3_temporal_grounding --arch-tier algorithmic --dev --bootstrap-n 100
 ```
 
 Every module above prints its own PASS line and exits non-zero on failure. `smoke_test.py` is the one that exercises the whole stack: crash recovery, determinism, the leakage and threshold gates, then train + eval for every (task, arch tier) the input policy allows.
 
+The last command is the full-scale §9.5 pass and takes hours -- the four detector tasks re-run NeuroKit2 over roughly 530 K strips between them. It is resumable through part parquets flushed every 5,000 units, so re-running the identical command after any interruption continues from the last flush rather than restarting; a task whose parts are already complete is rewritten from them in seconds. That path was exercised for real during the 2026-08-27 run.
+
 ## 8. Assumptions requiring user confirmation
 
 - **The §5.3 image transform (decision 18)**  ::  every image-using run resizes the whole render into the locked target box instead of short-side resizing and centre-cropping. If a reviewer insists on the literal §5.3 transform, the Lead-II runs lose the first and last ~2 seconds of every strip and the 12-lead runs lose their outer lead columns; the knob is one function, `build_image_transform`, and it changes no data on disk.
 - **BCa acceleration above 2,000 subjects is a delete-one-group jackknife**  ::  the bias correction is exact, the acceleration constant is estimated from 200 groups. If exact BCa is required for the headline numbers, raise `bootstrap.jackknife.exact_when_subjects_le` in `eval_configs/default.yaml`; budget roughly an hour per head per metric on the test split.
 - **A5 trains both heads jointly by default**  ::  §5.6 puts them on a shared tri-encoder and §4.A.5.8 asks whether that helps or hurts. The with/without comparison needs a masked-attribute-only run, which is a model config away, not a code change.
-- **The audit gate has not yet been satisfied**  ::  Step 10 / Stage P2.3 has not run, so `leakage_audit_phase2.md`, `split_audit_phase2.md` and `cohort_audit.md` do not exist. Every smoke run in this stage used `--dev` and was logged as bypassing the gate. A full-scale `30_train.py` will refuse to start until those three audits are PASS.
-- **The algorithmic baselines have been proven to run, not yet run at scale**  ::  §9.5 puts Stage P2.4 after the P2.3 audits. The eight baselines produced predictions on `dev_sample` and both oracles hit their expected 1.0; the full test-split pass (NeuroKit2 over ~150 K-300 K strips, hours) is queued behind the audit gate. The runner is resumable, so it can be started and interrupted freely.
+- **No full-scale TRAINING run has happened yet**  ::  the §4.C audit gate is open (Step 10 / Stage P2.3 PASS, 2026-08-27), so `30_train.py` will now start, but every `30_train.py` / `31_eval.py` invocation to date used `--dev`. `outputs/audit_reports/threshold_audit.md` is therefore still absent — only a full-scale training run writes it. This does not touch the algorithmic baselines, which have no threshold to select.
+- **The baselines' bootstrap CIs are deferred to the eval matrix**  ::  §5.1 asks for patient-level CIs at n = 10,000 like every other model, and §6.7's BCa re-evaluates the metric on a resampled frame each iteration. On A4's 55 K event-matched rows or B3's 598 K bin rows that is a campaign-scale job, so the full-scale pass produced the §9.5 point estimates and left the intervals to `31_eval.py`, where a baseline and a ResNet are scored by identical code.
+- **The Lead-II detector is blind to two of the five B5 contradiction families**  ::  measured at full scale, QRS duration >= 120 ms occurs on 21.06 % of QRS_wide-corrupted rows against 21.58 % of clean rows, so the NeuroKit QRS duration carries no signal for that family and making `b5_rule_flag` symmetric would add false positives rather than recall. Axis and PR are not recoverable from a single Lead-II strip at all. The rule abstains on all three by design, which is why B5's baseline F1 is 0.46 and why the task needs a learned model.
 - **Retrieval (§7.5) is opt-in via `--retrieval`**  ::  it needs `checkpoint_best.pt`, so it cannot run from prediction files alone. It is a secondary check in §7.5; the verification AUPRC is the primary number and comes from the default path.

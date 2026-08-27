@@ -1,0 +1,14 @@
+{
+  "stage": "P2.4",
+  "script": "50_baseline_B2",
+  "done": true,
+  "started_at": "2026-08-27T15:02:19Z",
+  "updated_at": "2026-08-27T16:48:57Z",
+  "n_units": 301097,
+  "n_done": 301097,
+  "n_pending": 0,
+  "rate_per_s": 48.81,
+  "eta_minutes": 0.4,
+  "finished_at": "2026-08-27T16:48:57Z",
+  "n_rows": 301097
+}

@@ -258,26 +258,36 @@ def p24_validation() -> list[str]:
     lines += ["- **§9.5 oracle validation** (the check §9.5 names explicitly: "
               "\"A4 / B3 should hit F1=1.0 within the algorithmic-baseline's own "
               "noise tolerance\"):"]
+    lines += _oracle_check_lines(dev=False)
+    lines += ["  - the same check on `dev_sample/`, from the smoke run's results CSV:"]
     for task, metric in (("A4_event_localization", "r_peak_f1"),
                          ("B3_temporal_grounding", "mIoU")):
         value = _dev_result(task, "algorithmic", metric)
         mark = "PASS" if value is not None and abs(value - 1.0) < 1e-9 else "FAIL"
         shown = "n/a" if value is None else f"{value:.4f}"
-        lines.append(f"  - {mark} — {task} algorithmic `{metric}` = {shown} (expected 1.0000)")
+        lines.append(f"    - {mark} — {task} algorithmic `{metric}` = {shown} "
+                     "(expected 1.0000)")
     lines.append("")
 
-    summary = bc.PROJECT_ROOT / "outputs" / "model_runs" / "_dev" / \
-        "algorithmic_baseline_summary.json"
-    if summary.exists():
+    for label, summary in (
+        ("full test split", bc.PROJECT_ROOT / "outputs" / "model_runs" /
+         "algorithmic_baseline_summary.json"),
+        ("`dev_sample/`", bc.PROJECT_ROOT / "outputs" / "model_runs" / "_dev" /
+         "algorithmic_baseline_summary.json"),
+    ):
+        if not summary.exists():
+            continue
         data = json.loads(summary.read_text(encoding="utf-8"))
-        ok = [k for k, v in data.get("results", {}).items() if v.get("status") == "ok"]
+        results = data.get("results", {})
+        ok = [k for k, v in results.items() if v.get("status") == "ok"]
         missing = data.get("missing_mandated") or []
         lines += [
-            f"- **Algorithmic baselines (§5.1): {len(ok)}/8 doc-mandated tasks produced "
-            f"predictions**, missing_mandated = {missing or 'none'}",
-            f"  - {', '.join(sorted(ok))}",
-            "",
+            f"- **Algorithmic baselines (§5.1) on the {label}: {len(ok)}/8 doc-mandated "
+            f"tasks produced predictions**, missing_mandated = {missing or 'none'}",
         ]
+        lines += [f"  - `{task}` — {results[task]['n_rows']:,} rows, "
+                  f"{results[task]['status']}" for task in sorted(results)]
+        lines.append("")
 
     lines += [
         "- **Module self-checks** — every module in §5 has a runnable `_self_check()`; "
@@ -286,12 +296,75 @@ def p24_validation() -> list[str]:
         "scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/bootstrap.py`.",
         "- **P2.0 gate re-run after this stage's config edits: 26/26 PASS** "
         "(`_dataset_lib/schema_validators.py`).",
-        "- **No paper number was produced.** Every run in this stage used `--dev`, wrote "
-        "under `outputs/model_runs/_dev/`, and was logged as bypassing the §4.C audit "
-        "gate. `outputs/audit_reports/threshold_audit.md` is deliberately still absent — "
-        "only a full-scale run writes it.",
+        "- **No trained-model paper number was produced.** Every `30_train.py` / "
+        "`31_eval.py` run in this stage used `--dev`, wrote under "
+        "`outputs/model_runs/_dev/`, and was logged as bypassing the §4.C audit gate. "
+        "`outputs/audit_reports/threshold_audit.md` is deliberately still absent — only "
+        "a full-scale training run writes it. The algorithmic baselines are the one "
+        "exception: they have no learned parameters and no threshold to select, so their "
+        "full-test-split predictions above ARE final and are what §5.1 asks for.",
+        "- **The baselines' patient-level bootstrap CIs are not computed here.** §6.7's "
+        "10,000 BCa replicates re-evaluate the metric on a resampled frame each time, "
+        "which for A4's 55 K event-matched rows or B3's 598 K bin rows is a campaign-scale "
+        "job, not a report-generation one. The oracle check above is the point estimate "
+        "on the full test split — exactly the quantity §9.5 names — and the CIs are "
+        "produced by `31_eval.py` alongside the trained arms, so a baseline and a ResNet "
+        "get identical treatment.",
         "",
     ]
+    return lines
+
+
+def _oracle_check_lines(*, dev: bool) -> list[str]:
+    """Recompute A4's F1s and B3's mIoU from the prediction parquets themselves.
+
+    §9.5's check is a property of the predictions, so it is measured off them
+    rather than restated from a log or read out of a CSV a different run wrote.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from _train_lib import metrics as M  # noqa: E402  (sys.path set at import time)
+
+    runs = bc.PROJECT_ROOT / "outputs" / "model_runs"
+    root = runs / "_dev" if dev else runs
+    scope = "`dev_sample/`" if dev else "the full test split"
+    lines: list[str] = []
+
+    a4 = root / "A4_event_localization" / "algorithmic" / "test_predictions.parquet"
+    if not a4.exists():
+        lines.append(f"  - NOT RUN — no A4 algorithmic predictions on {scope}.")
+    else:
+        frame = pd.read_parquet(a4)
+        for true_column, pred_column, label in (
+            ("y_true_r_peaks_lead2", "y_pred_r_peaks", "r_peak_f1"),
+            ("y_true_qrs_onsets_lead2", "y_pred_qrs_onsets", "qrs_onset_f1"),
+            ("y_true_qrs_offsets_lead2", "y_pred_qrs_offsets", "qrs_offset_f1"),
+        ):
+            agg = M.aggregate_event_matches([
+                M.match_events(np.asarray(t), np.asarray(p))
+                for t, p in zip(frame[true_column], frame[pred_column])])
+            mark = "PASS" if abs(agg["f1"] - 1.0) < 1e-9 else "FAIL"
+            lines.append(
+                f"  - {mark} — A4_event_localization algorithmic `{label}` = "
+                f"{agg['f1']:.6f} (expected 1.0000) over {len(frame):,} rows on {scope}"
+                f"; precision {agg['precision']:.6f}, recall {agg['recall']:.6f}, "
+                f"mean |offset| {agg['mean_abs_error_ms']:.4f} ms")
+
+    b3 = root / "B3_temporal_grounding" / "algorithmic" / "test_predictions.parquet"
+    if not b3.exists():
+        lines.append(f"  - NOT RUN — no B3 algorithmic predictions on {scope}.")
+    else:
+        frame = pd.read_parquet(b3)
+        truth = np.array(frame["y_true_bins"].tolist(), dtype="float64")
+        predicted = np.array(frame["y_pred_label_bins"].tolist(), dtype="float64")
+        value = M.miou(truth, predicted)
+        exact = int((truth == predicted).all(axis=1).sum())
+        mark = "PASS" if abs(value - 1.0) < 1e-9 else "FAIL"
+        lines.append(
+            f"  - {mark} — B3_temporal_grounding algorithmic `mIoU` = {value:.6f} "
+            f"(expected 1.0000) over {len(frame):,} rows on {scope}; "
+            f"{exact:,}/{len(frame):,} rows bin-for-bin exact")
     return lines
 
 
@@ -390,6 +463,7 @@ MANUAL_TESTS: dict[str, list[str]] = {
         "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_train_lib/trainer.py",
         "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_train_lib/smoke_test.py",
         "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/50_run_baselines_algorithmic.py --dev --limit 60 --workers 4",
+        "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/50_run_baselines_algorithmic.py",
         "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/31_eval.py --task A4_event_localization --arch-tier algorithmic --dev --bootstrap-n 100",
         "./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/31_eval.py --task B3_temporal_grounding --arch-tier algorithmic --dev --bootstrap-n 100",
     ],
@@ -407,6 +481,13 @@ MANUAL_TEST_NOTES: dict[str, list[str]] = {
         "`smoke_test.py` is the one that exercises the whole stack: crash recovery, "
         "determinism, the leakage and threshold gates, then train + eval for every "
         "(task, arch tier) the input policy allows.",
+        "",
+        "The last command is the full-scale §9.5 pass and takes hours -- the four "
+        "detector tasks re-run NeuroKit2 over roughly 530 K strips between them. It is "
+        "resumable through part parquets flushed every 5,000 units, so re-running the "
+        "identical command after any interruption continues from the last flush rather "
+        "than restarting; a task whose parts are already complete is rewritten from them "
+        "in seconds. That path was exercised for real during the 2026-08-27 run.",
     ],
     "P2.3": [
         "Each audit exits 0 on PASS and 1 on a violation, reads only artifacts already "
@@ -825,17 +906,25 @@ ASSUMPTIONS: dict[str, list[str]] = {
         "shared tri-encoder and §4.A.5.8 asks whether that helps or hurts. The "
         "with/without comparison needs a masked-attribute-only run, which is a model "
         "config away, not a code change.",
-        "- **The audit gate has not yet been satisfied**  ::  Step 10 / Stage P2.3 has not "
-        "run, so `leakage_audit_phase2.md`, `split_audit_phase2.md` and `cohort_audit.md` "
-        "do not exist. Every smoke run in this stage used `--dev` and was logged as "
-        "bypassing the gate. A full-scale `30_train.py` will refuse to start until those "
-        "three audits are PASS.",
-        "- **The algorithmic baselines have been proven to run, not yet run at scale**  ::  "
-        "§9.5 puts Stage P2.4 after the P2.3 audits. The eight baselines produced "
-        "predictions on `dev_sample` and both oracles hit their expected 1.0; the "
-        "full test-split pass (NeuroKit2 over ~150 K-300 K strips, hours) is queued behind "
-        "the audit gate. The runner is resumable, so it can be started and interrupted "
-        "freely.",
+        "- **No full-scale TRAINING run has happened yet**  ::  the §4.C audit gate is "
+        "open (Step 10 / Stage P2.3 PASS, 2026-08-27), so `30_train.py` will now start, "
+        "but every `30_train.py` / `31_eval.py` invocation to date used `--dev`. "
+        "`outputs/audit_reports/threshold_audit.md` is therefore still absent — only a "
+        "full-scale training run writes it. This does not touch the algorithmic "
+        "baselines, which have no threshold to select.",
+        "- **The baselines' bootstrap CIs are deferred to the eval matrix**  ::  §5.1 asks "
+        "for patient-level CIs at n = 10,000 like every other model, and §6.7's BCa "
+        "re-evaluates the metric on a resampled frame each iteration. On A4's 55 K "
+        "event-matched rows or B3's 598 K bin rows that is a campaign-scale job, so the "
+        "full-scale pass produced the §9.5 point estimates and left the intervals to "
+        "`31_eval.py`, where a baseline and a ResNet are scored by identical code.",
+        "- **The Lead-II detector is blind to two of the five B5 contradiction "
+        "families**  ::  measured at full scale, QRS duration >= 120 ms occurs on 21.06 % "
+        "of QRS_wide-corrupted rows against 21.58 % of clean rows, so the NeuroKit QRS "
+        "duration carries no signal for that family and making `b5_rule_flag` symmetric "
+        "would add false positives rather than recall. Axis and PR are not recoverable "
+        "from a single Lead-II strip at all. The rule abstains on all three by design, "
+        "which is why B5's baseline F1 is 0.46 and why the task needs a learned model.",
         "- **Retrieval (§7.5) is opt-in via `--retrieval`**  ::  it needs "
         "`checkpoint_best.pt`, so it cannot run from prediction files alone. It is a "
         "secondary check in §7.5; the verification AUPRC is the primary number and "

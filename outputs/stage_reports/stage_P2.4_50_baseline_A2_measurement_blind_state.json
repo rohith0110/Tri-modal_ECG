@@ -1,0 +1,14 @@
+{
+  "stage": "P2.4",
+  "script": "50_baseline_A2_measurement_blind",
+  "done": true,
+  "started_at": "2026-08-27T13:51:10Z",
+  "updated_at": "2026-08-27T16:48:18Z",
+  "n_units": 55181,
+  "n_done": 55181,
+  "n_pending": 0,
+  "rate_per_s": 46.9,
+  "eta_minutes": 0.1,
+  "finished_at": "2026-08-27T16:48:18Z",
+  "n_rows": 55181
+}

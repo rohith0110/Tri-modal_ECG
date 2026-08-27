@@ -4,14 +4,22 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-27 (session 5)
-- **Current stage:** Stages P2.1/P2.2/P2.3 complete and Step 3 (+ Step 11)
-  written and smoke-tested. **The §4.C invariant-4 audit gate is OPEN:** all
-  three audits are PASS on disk and `30_train.py::check_audit_gate` returns
-  PASS for each. Reports: `stage_P2.3_report.md`, `stage_P2.4_report.md`.
-- **Next action:** Step 11's full-scale algorithmic-baseline pass and Step 4
-  (chunk-cutter + campaign launchers), then Step 6's first upload. Nothing is
-  gated any more — Step 10 was the gate for all three.
+- **Last updated:** 2026-08-27 (session 6)
+- **Current stage:** Stages P2.1/P2.2/P2.3 complete, and **Stage P2.4 is now
+  complete at full scale** — Step 3's code plus Step 11's eight algorithmic
+  baselines run over the real test split. **The §4.C invariant-4 audit gate is
+  OPEN:** all three audits are PASS on disk and `30_train.py::check_audit_gate`
+  returns PASS for each. Reports: `stage_P2.3_report.md`,
+  `stage_P2.4_report.md`.
+- **Next action:** Step 4 (chunk-cutter + campaign launchers) and Step 5 (int16
+  conversion + equivalence proof), then Step 6's first upload. The upload also
+  wants Step 12's human sign-off on `cohort_audit.md`; nothing else is gated.
+- **Step 11 — DONE 2026-08-27 at full scale.** 8/8 doc-mandated §5.1 baselines
+  wrote `test_predictions.parquet`; `missing_mandated = []`. **The §9.5 oracle
+  gate passed exactly:** A4 `r_peak_f1` / `qrs_onset_f1` / `qrs_offset_f1` all
+  `1.000000` over 55,140 rows with mean |offset| 0.0000 ms, and B3 `mIoU`
+  `1.000000` over 598,568 rows with every row bin-for-bin exact. The baselines
+  therefore read exactly the fiducials the builders wrote.
 - **Audit gate (Step 10 / Stage P2.3) — DONE 2026-08-27.**
   `leakage_audit_phase2.md` **PASS** (88 checks), `cohort_audit.md` **PASS**
   (184 checks), `split_audit_phase2.md` **PASS** (75 checks); 347 checks, zero
@@ -560,20 +568,24 @@ now happen inside Steps 2 and 3 rather than after Step 8.
         **donor containment** — every A5/B4 `signal_id`/`image_id`/`text_id`
         resolves to a subject in the row's own split, and a swapped modality on
         a negative comes from a different subject than the anchor
-- [~] **Step 11 — Algorithmic baselines, locally** (folded into Step 3).
-      **Code written and smoke-tested; the full-scale pass is now UNBLOCKED —
-      Step 10 passed 2026-08-27.** `_model_lib/algorithmic_baselines.py` +
-      `50_run_baselines_algorithmic.py` cover all eight doc-mandated tasks —
-      A1 (logistic regression on machine measurements), A2/B1/B2 (NeuroKit2
-      detector → HR/QRS/QTc bins), A4 and B3 (oracles), A6 (Cox PH on
-      age + sex + machine HR/QRS/QTc, `lifelines` 0.30.3), B5 (detector vs
-      report-claim inconsistency). On `dev_sample` all eight produce prediction
-      parquets and **both oracles hit their §9.5 target exactly: A4
-      `r_peak_F1 = 1.0000`, B3 `mIoU = 1.0000`.** The runner is resumable
-      (part-parquet checkpoints), so the real pass — NeuroKit2 over ~150 K–300 K
-      test strips, hours — can be started and interrupted freely once P2.3 is
-      PASS. Two baseline-only exemptions are used and declared: A1 and A6 read
-      machine measurements, which are forbidden as MODEL input.
+- [x] **Step 11 — Algorithmic baselines, locally** (folded into Step 3).
+      **DONE at full scale 2026-08-27 (session 6).** `_model_lib/
+      algorithmic_baselines.py` + `50_run_baselines_algorithmic.py` cover all
+      eight doc-mandated tasks — A1 (logistic regression on machine
+      measurements), A2/B1/B2 (NeuroKit2 detector → HR/QRS/QTc bins), A4 and B3
+      (oracles), A6 (Cox PH on age + sex + machine HR/QRS/QTc, `lifelines`
+      0.30.3), B5 (detector vs report-claim inconsistency). Two baseline-only
+      exemptions are used and declared: A1 and A6 read machine measurements,
+      which are forbidden as MODEL input (§5.1 permits them here).
+      **Full test-split results, 8/8 `status = ok`, `missing_mandated = []`:**
+      A1 75,187 · A2 55,181 · A4 55,140 · A6 84,348 · B1 149,546 · B2 301,097 ·
+      B3 598,568 · B5 25,870 rows. **§9.5 oracle gate PASS, exactly:** A4's
+      three F1s all `1.000000` (precision = recall = 1.000000, mean |offset|
+      0.0000 ms), B3 `mIoU = 1.000000` with 598,568/598,568 rows bin-for-bin
+      exact and all four queries individually 1.000000.
+      Resumability was exercised for real: the run was killed one minute into
+      B2 and the identical command replayed B5/A2/B1 from their part parquets in
+      six seconds before continuing. Wall clock ≈ 2 h 45 m at 15 workers.
 - [ ] **Step 12 — Review the cohort report.** Nothing to pull down; it is all
       already here — `outputs/audit_reports/cohort_audit.md`, written 2026-08-27.
       **This is the gate that releases Step 6's first upload**, and it is a human
@@ -1049,3 +1061,83 @@ Append a short entry per session: what changed, what to do next. Newest last.
   NeuroKit2 over the test split) and Step 4 (chunk-cutter + campaign launchers),
   then Step 5 and the Step 6 uploads. Re-run all three audits after any task
   rebuild — a stale PASS is worse than no PASS.
+
+
+### Session 6 — 2026-08-27
+
+- **Step 11 is DONE at full scale. 8/8 §5.1 baselines, `missing_mandated = []`.**
+  Report: `outputs/stage_reports/stage_P2.4_report.md`. Row counts: A1 75,187 ·
+  A2 55,181 · A4 55,140 · A6 84,348 · B1 149,546 · B2 301,097 · B3 598,568 ·
+  B5 25,870. Wall clock ≈ 2 h 45 m at 15 workers, ~530 K NeuroKit2 detections.
+- **The §9.5 oracle gate passed exactly, which was the check that could have
+  failed.** A4 `r_peak_f1` = `qrs_onset_f1` = `qrs_offset_f1` = **1.000000**
+  over 55,140 rows, precision = recall = 1.000000, mean |offset| 0.0000 ms, zero
+  empty predictions. B3 **`mIoU` = 1.000000** over 598,568 rows, every row
+  bin-for-bin exact, all four queries individually 1.000000. The baselines read
+  the same fiducials the builders wrote; no drift.
+- **Resumability was exercised for real, not asserted.** The run was killed one
+  minute into B2, before its first 5,000-unit flush. Re-running the identical
+  command replayed B5 / A2 / B1 from their part parquets in **six seconds** and
+  continued into B2 from zero. Nothing was lost and nothing was recomputed twice.
+- **Non-oracle baselines behave the way the physics says they should:**
+  - **B2 is the strongest validation in the step.** HR accuracy is strictly
+    monotonic in SNR — 0 dB 0.5483 · 5 dB 0.6125 · 10 dB 0.8011 · 20 dB 0.9307 ·
+    30 dB 0.9343 — and 30 dB converges back onto the clean reference (0.9353).
+    Detector fallback tracks it inversely, 0.374 → 0.002. Family ordering is
+    physiologically correct: broadband families destroy QRS detection (powerline
+    0.578, EMG 0.583, gaussian 0.599) while low-frequency `baseline_wander` is
+    almost harmless (0.936). The 8 × 5 grid is complete, 18,710 rows per family.
+  - **A2 / B1 agree with each other and with Phase 1.** A2 hr_label acc 0.9424 /
+    macro-AUPRC 0.8482; B1 0.9347 / 0.8575 — two independently built cohorts,
+    same detector, same answer, and both land on Phase 1's NeuroKit2 figure of
+    94.7 %. B1's HR accuracy by SQI tier orders correctly: high 0.9454 > medium
+    0.9443 > low 0.9187.
+  - **A6's Cox fits all converged** (4/4 `status = ok`): mortality_30d AUROC
+    0.7189, mortality_90d 0.7072, readmission_30d 0.5375, readmission_90d
+    0.5343; train concordance 0.6997 / 0.6867 / 0.5515 / 0.5492. The `anchor_age`
+    coefficient is **negative** for both readmission heads and positive for both
+    mortality heads — the expected competing-risk signature (older patients die
+    rather than being readmitted), not a sign error.
+  - **A1's logistic baseline** separates rhythm but not infarct, as it must from
+    HR/QRS/QTc summary stats alone: AF AUPRC 0.6246 (prevalence 0.2971),
+    conduction 0.2123 (0.0702), but AMI 0.1359 (0.1064) — barely above its own
+    base rate.
+- **Investigated and dismissed: B5's QRS_wide recall of 0.031 is not a bug.**
+  B5 overall F1 0.4633 / AUPRC 0.5132, with per-family recall splitting sharply —
+  HR_brady 0.9868 and HR_tachy 0.9770 against QRS_wide 0.0307, axis_lad 0.3781,
+  axis_rad 0.3189, PR_first_degree_avb 0.1764. Cause: `b5_rule_flag` fires only
+  when a report *claims* wide and the detector measures narrow, but B5's
+  QRS_wide family corrupts in the opposite direction — it strips the wide claim
+  out (`"Right bundle branch block"` → `"Normal QRS duration"`), so the rule
+  abstains. **Making the rule symmetric would make it worse:** measured QRS
+  ≥ 120 ms occurs on 21.06 % of QRS_wide-corrupted rows against 21.58 % of clean
+  rows, so the Lead-II NeuroKit QRS duration carries *no* signal for that family
+  and the reverse check would add false positives, not recall. Detector health is
+  fine (fallback 0.0092, delineate_ok 0.9796). **Left unchanged**, and recorded
+  as a §11 open question. The paper finding: NeuroKit's Lead-II QRS duration does
+  not separate RBBB reports from normal ones in this cohort (median 93.1 ms vs
+  90.1 ms population) — which is precisely why B5 needs a learned model.
+- **A2/B1's weak QRS and QTc heads are recorded biases, not new defects.** A2
+  qrs acc 0.5776 (true `wide` → predicted `normal` 5,698 / 8,248) is the same
+  Lead-II QRS blindness as above; A2 qtc acc 0.4160, with true `prolonged`
+  splitting almost evenly into `normal` (10,610) and `short` (10,963), is
+  session 1's logged "machine QTc > NeuroKit QTc" validation showing at scale.
+  A2's labels come from machine measurements, so both heads measure
+  detector-vs-machine disagreement by construction.
+- **`stage_report.py` changed** so the report measures rather than restates: a
+  new `_oracle_check_lines()` recomputes A4's three F1s and B3's mIoU directly
+  from the prediction parquets instead of reading a dev results CSV; the §9.5
+  block reports full-scale first and `dev_sample` second; both summary JSONs are
+  rendered. Three stale P2.4 open questions were replaced — the audit gate is
+  open now, the baselines are no longer "not yet run at scale", and the B5
+  detector-blindness measurement is recorded with its numbers.
+- **Deliberately NOT done: the baselines' patient-level bootstrap CIs.** §6.7's
+  10,000 BCa replicates re-evaluate the metric on a resampled frame each
+  iteration, which on A4's 55 K event-matched rows or B3's 598 K bin rows is a
+  campaign-scale job, not a report-generation one. §9.5 asks for the point
+  estimate on the test split and that is what was produced; the intervals come
+  from `31_eval.py` alongside the trained arms, so a baseline and a ResNet are
+  scored by identical code.
+- **Next:** Step 4 (chunk-cutter + campaign launchers), Step 5 (int16 + the
+  equivalence proof), then Step 6's first upload — which also wants Step 12's
+  human sign-off on `cohort_audit.md`.

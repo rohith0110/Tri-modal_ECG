@@ -74,8 +74,29 @@ architecture:
       image_scanlike_lead2:   {h: 224, w: 672}
       image_clean_12lead:     {h: 384, w: 512}
       image_scanlike_12lead:  {h: 384, w: 512}
-    eval_transform: "PIL -> RGB -> Resize(short_side) -> CenterCrop(target) -> ToTensor -> Normalize"
-    train_transform_when_augment: "Resize(short_side) -> RandomCrop(target) -> ColorJitter(0.1, 0.1, 0.05, 0) -> RandomRotation(2 deg) -> ToTensor -> Normalize"
+    eval_transform: "PIL -> RGB -> Resize((target_h, target_w)) -> ToTensor -> Normalize"
+    train_transform_when_augment: "Resize(1.05 x target) -> RandomCrop(target) -> ColorJitter(0.1, 0.1, 0.05, 0) -> RandomRotation(2 deg) -> ToTensor -> Normalize"
+    transform_deviation:
+      raised_at: "Stage P2.4, 2026-08-27"
+      status: APPLIED
+      spec_text: "§5.3 — 'Resize(short_side) -> CenterCrop(target_h, target_w)', with 224x672 said to preserve the 1:3 strip aspect ratio and 384x512 the 3x4 grid ratio"
+      measured_render_sizes: {image_clean_lead2: "3600x750 (4.8:1)", image_scanlike_lead2: "1600x333 (4.8:1)", image_clean_12lead: "1016x504 (2.02:1)", image_scanlike_12lead: "1016x504 (2.02:1)"}
+      problem: |
+        The rendered images are not the aspect ratios §5.3 assumes. Short-side
+        resize plus a centre crop would discard 37 % of the Lead-II strip — the
+        first and last ~2 seconds of a 10-second ECG — and the outer lead columns
+        of the 12-lead grid. That destroys the task rather than preprocessing it.
+      decision: |
+        Resize the FULL image into the locked target box. The stated intent (keep
+        the whole ECG at the locked size) is honoured; target sizes and therefore
+        the §6.6 VRAM budgets are unchanged. Anisotropic scaling rescales the time
+        and voltage axes uniformly per axis and the network never sees a physical
+        grid, so it is a geometry change, not an information loss.
+        The augmented variant keeps §5.3's translation jitter by resizing 5 %
+        larger and random-cropping back; colour jitter and the ±2° rotation are
+        unchanged, and horizontal flip stays off.
+      implemented_in: "_dataset_lib/task_dataset.py::build_image_transform"
+      disclose_in_supplementary: true
     horizontal_flip: false
     horizontal_flip_rationale: "flipping an ECG image is medically invalid — it inverts the leads"
     augmentation_default: false
@@ -92,7 +113,9 @@ architecture:
       head: "Linear(768, 512)"
       embed_dim: 512
       license: "MIT via HuggingFace"
-      model_sha: {value: null, status: pending_first_download, note: "record the exact HF revision SHA at first fetch; it ships in the release package"}
+      model_sha: {value: "d5892b39a4adaed74b92212a44081509db72f87b", status: recorded,
+                 recorded_at: "2026-08-27", recorded_by_stage: "P2.4",
+                 note: "HF revision SHA at first fetch; it ships in the release package"}
       module: "_model_lib/text_encoders.py"
     supplementary:
       name: TfidfTextEncoder
@@ -330,7 +353,10 @@ compute:
       neurokit2: "0.2.13"
       matplotlib: "3.10.8"
       pydantic: "2.13.4"
-      transformers: {version: null, status: not_installed, required_by: "Step 3 (Bio-ClinicalBERT); install before authoring _model_lib/text_encoders.py"}
+      transformers: {version: "4.57.6", status: installed, installed_at: "2026-08-27",
+                     required_by: "Step 3 (Bio-ClinicalBERT), _model_lib/text_encoders.py"}
+      lifelines: {version: "0.30.3", status: installed, installed_at: "2026-08-27",
+                  required_by: "Step 3 (A6 Cox proportional-hazards algorithmic baseline, §5.1)"}
     warning: "the SYSTEM Python 3.14 carries a CPU-only torch and must never be used"
 
 # -----------------------------------------------------------------------------

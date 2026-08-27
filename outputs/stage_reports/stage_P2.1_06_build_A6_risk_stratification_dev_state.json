@@ -2,9 +2,9 @@
   "stage": "P2.1",
   "script": "06_build_A6_risk_stratification_dev",
   "done": true,
-  "started_at": "2026-08-26T18:55:47Z",
-  "updated_at": "2026-08-26T18:55:56Z",
-  "finished_at": "2026-08-26T18:55:56Z",
+  "started_at": "2026-08-27T08:52:52Z",
+  "updated_at": "2026-08-27T08:52:56Z",
+  "finished_at": "2026-08-27T08:52:56Z",
   "n_rows_total": 3411,
   "n_rows_primary_l3": 2880,
   "splits_total": {

@@ -1,0 +1,46 @@
+# =============================================================================
+# cross_modal.yaml — A5 / B4 / B6 verification + retrieval (spec §7.5)
+# =============================================================================
+meta:
+  spec: "docs/PHASE2_SOURCE_OF_TRUTH.md §7.5"
+  tasks: [A5_cross_modal_verification, B4_cross_modal_verification,
+          B6_difficulty_stratified]
+  extends: default.yaml
+
+verification:
+  primary: auprc
+  secondary: [auroc, macro_f1, per_neg_type_f1]
+  neg_types: [TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, HARD_NEGATIVE_TEXT, PARTIAL_MISMATCH]
+  hard_negative_in_every_batch: true      # §6.4
+
+retrieval:
+  enabled: true
+  pool_size: 100
+  composition: "50 same-HR-bucket + 50 different-HR-bucket non-anchor subjects"
+  seed: "2026 + anchor_id"
+  identical_across_seeds: true
+  metrics: [recall_at_1, recall_at_5, mrr]
+  note: |
+    Secondary check only (§7.5). The pool is sampled deterministically per
+    anchor so all three seeds are scored on the same candidates.
+
+b6_stratification:
+  source: "data/processed/tasks/B6_difficulty_stratified/eval_keys.parquet"
+  slices_the_prediction_file_of: B4_cross_modal_verification
+  tiers:
+    easy: [TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH]
+    medium: [HARD_NEGATIVE_TEXT]
+    hard: []          # RESERVED — ships empty (progress-doc question 13 default)
+  metrics: [per_difficulty_tier_recall_at_1, per_difficulty_tier_auprc]
+
+a5_masked_attribute:
+  heads: [hr_label, qrs_label, qtc_label]
+  primary: per_head_macro_auprc
+  valid_rows_only: "masked_attr_valid — signal AND image are still the anchor's own"
+  head_inputs: [signal, image]
+  note: |
+    The masked-attribute head reads signal + image ONLY.
+    config/task_input_policy.yaml states that "the UNMASKED report_text must
+    never reach this head — it would restore the very numerics the head is asked
+    to predict", and on an A5 positive row the text IS the unmasked anchor
+    report. Both heads still sit on one shared tri-encoder (§5.6).

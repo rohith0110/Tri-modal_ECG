@@ -1,0 +1,37 @@
+task: A5_cross_modal_verification
+arch_tier: text_tfidf
+lead_subset: none
+generated_by: _model_lib/model_configs.py --emit
+spec: docs/PHASE2_SOURCE_OF_TRUTH.md §5.8
+note: Architecture values are fixed by config/decision_phase2.yaml (§5). This file selects encoders, input
+  modalities and head shape only.
+head:
+  n_out_total: 10
+  heads:
+  - name: y_match
+    kind: binary
+    n_out: 1
+  - name: hr_label
+    kind: multiclass
+    n_out: 3
+  - name: qrs_label
+    kind: multiclass
+    n_out: 3
+  - name: qtc_label
+    kind: multiclass
+    n_out: 3
+train:
+  epochs: 20
+  batch_size: 32
+  accumulation_steps: 1
+  patience: 5
+  learning_rates:
+    head: 0.001
+    signal_backbone: 0.001
+    image_backbone: 1.0e-05
+    text_backbone_layers: 1.0e-05
+    text_embeddings: 1.0e-06
+text:
+  encoder: TfidfTextEncoder
+  max_length: 512
+  embed_dim: 512

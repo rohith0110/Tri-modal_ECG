@@ -1,0 +1,67 @@
+# =============================================================================
+# default.yaml — shared evaluation settings (spec §7.1, §6.7)
+# =============================================================================
+# Read by 31_eval.py for every task. The per-task files in this directory ADD to
+# this block; they never contradict it. The authoritative copies of these
+# numbers live in config/decision_phase2.yaml under `evaluation:` — this file is
+# the form 31_eval.py consumes.
+# =============================================================================
+
+meta:
+  spec: "docs/PHASE2_SOURCE_OF_TRUTH.md §7.1"
+  consumed_by: "31_eval.py, 41_run_sensitivity.py"
+  authored_at: "2026-08-27"
+  authored_by_stage: "P2.4"
+
+bootstrap:
+  unit: patient                 # NEVER ecg — §1, §6.7; ECG-level is CRITICAL in §11.2
+  resampling: "draw subject_ids WITH replacement; take all ECGs for each drawn subject"
+  n_iter: 10000
+  method: bca
+  fallback: percentile
+  fallback_when: "test-positive count < 100 per head"
+  level: 0.95
+  seed: 2026
+  jackknife:
+    exact_when_subjects_le: 2000
+    delete_d_groups: 200
+    note: |
+      The BCa acceleration constant uses an exact jackknife for small subject
+      counts and a delete-one-group jackknife above it — 30,844 test subjects
+      make an exact jackknife hours per metric. The bias correction z0 is always
+      exact. Which path ran is recorded per results row as n_jackknife_groups.
+
+seeds: [42, 123, 456]
+
+reporting:
+  per_seed: true
+  across_seeds: "mean +/- std over the 3 seeds"
+  pooled: "concatenate the 3 seeds' test predictions, then resample subjects"
+  columns:
+    - task
+    - arch_tier
+    - lead_subset
+    - head
+    - metric
+    - group_key
+    - group_value
+    - n_rows
+    - n_subjects
+    - n_positive
+    - value_mean
+    - value_std
+    - pooled_point
+    - ci_low
+    - ci_high
+    - ci_method
+    - n_jackknife_groups
+
+subgroups:
+  keys: [sqi_tier, cart_id, link_tier, boundary_flag]
+  cart_id_top_n: 5
+  min_rows_per_group: 50        # smaller slices report n only, no CI
+
+metrics:
+  primary_policy: "AUPRC for imbalanced tasks (Round 1 lock)"
+  always_also_report: [auroc]
+  threshold_source: "outputs/audit_reports/threshold_audit.md — val Youden's J only"

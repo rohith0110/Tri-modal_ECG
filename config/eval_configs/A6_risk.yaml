@@ -1,0 +1,38 @@
+# =============================================================================
+# A6_risk.yaml — calibration + decision curves (spec §7.6, §6.8)
+# =============================================================================
+meta:
+  spec: "docs/PHASE2_SOURCE_OF_TRUTH.md §7.6"
+  tasks: [A6_risk_stratification, A3_lab_abnormality]
+  extends: default.yaml
+
+calibration:
+  reliability_bins: 10
+  bin_type: quantile
+  metrics: [ece, brier, log_loss]
+  recalibration_trigger_ece: 0.05
+  ladder: [platt_scaling, isotonic_regression]
+  fit_on: val
+  scaler_is_part_of_the_model_artifact: true
+  diagram: "outputs/figures/main/fig4_calibration.png"
+
+thresholds:
+  val_optimal: true
+  clinical: [0.05, 0.10, 0.20]
+
+decision_curve:
+  net_benefit_at: [0.05, 0.10, 0.20]
+  figure: "outputs/figures/supplementary/sfig_a6_decision_curve.png"
+
+heads_requiring_calibration:
+  A6_risk_stratification: [mortality_30d, mortality_90d, readmission_30d, readmission_90d]
+  A3_lab_abnormality: [lab_K_pm24h, lab_troponin_pm24h, lab_Na_pm24h, lab_creatinine_pm24h]
+
+censoring:
+  readmission_note: |
+    §4 decision 15: A6's readmission heads carry residual right-censoring that is
+    REPORTED, not corrected — MIMIC-IV has no usable end-of-data cutoff and every
+    substitute conditions on the outcome. `followup_days_after_discharge` ships on
+    every row, so a censoring-aware sensitivity is a filter on that column.
+  mortality_mask_column: mortality_observable
+  readmission_mask_columns: {30d: readmission_eligible, 90d: readmission_eligible_90d}

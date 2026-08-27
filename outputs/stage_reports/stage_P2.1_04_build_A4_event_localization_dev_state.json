@@ -2,9 +2,9 @@
   "stage": "P2.1",
   "script": "04_build_A4_event_localization_dev",
   "done": true,
-  "started_at": "2026-08-26T19:07:09Z",
-  "updated_at": "2026-08-26T19:07:12Z",
-  "finished_at": "2026-08-26T19:07:12Z",
+  "started_at": "2026-08-27T08:52:49Z",
+  "updated_at": "2026-08-27T08:52:50Z",
+  "finished_at": "2026-08-27T08:52:50Z",
   "n_rows_total": 5000,
   "n_rows_primary": 1962,
   "splits_total": {

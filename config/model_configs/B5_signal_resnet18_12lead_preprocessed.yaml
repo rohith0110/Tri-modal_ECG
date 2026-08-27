@@ -1,0 +1,35 @@
+task: B5_contradiction_detection
+arch_tier: signal_resnet18_12lead_preprocessed
+lead_subset: 12lead
+generated_by: _model_lib/model_configs.py --emit
+spec: docs/PHASE2_SOURCE_OF_TRUTH.md §5.8
+note: Architecture values are fixed by config/decision_phase2.yaml (§5). This file selects encoders, input
+  modalities and head shape only.
+head:
+  n_out_total: 8
+  heads:
+  - name: is_corrupted
+    kind: binary
+    n_out: 1
+  - name: label
+    kind: multiclass
+    n_out: 5
+  - name: span
+    kind: span
+    n_out: 2
+train:
+  epochs: 30
+  batch_size: 256
+  accumulation_steps: 1
+  patience: 5
+  learning_rates:
+    head: 0.001
+    signal_backbone: 0.001
+    image_backbone: 1.0e-05
+    text_backbone_layers: 1.0e-05
+    text_embeddings: 1.0e-06
+signal:
+  encoder: ECGResNet1D18
+  n_leads: 12
+  input_modality: preprocessed_12lead
+  embed_dim: 512

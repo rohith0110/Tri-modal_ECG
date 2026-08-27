@@ -4,13 +4,15 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-27 (session 3)
-- **Current stage:** Stages P2.1 and P2.2 — **COMPLETE.** All 13 Step-2 scripts
-  written and run at full scale on the laptop. Reports:
-  `outputs/stage_reports/stage_P2.1_report.md`, `stage_P2.2_report.md`.
+- **Last updated:** 2026-08-27 (session 4)
+- **Current stage:** Stages P2.1/P2.2 complete; **Step 3 (+ Step 11) — the
+  training and evaluation code — is written and smoke-tested.** Report:
+  `outputs/stage_reports/stage_P2.4_report.md`.
 - **Next action:** Step 10 / Stage P2.3 — the three audits (leakage, cohort,
-  split), which §4.C invariant 4 makes the gate before any training and, since
-  the Round 6.12 amendment, before the first upload too. Then Step 3.
+  split). §4.C invariant 4 makes them the gate before any training, and
+  `30_train.py` now **enforces** that gate: a full-scale run halts until all
+  three are PASS. They also gate the first upload (Round 6.12) and the
+  full-scale algorithmic-baseline pass.
 - **Blockers:** none. The A3 lab-cache prerequisite is **DONE** (§4 decision 13).
   Every §5 question is now resolved, dissolved, or proceeding under its stated
   default — see §5.
@@ -297,6 +299,24 @@ Round 7 (2026-08-27, session 3 — forced by the data while building Step 2):
     correction, the superseded P2.0 measurement and the reasoning; the builder
     re-asserts the union every run.
 
+Round 8 (2026-08-27, session 4 — forced by the data while writing Step 3):
+
+18. **The image transform resizes the whole render; it does not centre-crop.**
+    §5.3 specifies `Resize(short_side) → CenterCrop(target_h, target_w)` and
+    justifies 224×672 and 384×512 as preserving the render aspect ratios.
+    Measured, the Phase 1 renders are **3600×750** (Lead-II clean, 4.8:1) and
+    **1016×504** (12-lead, 2.02:1) — not 3:1 and 1.33:1. Applied literally, the
+    centre crop discards **37 % of every Lead-II strip** (the first and last
+    ~2 s of a 10-second ECG) and the outer lead columns of the 12-lead grid.
+    The stated intent — the whole ECG at the locked target size — is honoured by
+    resizing the full image into the target box. Target sizes, and therefore the
+    §6.6 VRAM budgets, are unchanged. The augmented variant keeps §5.3's
+    translation jitter by resizing 5 % larger and random-cropping back; colour
+    jitter and the ±2° rotation are unchanged and horizontal flip stays off.
+    Recorded as `decision_phase2.yaml → architecture.image_encoder.transform_deviation`;
+    implemented in `_dataset_lib/task_dataset.py::build_image_transform`.
+    **Disclose in the supplementary.**
+
 Earlier rounds (spec §12.1–12.6) remain binding: Plan A primary + Plan B
 supplementary, seeds 42/123/456, patient-level bootstrap n=10,000 BCa, AUPRC
 primary for imbalanced tasks, thresholds from train+val only, 70/10/20 patient
@@ -412,7 +432,53 @@ plan; this is the index of record.
   - [x] Emitted `stage_P2.1_report.md` (4,393 lines) and `stage_P2.2_report.md`
         (2,183 lines) in the §10 eight-section format, generated from the state
         files and the artifacts rather than written by hand
-- [ ] **Step 3 — Write training + evaluation code** (~3–4 days)
+- [x] **Step 3 — Write training + evaluation code** — **DONE 2026-08-27
+      (session 4).** Report: `outputs/stage_reports/stage_P2.4_report.md`.
+      Every module carries a runnable `_self_check()`; the whole stack is
+      smoke-tested on `dev_sample/` and nothing here has produced a paper number.
+  - [x] `_dataset_lib/task_spec.py` — the 12 tasks × 64 heads declared once
+        (head kind, label column, mask column, primary metric), cross-checked
+        against `task_definitions.yaml` and `task_input_policy.yaml` at import
+  - [x] `_dataset_lib/task_dataset.py` — one `Dataset` for all 12 tasks; resolves
+        every modality through `read_modality()` and **refuses a forbidden input
+        at construction** (`check_input_policy`)
+  - [x] `_dataset_lib/bootstrap.py` — patient-level BCa, n=10,000. Refuses a
+        frame with no `subject_id`. Self-check proves the patient-level interval
+        is >1.5× wider than the ECG-level one on correlated data
+  - [x] `_dataset_lib/corruption.py` — B2 regime_2 augmenter; **imports** the
+        Phase 1 Stage 8 corruption functions instead of reimplementing them, with
+        the locked `regime2|` seed prefix keeping the train stream disjoint
+  - [x] `_model_lib/` — `signal_encoders.py` (1D ResNet-18, 9.0 M params, §5.2),
+        `image_encoders.py` (ResNet-50 IMAGENET1K_V2, §5.3),
+        `text_encoders.py` (Bio-ClinicalBERT rev `d5892b39a4ad` + TF-IDF/SVD,
+        §5.4), `fusion_heads.py` (LateFusionMLP, concat_dim 1539, §5.5),
+        `task_models.py` (per-task assembly + the §6.4 losses)
+  - [x] `_model_lib/model_configs.py` — **94 generated YAMLs**, one per
+        (task, arch tier, lead subset), derived from `task_input_policy.yaml` so
+        a config cannot name a forbidden modality
+  - [x] `_train_lib/` — `seed.py` (§6.2 + RNG capture), `metrics.py` (every §4/§7
+        metric), `threshold.py` (**val-only**, refuses any other split and
+        refuses to apply a threshold not selected on val), `calibration.py`
+        (§6.8 identity → Platt → isotonic, fitted on val only), `trainer.py`
+  - [x] `30_train.py` — §6 training infrastructure with three gates: the audit
+        gate (§4.C invariant 4), the input-policy gate, and a split gate that
+        re-checks subject disjointness **on the rows the run loaded**
+  - [x] `31_eval.py` — §7 regimes: per-seed mean ± std, pooled patient-level
+        bootstrap CI, subgroup breakdowns, §7.3 B2 AUCC/collapse threshold,
+        §7.4 fiducial matcher, §7.5 retrieval, §7.6 calibration + decision curves
+  - [x] `config/eval_configs/` — `default.yaml`, `A4_fiducial.yaml`,
+        `A6_risk.yaml`, `B2_robustness.yaml`, `cross_modal.yaml`
+  - [x] **Checkpoint/resume proven, not asserted** (`_train_lib/smoke_test.py`):
+        an interrupted run stops after 2 of 3 batches and the resumed run does
+        **exactly the remaining 1**; an epoch-boundary resume restores weights,
+        optimizer moments, scheduler, RNG and best-metric; the SIGTERM handler
+        raises the stop flag without writing from inside itself; two seed-42 runs
+        produce byte-identical weights
+  - [x] **Smoke matrix: 34 (task, arch tier) combinations — 11 trainable tasks
+        × every tier each task's input policy allows — 34 trains + 34 evals,
+        68/68 PASS**, plus the 5 recovery/determinism/gate checks: **73 PASS,
+        0 FAIL** on `dev_sample/` with tiny batches. Log:
+        `outputs/stage_reports/stage_P2.4_smoke_test.log`
 - [ ] **Step 4 — Write the chunk-cutter and campaign launchers** (~2 days)
 - [ ] **Step 5 — Make int16 copies + prove equivalence** (float32-vs-int16
       training comparison for the supplementary)
@@ -434,8 +500,20 @@ now happen inside Steps 2 and 3 rather than after Step 8.
       locally** (folded into Step 2) — DONE 2026-08-27
 - [ ] **Step 10 — Run the three audits (leakage / cohort / split)** — *all must
       PASS before any GPU time is spent, and now before the first upload too*
-- [ ] **Step 11 — Algorithmic baselines, locally** (folded into Step 3).
-      NeuroKit2 over the test split — budget hours, run overnight.
+- [~] **Step 11 — Algorithmic baselines, locally** (folded into Step 3).
+      **Code written and smoke-tested; the full-scale pass is queued behind
+      Step 10.** `_model_lib/algorithmic_baselines.py` +
+      `50_run_baselines_algorithmic.py` cover all eight doc-mandated tasks —
+      A1 (logistic regression on machine measurements), A2/B1/B2 (NeuroKit2
+      detector → HR/QRS/QTc bins), A4 and B3 (oracles), A6 (Cox PH on
+      age + sex + machine HR/QRS/QTc, `lifelines` 0.30.3), B5 (detector vs
+      report-claim inconsistency). On `dev_sample` all eight produce prediction
+      parquets and **both oracles hit their §9.5 target exactly: A4
+      `r_peak_F1 = 1.0000`, B3 `mIoU = 1.0000`.** The runner is resumable
+      (part-parquet checkpoints), so the real pass — NeuroKit2 over ~150 K–300 K
+      test strips, hours — can be started and interrupted freely once P2.3 is
+      PASS. Two baseline-only exemptions are used and declared: A1 and A6 read
+      machine measurements, which are forbidden as MODEL input.
 - [ ] **Step 12 — Review the cohort report.** Nothing to pull down; it is all
       already here. **This is the gate that releases Step 6's first upload.**
 
@@ -558,12 +636,45 @@ now happen inside Steps 2 and 3 rather than after Step 8.
    are not materially affected — but every one of B5's 23 spurious
    report-says-wide / measurement-says-narrow QRS pairs was paediatric, where
    86–90 ms genuinely IS a conduction defect. §4 decision 17.
+
 15. **The `n_ecg_expected_*` numbers in §4 and `task_definitions.yaml` are
    pre-QC.** They were computed on the 800,035-row full index; every builder
    works on the 749,112-row post-QC clean cohort (93.6 %). So A1's "expected
    468,176" lands at 422,147 L3 rows and A6's "416,440 mortality-observable"
    lands at 382,572. Nothing is wrong — the two are counting different
    populations. Compare against the clean cohort, not the spec's estimate.
+16. **The rendered images are NOT the aspect ratios §5.3 assumes, and the
+   spec's centre crop would throw away a third of every strip.** Measured:
+   Lead-II clean is 3600×750 (4.8:1) and scan-like 1600×333 (4.8:1); both
+   12-lead kinds are 1016×504 (2.02:1). §5.3's targets (224×672 = 3:1,
+   384×512 = 1.33:1) were chosen believing the renders matched. `Resize(short
+   side) → CenterCrop(target)` therefore keeps only 672 of 1075 px of a
+   short-side-resized Lead-II strip — the middle ~6 s of a 10 s ECG — and only
+   512 of 774 px of the 12-lead grid, cutting the outer lead columns. **Never
+   restore the centre crop.** `build_image_transform` resizes the full render
+   into the target box; §4 decision 18.
+
+17. **A5's masked-attribute head must not see the fused embedding.**
+   `task_input_policy.yaml` says the unmasked `report_text` must never reach
+   that head, and on an A5 *positive* row the text IS the unmasked anchor
+   report. The head therefore reads `cat(signal_emb, image_emb)` only, while the
+   encoders stay shared with the verification head (§5.6). A future refactor
+   that "simplifies" it onto the shared fusion vector reintroduces the leak.
+   The same rule makes an A5 text-only tier verification-only: with no signal
+   and no image the head is undefined, and `TaskModel.active_head_names` drops
+   it rather than fabricating one.
+
+18. **`torch.__version__` is a `TorchVersion`, not a `str`, and
+   `yaml.safe_dump` refuses it.** It killed the first `train_config.yaml` write.
+   `seed.environment_fingerprint()` now coerces every value with `str()`. Any
+   new field added to a YAML snapshot needs the same treatment.
+
+19. **A checkpoint loaded with `map_location="cuda"` brings its RNG tensors back
+   on the GPU, and `torch.set_rng_state` demands a CPU `ByteTensor`.** Resume
+   raised `TypeError: RNG state must be a torch.ByteTensor` until
+   `seed._byte_tensor()` moved them back. Caught by the resume smoke test, which
+   is the only reason it was not discovered on the DGX after a preemption.
+
 
 ---
 
@@ -708,3 +819,78 @@ Append a short entry per session: what changed, what to do next. Newest last.
 - **Next:** Step 10 / Stage P2.3 — the leakage, cohort and split audits. §4.C
   invariant 4 makes them the gate before any training, and the Round 6.12
   amendment makes them the gate before the first upload as well.
+
+### Session 4 — 2026-08-27
+
+- **Step 3 is done, and Step 11's code with it.** Twenty new modules plus the
+  two entry points `30_train.py` and `31_eval.py`, the baseline runner
+  `50_run_baselines_algorithmic.py`, 94 generated model configs and the five
+  eval configs. Report: `outputs/stage_reports/stage_P2.4_report.md`.
+- **Every module carries a runnable self-check**, and each one passes:
+  `bootstrap` (patient-level CI >1.5× the ECG-level width on correlated data,
+  and `n_positive < 100` falls back to percentile), `task_spec` (12 tasks /
+  64 heads, cross-checked against both config files), `corruption` (the five
+  additive families realise their requested SNR to <0.5 dB, the train stream
+  cannot collide with the frozen test stream), `task_dataset`,
+  `signal_encoders` (the trap-10 transposed-input guard fires),
+  `image_encoders`, `text_encoders`, `fusion_heads`, `task_models` (all 11
+  trainable tasks forward + backward with a finite loss), `metrics` (a 6-sample
+  = 12 ms shift correctly scores F1 = 0, double-firing is charged as false
+  positives), `threshold` (selection on test and application of a test-selected
+  threshold both raise), `calibration` (a squashed input goes ECE 0.2587 → Platt
+  0.0234; an already-calibrated one is left as `identity`),
+  `algorithmic_baselines`, `model_configs`, `trainer`.
+- **The three non-optional requirements were built as tests, not claims.**
+  1. *Checkpoint-and-resume.* `checkpoint_last.pt` is written atomically every
+     N minutes and at every epoch boundary and carries `batch_in_epoch` beside
+     the RNG states; the epoch's batch order is a pure function of
+     `(seed, epoch)`. The smoke test interrupts after 2 of 3 batches and the
+     resumed run does **exactly the remaining 1**; an epoch-boundary resume
+     restores weights, optimizer moments, scheduler, RNG and best-metric; the
+     SIGTERM handler raises a flag and lets the loop write, so no checkpoint is
+     ever produced from inside a signal handler. Interrupted runs exit 0 so
+     Slurm requeues.
+  2. *Smoke-test everything first.* 34 (task, arch tier) combinations — every
+     tier each task's input policy allows — give 34 trains + 34 evals, and all
+     68 pass on `dev_sample/` with tiny batches. With the five recovery and
+     gate checks that is **73 PASS, 0 FAIL**. No number in this session is a
+     paper number.
+  3. *Thresholds val-only, bootstrap patient-level.* `select_threshold` refuses
+     any split but `val`; `apply_threshold` refuses a record not stamped `val`;
+     `patient_bootstrap` refuses a frame with no `subject_id`. All three are
+     asserted in the smoke test's gate check.
+- **`30_train.py` now enforces the §4.C audit gate.** A full-scale run halts
+  until `leakage_audit_phase2.md`, `split_audit_phase2.md` and
+  `cohort_audit.md` exist and are PASS. `--dev` bypasses it with a logged
+  warning and writes under `outputs/model_runs/_dev/`.
+- **Algorithmic baselines (Step 11) are written and proven on the dev sample.**
+  All eight doc-mandated tasks produce prediction parquets in the §7.1 schema,
+  so `31_eval.py` scores a rule baseline and a ResNet with identical code. Both
+  oracles hit their §9.5 target exactly: **A4 `r_peak_F1 = 1.0000`, B3
+  `mIoU = 1.0000`**. The full test-split pass is queued behind Step 10.
+- **Four things the data or the platform forced:**
+  1. **§4 decision 18** — the §5.3 centre crop would discard 37 % of every
+     Lead-II strip, because the renders are 4.8:1 and 2.02:1, not the 3:1 and
+     1.33:1 §5.3 assumes. The whole render is resized into the locked target
+     box instead. Traps 16.
+  2. A5's masked-attribute head reads signal + image only; the fused embedding
+     would hand it back the unmasked report on positive rows. A5 text-only
+     therefore trains verification alone. Trap 17.
+  3. `torch.__version__` is not a `str` and broke the first `train_config.yaml`
+     write. Trap 18.
+  4. A checkpoint loaded onto CUDA returns GPU RNG tensors, which
+     `set_rng_state` rejects — a bug that would have surfaced only after a real
+     Slurm preemption. Trap 19.
+- **BCa acceleration above 2,000 subjects uses a delete-one-group jackknife**
+  (200 groups); the bias correction z0 stays exact and every results row records
+  `n_jackknife_groups`. An exact jackknife over 30,844 test subjects is roughly
+  an hour per head per metric.
+- Dependencies added to `ecg_env`: `transformers` 4.57.6 and `lifelines` 0.30.3
+  (the A6 Cox baseline). Bio-ClinicalBERT revision
+  `d5892b39a4adaed74b92212a44081509db72f87b` recorded in `decision_phase2.yaml`
+  for the release package. **P2.0 gate re-run after the config edits: 26/26.**
+- **Next:** Step 10 / Stage P2.3 — the leakage, cohort and split audits
+  (`20_audit_tasks_leakage.py`, `21_audit_tasks_cohort.py`,
+  `22_audit_tasks_split.py`). They now gate three things, not one: the first
+  upload, the full-scale algorithmic-baseline pass, and every `30_train.py` run.
+  After that, Step 4 (chunk-cutter + campaign launchers).

@@ -44,6 +44,9 @@
 !/outputs/model_runs/
 /outputs/model_runs/*
 !/outputs/model_runs/README.md
+# --dev smoke-test artifacts are throwaway by construction (they are
+# produced from data/processed/tasks/_dev/ and reach no paper number).
+/outputs/results/_dev/
 
 # --- never commit logs, caches, or notebook checkpoints anywhere ---
 **/logs/

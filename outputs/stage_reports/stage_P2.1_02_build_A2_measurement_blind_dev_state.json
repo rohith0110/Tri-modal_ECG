@@ -2,9 +2,9 @@
   "stage": "P2.1",
   "script": "02_build_A2_measurement_blind_dev",
   "done": true,
-  "started_at": "2026-08-26T18:50:41Z",
-  "updated_at": "2026-08-26T18:50:45Z",
-  "finished_at": "2026-08-26T18:50:45Z",
+  "started_at": "2026-08-27T08:52:46Z",
+  "updated_at": "2026-08-27T08:52:47Z",
+  "finished_at": "2026-08-27T08:52:47Z",
   "n_rows_total": 3407,
   "n_rows_primary": 1963,
   "splits_total": {

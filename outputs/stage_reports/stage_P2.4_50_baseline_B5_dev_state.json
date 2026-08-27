@@ -1,0 +1,13 @@
+{
+  "stage": "P2.4",
+  "script": "50_baseline_B5_dev",
+  "done": true,
+  "started_at": "2026-08-27T09:06:13Z",
+  "updated_at": "2026-08-27T09:06:24Z",
+  "n_units": 60,
+  "n_done": 60,
+  "n_pending": 60,
+  "rate_per_s": 5.29,
+  "finished_at": "2026-08-27T09:06:24Z",
+  "n_rows": 60
+}

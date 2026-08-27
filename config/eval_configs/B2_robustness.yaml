@@ -1,0 +1,56 @@
+# =============================================================================
+# B2_robustness.yaml — three-regime robustness evaluation (spec §7.3)
+# =============================================================================
+meta:
+  spec: "docs/PHASE2_SOURCE_OF_TRUTH.md §7.3"
+  task: B2_noise_robustness
+  extends: default.yaml
+  recipes: "config/corruption_recipes_LOCKED.yaml"
+
+regimes:
+  regime_1:
+    train: "clean signals — the B2 train rows with augmentation OFF (== the B1 train split)"
+    test_filter: "regime == 'regime_1' and row_role == 'corrupted'"
+    clean_reference_filter: "row_role == 'clean_reference'"
+    augmentation: false
+  regime_2:
+    train: "clean + on-the-fly corruption from the train_augmentation RNG stream"
+    test_filter: "regime == 'regime_2'"
+    augmentation: true
+  regime_3:
+    train: "same trainer as regime_1"
+    test_filter: "regime == 'regime_3'"
+    stratify_by: sqi_tier
+    augmentation: false
+
+rng_separation:
+  requirement: |
+    §7.3 — regime_2's train-time corruption MUST use a different RNG stream from
+    the frozen test set so the model cannot memorise test realisations. The
+    train key carries a literal "regime2|" prefix plus the run seed and epoch
+    (corruption_recipes_LOCKED.yaml `rng.train_augmentation`).
+  enforced_in: "_dataset_lib/corruption.py::train_seed"
+
+grid:
+  corruption_types: [gaussian, baseline_wander, powerline, emg, electrode_motion,
+                     lead_dropout, gain_drift, saturation]
+  snr_levels_db: [30, 20, 10, 5, 0]
+  cells: 40
+  anchors: 1871
+  anchor_sqi_mix: {high: 8, medium: 1119, low: 744}
+  anchor_note: |
+    §4.B.2.2 describes the anchors as high-SQI. Measured, the frozen Phase 1
+    Stage 8 set is SQI-representative (the mix above). The set is frozen and
+    must never be regenerated — the paper describes it accurately instead.
+
+metrics:
+  area_under_corruption_curve: "AUPRC averaged across the SNR ladder, per family"
+  relative_performance_drop: "clean AUPRC - corrupted AUPRC, per (family, snr_db)"
+  collapse_threshold: "the SNR at which AUPRC falls below 50 % of the clean AUPRC"
+  regime_1_vs_regime_2: "average drop on the identical frozen test set"
+
+tables:
+  - "per-(corruption_type, snr_db) AUPRC, an 8 x 5 grid"
+  - "regime_1 vs regime_2 average drop"
+  - "regime_3 per-SQI-tier"
+figure: "outputs/figures/main/fig3_corruption_curves.png"

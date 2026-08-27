@@ -1,0 +1,40 @@
+task: A6_risk_stratification
+arch_tier: image_resnet50_12lead_scanlike
+lead_subset: 12lead
+generated_by: _model_lib/model_configs.py --emit
+spec: docs/PHASE2_SOURCE_OF_TRUTH.md §5.8
+note: Architecture values are fixed by config/decision_phase2.yaml (§5). This file selects encoders, input
+  modalities and head shape only.
+head:
+  n_out_total: 4
+  heads:
+  - name: mortality_30d
+    kind: binary
+    n_out: 1
+  - name: mortality_90d
+    kind: binary
+    n_out: 1
+  - name: readmission_30d
+    kind: binary
+    n_out: 1
+  - name: readmission_90d
+    kind: binary
+    n_out: 1
+train:
+  epochs: 30
+  batch_size: 64
+  accumulation_steps: 1
+  patience: 5
+  learning_rates:
+    head: 0.001
+    signal_backbone: 0.001
+    image_backbone: 1.0e-05
+    text_backbone_layers: 1.0e-05
+    text_embeddings: 1.0e-06
+image:
+  encoder: ImageResNet50
+  input_modality: image_scanlike_12lead
+  target_h: 384
+  target_w: 512
+  augmentation: true
+  embed_dim: 512

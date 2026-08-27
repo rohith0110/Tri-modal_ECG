@@ -1,5 +1,72 @@
 # Phase 2 — Tasks, Benchmark Suite & Paper
 
+## The current Phase 2 scripts
+
+Everything below the horizontal rule documents the **legacy, pre-regen**
+scripts, which now live in `_legacy_phase1_pre_regen/`. This section is the
+live one. Run everything with `./ecg_env/Scripts/python.exe` from the repo
+root — never the system Python (its torch is CPU-only).
+
+| # | Script | Stage | What it does |
+|---|--------|-------|--------------|
+| `00` | `00_extract_fiducials.py` | P2.1 | NeuroKit2 R-peaks / QRS bounds / per-bin SQI over the full clean cohort → `data/processed/fiducials_lead2.parquet` |
+| `00b` | `00b_rebuild_lab_cache.py` | P2.1 | re-extracts the 18 locked lab itemids WITH `ref_range_*` / `flag` |
+| `01`–`06` | `0X_build_A*.py` | P2.1 | the six Plan A task builders |
+| `07`–`12` | `XX_build_B*.py` | P2.2 | the six Plan B task builders |
+| `20`–`22` | `2X_audit_tasks_*.py` | P2.3 | leakage / cohort / split audits — **not yet written** |
+| `30` | `30_train.py` | P2.5–P2.8 | the ONLY training entry point |
+| `31` | `31_eval.py` | P2.9 | the ONLY evaluation entry point |
+| `50` | `50_run_baselines_algorithmic.py` | P2.4 | the eight §5.1 rule baselines |
+
+Shared code, none of it an entry point:
+
+- `_dataset_lib/` — `modality.py` (the only place that opens an HDF5 or a tar),
+  `build_common.py` (cohort join, resume, logging), `task_spec.py` (the 12
+  tasks × 64 heads), `task_dataset.py` (the one `Dataset`), `bootstrap.py`
+  (patient-level BCa), `corruption.py` (B2 regime_2), `schema_validators.py`
+  (the re-runnable P2.0 gate), `stage_report.py` (the §10 report generator).
+- `_model_lib/` — `signal_encoders.py`, `image_encoders.py`,
+  `text_encoders.py`, `fusion_heads.py`, `task_models.py`, `model_configs.py`
+  (generates the 94 §5.8 YAMLs), `algorithmic_baselines.py`.
+- `_train_lib/` — `seed.py`, `metrics.py`, `threshold.py`, `calibration.py`,
+  `trainer.py`, `smoke_test.py`.
+
+**Every module has a runnable self-check.** Run any of them directly:
+
+```
+./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/bootstrap.py
+./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_model_lib/task_models.py
+./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_train_lib/threshold.py
+```
+
+### Reproduction blocks
+
+```
+# the P2.0 gate (26 checks)
+./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/schema_validators.py
+
+# regenerate the 94 model configs from task_input_policy.yaml
+./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_model_lib/model_configs.py --emit
+
+# the whole Step-3 stack on dev_sample (crash recovery + 54 train/eval paths)
+./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_train_lib/smoke_test.py
+
+# one real training run (halts until the P2.3 audits are PASS)
+./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/30_train.py     --model-config config/model_configs/A2_signal_resnet18_lead2_preprocessed.yaml     --seed 42
+./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/31_eval.py     --task A2_measurement_blind
+
+# the algorithmic baselines (resumable; hours at full scale)
+./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/50_run_baselines_algorithmic.py
+```
+
+**Resuming.** Every long-running script here checkpoints and resumes by
+re-running the identical command: the builders through part parquets,
+`30_train.py` through `checkpoint_last.pt` (mid-epoch exact), the baseline
+runner through part parquets. Nothing needs a flag to resume; `--force` /
+`--force-restart` are how you start over.
+
+---
+
 > **⚠️ EVERY SCRIPT IN THIS FOLDER IS PRE-REGEN AND STALE (as of
 > 2026-08-26).** They were written against the *old* Phase 1 layout —
 > per-study NPY/PNG/JPG paths that no longer exist, an 80/10/10 split

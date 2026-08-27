@@ -1,0 +1,44 @@
+# =============================================================================
+# A4_fiducial.yaml — A4 event-localization evaluation (spec §7.4)
+# =============================================================================
+meta:
+  spec: "docs/PHASE2_SOURCE_OF_TRUTH.md §7.4"
+  task: A4_event_localization
+  extends: default.yaml
+
+matcher:
+  tolerance_ms: 10              # +/-5 samples at 500 Hz
+  greedy: true
+  note: |
+    Greedy nearest-neighbour over the sorted sequences. Each true event matches
+    at most one prediction and vice versa, so a detector that fires twice on one
+    beat is charged a false positive rather than rewarded twice.
+
+report:
+  - r_peak_f1
+  - r_peak_precision
+  - r_peak_recall
+  - r_peak_mean_abs_error_ms
+  - qrs_onset_f1
+  - qrs_offset_f1
+  - mean_absolute_qrs_duration_error_ms
+
+event_count_distribution:
+  buckets: [-5, -3, -1, 0, 1, 3, 5]
+  field: "predicted_n_peaks - true_n_peaks"
+  figure: "outputs/figures/supplementary/sfig_a4_event_count.png"
+
+decode:
+  threshold: 0.5
+  min_peak_distance_samples: 100    # 200 ms — under the refractory floor at 300 bpm
+
+oracle_baseline:
+  expected_f1: 1.0
+  detector_method: neurokit
+  note: |
+    §4.A.4.7 promises F1 = 1.0 for the algorithmic baseline and calls it
+    "Pan-Tompkins". Both can only hold if the baseline runs the SAME detector
+    that produced the ground truth, which is NeuroKit's default `neurokit`
+    method — the Phase 1 regen moved off `pantompkins` because it was wrong
+    (progress-doc trap 2). `pantompkins` is reported as an extra NON-oracle row
+    that measures detector disagreement.

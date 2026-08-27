@@ -1,0 +1,131 @@
+task: A3_lab_abnormality
+arch_tier: signal_resnet18_12lead_preprocessed
+lead_subset: 12lead
+generated_by: _model_lib/model_configs.py --emit
+spec: docs/PHASE2_SOURCE_OF_TRUTH.md §5.8
+note: Architecture values are fixed by config/decision_phase2.yaml (§5). This file selects encoders, input
+  modalities and head shape only.
+head:
+  n_out_total: 175
+  heads:
+  - name: lab_K_pm24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_K_pre_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_K_post_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_K_pm6h
+    kind: multiclass
+    n_out: 5
+  - name: lab_K_pm12h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Na_pm24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Na_pre_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Na_post_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Na_pm6h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Na_pm12h
+    kind: multiclass
+    n_out: 5
+  - name: lab_creatinine_pm24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_creatinine_pre_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_creatinine_post_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_creatinine_pm6h
+    kind: multiclass
+    n_out: 5
+  - name: lab_creatinine_pm12h
+    kind: multiclass
+    n_out: 5
+  - name: lab_troponin_pm24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_troponin_pre_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_troponin_post_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_troponin_pm6h
+    kind: multiclass
+    n_out: 5
+  - name: lab_troponin_pm12h
+    kind: multiclass
+    n_out: 5
+  - name: lab_lactate_pm24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_lactate_pre_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_lactate_post_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_lactate_pm6h
+    kind: multiclass
+    n_out: 5
+  - name: lab_lactate_pm12h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Ca_pm24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Ca_pre_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Ca_post_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Ca_pm6h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Ca_pm12h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Mg_pm24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Mg_pre_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Mg_post_24h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Mg_pm6h
+    kind: multiclass
+    n_out: 5
+  - name: lab_Mg_pm12h
+    kind: multiclass
+    n_out: 5
+train:
+  epochs: 30
+  batch_size: 256
+  accumulation_steps: 1
+  patience: 5
+  learning_rates:
+    head: 0.001
+    signal_backbone: 0.001
+    image_backbone: 1.0e-05
+    text_backbone_layers: 1.0e-05
+    text_embeddings: 1.0e-06
+signal:
+  encoder: ECGResNet1D18
+  n_leads: 12
+  input_modality: preprocessed_12lead
+  embed_dim: 512

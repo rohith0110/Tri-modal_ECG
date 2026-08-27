@@ -1,0 +1,41 @@
+task: A1_ecg_diagnosis
+arch_tier: signal_resnet18_lead2_raw
+lead_subset: lead2
+generated_by: _model_lib/model_configs.py --emit
+spec: docs/PHASE2_SOURCE_OF_TRUTH.md §5.8
+note: Architecture values are fixed by config/decision_phase2.yaml (§5). This file selects encoders, input
+  modalities and head shape only.
+head:
+  n_out_total: 5
+  heads:
+  - name: label_atrial_fibrillation_flutter
+    kind: binary
+    n_out: 1
+  - name: label_heart_failure_narrow
+    kind: binary
+    n_out: 1
+  - name: label_acute_myocardial_infarction
+    kind: binary
+    n_out: 1
+  - name: label_conduction_disorder
+    kind: binary
+    n_out: 1
+  - name: label_ventricular_arrhythmia_or_arrest
+    kind: binary
+    n_out: 1
+train:
+  epochs: 30
+  batch_size: 256
+  accumulation_steps: 1
+  patience: 5
+  learning_rates:
+    head: 0.001
+    signal_backbone: 0.001
+    image_backbone: 1.0e-05
+    text_backbone_layers: 1.0e-05
+    text_embeddings: 1.0e-06
+signal:
+  encoder: ECGResNet1D18
+  n_leads: 1
+  input_modality: raw_lead2
+  embed_dim: 512

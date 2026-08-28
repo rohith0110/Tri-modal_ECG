@@ -100,6 +100,14 @@ with the three name mappings the stager expects
 `image_clean_12lead → chunks/images_clean_12lead`,
 `raw_12lead → chunks/signals_raw`).
 
+* **A piece counts as uploadable only once `make_chunks.py` has recorded it in
+  `checksums.json`** — which happens after the atomic rename. The first version
+  globbed `piece_*` and a dry-run caught it about to push a live cut's
+  `piece_001.h5.tmp`: a half-written file that, being listed in no manifest,
+  the stager's verifier would then have skipped. Every file is also cross-checked
+  against the digest its builder recorded before it is pushed; the hash is
+  computed for the upload manifest anyway, so the check costs nothing and catches
+  a truncated artifact before the DGX trains on it.
 * **Resumable**: the remote layout is materialised as a tree of *hard links*
   under `outputs/upload_stage/` (no bytes copied — same volume) and pushed with
   `rclone copy --checksum`, which skips what already matches. sha256 digests are
@@ -152,16 +160,19 @@ nothing. The stager's `find` now matches `checksums*.json`.
 | # | campaign | datasets | bytes | state |
 | - | -------- | -------- | ----: | ----- |
 | 1 | text_models | code, configs, tasks, fiducials, index, text | 1.10 GB | **UPLOADED, round-trip verified** |
-| 2 | images_12lead | + images_clean_12lead | 8.94 GB | uploading |
-| 3 | images_lead2 | + images_clean_lead2 | 17.84 GB | queued |
-| 4 | signals_lead2 | + signals_lead2 (12.57 GB), signals_corrupted | 13.50 GB | queued |
-| 5 | signals_12lead_L3 | + signals_12lead_L3 | 43.93 GB | building |
-| 6 | signals_12lead_full | chunks/signals_12lead ×8 | ~54.5 GB | cutting |
-| 7 | fusion_L3 | + images_clean_12lead_L3 | 5.10 GB | building |
-| 8 | fusion_full | chunks/images_clean_12lead ×8 | ~5.9 GB | cutting |
-| 9 | retrain_sweeps | chunks/signals_raw ×8 | ~23.6 GB | cutting |
-| 10 | test_sweeps | + images_scanlike_test | 20.40 GB | building |
+| 2 | images_12lead | + images_clean_12lead | 8.94 GB | **UPLOADED** |
+| 3 | images_lead2 | + images_clean_lead2 | 17.84 GB | **UPLOADED** |
+| 4 | signals_lead2 | + signals_lead2 (12.57 GB), signals_corrupted | 13.50 GB | **UPLOADED** |
+| 5 | signals_12lead_L3 | + signals_12lead_L3 | 43.93 GB | train + val built; test building |
+| 6 | signals_12lead_full | chunks/signals_12lead ×8 | ~54.5 GB | cutting, 1 of 8 pieces |
+| 7 | fusion_L3 | + images_clean_12lead_L3 | 5.02 GB | **BUILT + verified, uploading** |
+| 8 | fusion_full | chunks/images_clean_12lead ×8 | 5.82 GB | **CUT 8/8, uploading** |
+| 9 | retrain_sweeps | chunks/signals_raw ×8 | ~23.6 GB | queued behind campaign 6's cut |
+| 10 | test_sweeps | + images_scanlike_test | 20.33 GB | **BUILT, uploading** |
 | 11 | final_eval | results | — | reads `r2:trimodal-results`, filled by `push_results.sh` |
+
+**41.36 GiB was in the bucket after campaigns 1–4** (524 objects), measured with
+`rclone size r2:trimodal-data`.
 
 **Project upload total ≈ 195 GB**, not the ~142 GB the plan assumed — Step 5's
 measured int16 ratio (77.5 GiB of 12-lead, not 56.7) plus the chunk cuts, which

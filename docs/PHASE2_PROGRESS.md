@@ -19,10 +19,14 @@ starting cold reads this first, works, then updates it before the session ends.
 - **Step 6 — IN PROGRESS since 2026-08-29 (session 8). The tooling is done and
   proved; the bytes are still moving.** Report:
   `outputs/stage_reports/step6_staging_report.md`.
-  **Campaign 1 is uploaded AND was pulled back with the real `stage_data.sh`:
-  49 files checksum-verified, zero mismatches, every path where `modality.py`
-  looks for it.** Campaigns 2–4 are uploading; the L3 subsets and the three
-  chunk cuts are building locally.
+  **Campaigns 1–4 are UPLOADED — 41.4 GiB, 524 objects — and campaign 1 was
+  pulled back with the real `stage_data.sh`: 49 files checksum-verified, zero
+  mismatches, every path where `modality.py` looks for it.** Two of the three
+  derived datasets are built and verified (`images_clean_12lead_L3` 5.02 GB,
+  `images_scanlike_test` 20.33 GB) and are uploading with the finished
+  `chunks/images_clean_12lead` cut (8/8 pieces); `signals_12lead_L3` has train
+  and val on disk with test still building, and the 12-lead signal cut is on
+  piece 1 of 8.
   New: `make_subsets.py` (the three derived datasets, from the task parquets'
   `is_primary` rows — 422,147 studies) and `upload_data.py` (resumable,
   `--dry-run`, per-dataset checksum manifests). `modality.py` gained **manifest
@@ -718,10 +722,14 @@ plan; this is the index of record.
         int16 copy, `_resolve_h5` falls back to the float32 original when the
         int16 file is absent, and both files are uploaded at exactly the two
         paths the manifest names — so campaign 4 resolves both encodings.
-  - [ ] **Job 4 — upload, in campaign order.** Campaign 1 **UPLOADED** (1.10 GB)
-        and round-trip verified. Campaigns 2 (8.94 GB), 3 (17.84 GB) and 4
-        (13.50 GB) uploading. The rest are one command each:
-        `upload_data.py --campaign N`.
+  - [ ] **Job 4 — upload, in campaign order.** **Campaigns 1–4 UPLOADED**
+        (1.10 + 8.94 + 17.84 + 13.50 GB; `rclone size` = 41.4 GiB, 524 objects),
+        campaign 1 round-trip verified. `images_clean_12lead_L3`,
+        `images_scanlike_test` and `chunks/images_clean_12lead` uploading. The
+        rest are one command each: `upload_data.py --campaign N`.
+        **A chunked dataset is only uploaded when its cut is complete** — a
+        `checksums.json` listing 1 of 8 pieces would let a stager pull piece 1
+        and fail on piece 2.
         Privacy checked before the first push: raw MIMIC, the EHR cache, the
         linkage tables, `structured_features.parquet` and anything
         credential-shaped are refused **by path pattern**, every task parquet's

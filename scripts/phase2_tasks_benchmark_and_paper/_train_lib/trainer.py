@@ -502,6 +502,15 @@ def collect_predictions(model: TaskModel, spec: TaskSpec, dataset: TaskDataset,
                 push(f"y_true_index_{head.name}", batch[f"y__{head.name}"].numpy().tolist())
                 push(f"valid_{head.name}", batch[f"m__{head.name}"].numpy().astype(bool).tolist())
 
+            elif head.kind == "regression":
+                # Inverted here, once, so every downstream consumer -- metrics,
+                # bootstrap, the results CSV, the paper table -- sees bpm and ms
+                # and never the standardised scale.
+                predicted = head.destandardise(outputs[head.name].squeeze(-1).numpy())
+                push(f"y_pred_{head.name}", predicted.tolist())
+                push(f"y_true_{head.name}", batch[f"raw__{head.name}"].numpy().tolist())
+                push(f"valid_{head.name}", batch[f"m__{head.name}"].numpy().astype(bool).tolist())
+
             elif head.kind == "peak_seq":
                 probability = torch.sigmoid(outputs["fiducials"]).numpy()
                 onset = outputs["fiducials_onset"].numpy()
@@ -565,6 +574,8 @@ def head_present(head, predictions: pd.DataFrame) -> bool:
         return "y_pred_proba_bins" in predictions.columns
     if head.kind == "span":
         return "y_pred_span_start_norm" in predictions.columns
+    if head.kind == "regression":
+        return f"y_pred_{head.name}" in predictions.columns
     if head.kind == "binary":
         return f"y_pred_proba_{head.name}" in predictions.columns
     return f"y_pred_proba_{head.name}__{head.classes[0]}" in predictions.columns
@@ -596,6 +607,12 @@ def head_metrics(spec: TaskSpec, predictions: pd.DataFrame) -> dict[str, Any]:
                 else float("nan"),
                 "n": int(valid.sum()),
             }
+        elif head.kind == "regression":
+            valid = predictions[f"valid_{head.name}"].to_numpy(dtype=bool)
+            out[head.name] = M.regression_metrics(
+                predictions[f"y_true_{head.name}"].to_numpy()[valid],
+                predictions[f"y_pred_{head.name}"].to_numpy()[valid],
+                tolerance=head.tolerance, units=head.units)
         elif head.kind == "peak_seq":
             matches = [M.match_events(np.asarray(t), np.asarray(p))
                        for t, p in zip(predictions["y_true_r_peaks_lead2"],

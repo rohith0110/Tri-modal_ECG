@@ -94,8 +94,48 @@ SCHEMA = pa.schema([
     ("followup_days_after_discharge", pa.float32()),
     ("next_admission_type", pa.string()),
     ("next_admission_location", pa.string()),
+    # --- Plan A/B §5.8 nested-baseline covariates. ALL strictly pre-ECG. -----
+    # §5.8 requires six baseline tiers for A6 -- prevalence, demographics,
+    # demographics+comorbidities, utilization, machine measurements, ECG -- and
+    # Figure 5 is the nested curve across them. §7 names the failure condition
+    # outright: "Only compared to random/prevalence baseline." None of these
+    # columns existed, so the intermediate rungs could not be built at all.
+    #
+    # Every one of them is knowable at `ecg_time`: Plan §5.8's index-time rule is
+    # "do not use any feature measured after ECG", and App. F lists "using future
+    # covariates for risk" as a named failure mode. The builder enforces it by
+    # construction -- prior counts read admissions DISCHARGED before the ECG,
+    # prior diagnoses come from those admissions only, and the ED disposition is
+    # taken from a stay that had already ended.
+    #
+    # These are BASELINE features, not model inputs: `task_input_policy.yaml`
+    # still forbids them for every trained encoder, exactly as the machine
+    # measurements are forbidden but permitted to the A6 Cox baseline.
+    ("age_at_ecg", pa.float32()),
+    ("sex_male", pa.bool_()),
+    ("race", pa.string()),
+    ("insurance", pa.string()),
+    ("admission_type", pa.string()),          # this admission's, known at admit
+    ("ed_disposition", pa.string()),          # last ED stay ENDING before the ECG
+    ("n_prior_admissions", pa.int32()),
+    ("n_prior_ecgs", pa.int32()),
+    ("days_since_last_discharge", pa.float32()),
+    ("prior_dx_atrial_fibrillation_flutter", pa.bool_()),
+    ("prior_dx_heart_failure_narrow", pa.bool_()),
+    ("prior_dx_acute_myocardial_infarction", pa.bool_()),
+    ("prior_dx_conduction_disorder", pa.bool_()),
+    ("prior_dx_ventricular_arrhythmia_or_arrest", pa.bool_()),
     ("is_primary", pa.bool_()),
 ])
+
+# The comorbidity vocabulary is the LOCKED A1 map, not a new one: five cardiac
+# groups, 175 codes, already validated against `d_icd_diagnoses` at Stage P2.0.
+# Plan A/B §5.8 asks for "prior ICD/comorbidity flags before ECG only" without
+# naming a vocabulary; reusing the locked one keeps A1 and A6 from drifting and
+# means no code list is invented here.
+PRIOR_DX_GROUPS = ("atrial_fibrillation_flutter", "heart_failure_narrow",
+                   "acute_myocardial_infarction", "conduction_disorder",
+                   "ventricular_arrhythmia_or_arrest")
 
 
 def load_admissions() -> pd.DataFrame:
@@ -108,7 +148,9 @@ def load_admissions() -> pd.DataFrame:
     adm = pd.read_csv(
         ADMISSIONS_CSV,
         usecols=["subject_id", "hadm_id", "admittime", "dischtime", "deathtime",
-                 "admission_type", "admission_location", "hospital_expire_flag"],
+                 "admission_type", "admission_location", "hospital_expire_flag",
+                 # §5.8 demographics baseline; the cached parquet drops both.
+                 "race", "insurance"],
         parse_dates=["admittime", "dischtime", "deathtime"],
         compression="gzip",
     )
@@ -153,6 +195,108 @@ def next_admission_table(adm: pd.DataFrame) -> pd.DataFrame:
                 })
                 break
     return pd.DataFrame(records)
+
+
+def prior_ecg_counts(cohort: pd.DataFrame, all_ecgs: pd.DataFrame) -> pd.Series:
+    """How many of the subject's ECGs precede this one, over the WHOLE index.
+
+    Counted against every clean ECG the subject has, not just the L3/L2 ones in
+    the A6 cohort. Plan A/B §5.8 wants prior ECG count as a utilization proxy --
+    "controls for sick-patient ECG frequency" -- and a patient's unlinked
+    outpatient ECGs are part of that frequency. Restricting the count to the A6
+    cohort would make the covariate a function of linkage rather than of care.
+    """
+    pool = all_ecgs[all_ecgs.subject_id.isin(set(cohort.subject_id))][
+        ["study_id", "subject_id", "ecg_time"]].copy()
+    pool = pool.sort_values(["subject_id", "ecg_time", "study_id"], kind="mergesort")
+    pool["n_prior"] = pool.groupby("subject_id").cumcount().astype("int32")
+    return cohort.study_id.map(pool.set_index("study_id")["n_prior"])
+
+
+def prior_history(cohort: pd.DataFrame, adm: pd.DataFrame) -> pd.DataFrame:
+    """Per-ECG utilisation and comorbidity counts, using only PRE-ECG records.
+
+    Plan A/B §5.8's utilization tier ("prior admissions, prior ECG count,
+    current admission type") and its comorbidity tier ("prior ICD ... before ECG
+    only"). App. F's "using future covariates for risk" is the failure mode this
+    guards against, so the cut is explicit and one-sided everywhere:
+
+    * an admission counts only if its **discharge** precedes the ECG -- an
+      admission still in progress is the ECG's own encounter, not history;
+    * a prior ECG counts only if its ``ecg_time`` is strictly earlier;
+    * a prior diagnosis is read from those already-discharged admissions only,
+      because ICD codes are assigned at discharge and the current admission's
+      codes describe the very episode being predicted from.
+
+    Returns one row per cohort study.
+    """
+    out = pd.DataFrame({"study_id": cohort.study_id.to_numpy(),
+                        "subject_id": cohort.subject_id.to_numpy(),
+                        "ecg_time": cohort.ecg_time.to_numpy()})
+
+    discharged = adm[adm.dischtime.notna()][["subject_id", "hadm_id", "dischtime"]]
+    pairs = out[["study_id", "subject_id", "ecg_time"]].merge(
+        discharged, on="subject_id", how="left")
+    before = pairs[pairs.dischtime < pairs.ecg_time]
+
+    counts = before.groupby("study_id").size()
+    out["n_prior_admissions"] = out.study_id.map(counts).fillna(0).astype("int32")
+    last_discharge = before.groupby("study_id")["dischtime"].max()
+    out["days_since_last_discharge"] = (
+        (out.ecg_time - out.study_id.map(last_discharge)).dt.total_seconds() / 86400.0
+    ).astype("float32")
+
+    # Prior diagnoses, from the already-discharged admissions only. The matcher
+    # is A1's, imported rather than copied: two implementations of "does this
+    # ICD code belong to this group" would eventually disagree, and then A1's
+    # label and A6's comorbidity flag would mean different things.
+    a1 = _import_a1()
+    groups = a1.load_label_map()
+    dx = pd.read_parquet(bc.EHR_CACHE / "diagnoses_icd.parquet",
+                         columns=["subject_id", "hadm_id", "icd_code", "icd_version"])
+    dx = dx[dx.subject_id.isin(set(out.subject_id))].copy()
+    dx["icd_code"] = dx["icd_code"].astype(str).str.strip()
+
+    distinct = dx[["icd_code", "icd_version"]].drop_duplicates()
+    flags = a1.code_group_table(distinct, groups)
+    prior_dx = (before[["study_id", "hadm_id"]]
+                .merge(dx[["hadm_id", "icd_code", "icd_version"]], on="hadm_id", how="inner")
+                .merge(flags, on=["icd_code", "icd_version"], how="left"))
+    for group in PRIOR_DX_GROUPS:
+        hits = set(prior_dx.loc[prior_dx[group].fillna(False), "study_id"])
+        out[f"prior_dx_{group}"] = out.study_id.isin(hits)
+    return out.drop(columns=["subject_id", "ecg_time"])
+
+
+def _import_a1():
+    """Load `01_build_A1_ecg_diagnosis.py` as a module (its name starts with a digit)."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent / "01_build_A1_ecg_diagnosis.py"
+    spec = importlib.util.spec_from_file_location("_a1_builder", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def ed_disposition_before_ecg(cohort: pd.DataFrame) -> pd.Series:
+    """Disposition of the last ED stay that had ENDED before the ECG.
+
+    Plan A/B §5.8: "ED disposition if before ECG". A stay still open at
+    ``ecg_time`` has no disposition yet, and the disposition of the stay the ECG
+    was taken during would be a future covariate -- so both are excluded by the
+    strict ``outtime < ecg_time`` cut.
+    """
+    ed = pd.read_parquet(bc.EHR_CACHE / "edstays.parquet",
+                         columns=["subject_id", "outtime", "disposition"])
+    ed["outtime"] = pd.to_datetime(ed["outtime"], errors="coerce")
+    ed = ed[ed.outtime.notna() & ed.subject_id.isin(set(cohort.subject_id))]
+
+    pairs = cohort[["study_id", "subject_id", "ecg_time"]].merge(
+        ed, on="subject_id", how="left")
+    pairs = pairs[pairs.outtime < pairs.ecg_time]
+    latest = pairs.sort_values("outtime", kind="mergesort").groupby("study_id").last()
+    return cohort.study_id.map(latest["disposition"]).astype("string")
 
 
 def last_observed_by_subject(adm: pd.DataFrame, patients: pd.DataFrame) -> pd.Series:
@@ -249,6 +393,42 @@ def main() -> int:
     for horizon in (30, 90):
         positive = (gap_to_next.notna() & (gap_to_next <= pd.Timedelta(days=horizon))).fillna(False)
         df[f"readmission_{horizon}d"] = positive.where(has_admission, other=pd.NA).astype("boolean")
+
+    # --- Plan A/B §5.8 nested-baseline covariates ---------------------------
+    # Age at the ECG, not anchor age: MIMIC-IV shifts each patient's dates into
+    # a private window, but the OFFSET from `anchor_year` is preserved, so
+    # `anchor_age + (ecg year - anchor_year)` is valid within a patient even
+    # though calendar years are not comparable across patients (§2.3 caveat).
+    demo = pd.read_parquet(bc.EHR_CACHE / "patients.parquet",
+                           columns=["subject_id", "gender", "anchor_age", "anchor_year"])
+    df = df.merge(demo, on="subject_id", how="left")
+    df["age_at_ecg"] = (
+        df["anchor_age"] + (df["ecg_time"].dt.year - df["anchor_year"])
+    ).astype("float32")
+    df["sex_male"] = (df["gender"].astype(str).str.upper() == "M")
+
+    df = df.merge(adm[["hadm_id", "admission_type", "race", "insurance"]],
+                  on="hadm_id", how="left")
+    df["ed_disposition"] = ed_disposition_before_ecg(df)
+    df = df.merge(prior_history(df, adm), on="study_id", how="left")
+    df["n_prior_ecgs"] = prior_ecg_counts(df, bc.load_clean_cohort(dev=args.dev))
+    for group in PRIOR_DX_GROUPS:
+        df[f"prior_dx_{group}"] = df[f"prior_dx_{group}"].fillna(False).astype(bool)
+    df["n_prior_admissions"] = df["n_prior_admissions"].fillna(0).astype("int32")
+    df["n_prior_ecgs"] = df["n_prior_ecgs"].fillna(0).astype("int32")
+    for column in ("race", "insurance", "admission_type", "ed_disposition"):
+        df[column] = df[column].astype("string")
+
+    # The one thing that must not slip: every covariate above is knowable at
+    # `ecg_time` (Plan §5.8 index-time rule, App. F "using future covariates").
+    # Assert the two that are computed from timestamps rather than fixed facts.
+    lag = df["days_since_last_discharge"].dropna()
+    if len(lag) and float(lag.min()) < 0:
+        raise RuntimeError(
+            f"{int((lag < 0).sum())} rows have a 'last discharge' AFTER the ECG -- "
+            "the utilization covariates would be future information")
+    if int((df["n_prior_ecgs"] < 0).sum()):
+        raise RuntimeError("negative prior-ECG count")
 
     df["is_primary"] = df.link_tier == "L3"
     df["cart_id"] = df["cart_id"].astype("Int64").astype("string")

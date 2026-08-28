@@ -59,6 +59,11 @@ TIER_PREFERENCE = {
     "text_tfidf": ["text_tfidf"],
     "text_bert": ["text_bioclinicalbert"],
     "fusion": ["multimodal_fusion_lead2"],
+    # Plan A/B §5.3 ablation 6 -- the trained no-text multimodal tier. It has to
+    # run on real bytes like every other tier: dropping the text encoder changes
+    # the fusion input width, and a config that only *looks* right would be found
+    # at campaign time on the DGX rather than here.
+    "fusion_notext": ["multimodal_fusion_notext_lead2"],
 }
 
 
@@ -279,7 +284,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--tasks", nargs="*", default=None)
     parser.add_argument("--tiers", nargs="*", default=["signal", "image", "text_tfidf",
-                                                       "text_bert", "fusion"])
+                                                       "text_bert", "fusion",
+                                                       "fusion_notext"])
     parser.add_argument("--rows", type=int, default=48)
     parser.add_argument("--steps", type=int, default=2)
     parser.add_argument("--skip-train", action="store_true")

@@ -341,6 +341,15 @@ class TaskDataset(Dataset):
             [lookup.get(int(sid), "") for sid in self.frame[self.spec.text_id_column]],
             dtype=object,
         )
+        # Plan A/B §6.7 Level 5 (A5 / B4 test rows only): the row keeps the
+        # anchor's own `text_id` and supplies the altered report inline, so the
+        # negative differs from the positive by exactly one clinical claim. Any
+        # other row leaves the column null and reads its text by id as usual.
+        if "text_override" in self.frame.columns:
+            override = self.frame["text_override"].to_numpy()
+            present = pd.notna(override)
+            if present.any():
+                self._texts[present] = [str(v) for v in override[present]]
 
     # -- text encoders --------------------------------------------------------
     def raw_texts(self) -> np.ndarray:
@@ -436,6 +445,16 @@ class TaskDataset(Dataset):
                 valid = valid and pd.notna(raw) and raw in head.classes
                 out[f"y__{head.name}"] = torch.tensor(
                     head.classes.index(raw) if valid else -1, dtype=torch.long)
+
+            elif head.kind == "regression":
+                # Stored standardised (declared constants, not fitted stats --
+                # see MEASUREMENT_REGRESSION). `31_eval.py` inverts it.
+                raw = row[head.label_column]
+                valid = valid and pd.notna(raw) and np.isfinite(float(raw))
+                out[f"y__{head.name}"] = torch.tensor(
+                    head.standardise(raw) if valid else 0.0, dtype=torch.float32)
+                out[f"raw__{head.name}"] = torch.tensor(
+                    float(raw) if valid else float("nan"), dtype=torch.float32)
 
             elif head.kind == "peak_seq":
                 dense, onset_reg, offset_reg, reg_mask = self._dense_fiducials(row)

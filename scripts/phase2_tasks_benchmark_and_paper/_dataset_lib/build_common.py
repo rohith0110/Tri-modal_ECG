@@ -386,6 +386,30 @@ def qtc_label(qtc: pd.Series) -> pd.Series:
     return out.where(qtc.notna())
 
 
+def axis_label(axis: pd.Series) -> pd.Series:
+    """QRS axis -> left / borderline / normal / right.
+
+    The cut points are NOT invented here: they are the locked clear zones from
+    `config/claim_dictionary_LOCKED.yaml` (`families.axis`) -- clear LAD below
+    -45 deg, clear RAD above 105 deg, and the injection-free zone -35..95 deg as
+    "normal". The two gap bands between them become `borderline` rather than
+    being forced into a neighbouring class, so a match on this bucket means the
+    two studies really do sit in the same locked zone.
+
+    Used only to construct the §6.7 Level-3 hard negatives. Like `hr_bucket`,
+    this is a COHORT-CONSTRUCTION use of a machine measurement, never a model
+    input -- the input policy forbids `machine_measurements` for every task that
+    reads this bucket.
+    """
+    out = pd.Series(
+        np.select(
+            [axis < -45.0, (axis >= -35.0) & (axis <= 95.0), axis > 105.0],
+            ["left", "normal", "right"], default="borderline"),
+        index=axis.index, dtype=object,
+    )
+    return out.where(axis.notna())
+
+
 def report_text_series(dev: bool = False) -> pd.DataFrame:
     """``study_id -> report_text`` (the ``T_machine`` column, §2.5 policy name)."""
     df = pd.read_parquet(

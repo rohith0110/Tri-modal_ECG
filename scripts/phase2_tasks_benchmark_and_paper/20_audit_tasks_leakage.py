@@ -113,16 +113,14 @@ PROVENANCE: dict[str, dict[str, tuple[str, str]]] = {
         "n_icd_codes_on_admission": ("label provenance", "§4.A.1.5"),
         "icd_codes_matched": ("label provenance", "§4.A.1.5"),
     },
+    # hr_bpm / qrs_ms / qtc_ms are no longer listed here: since the §5.4
+    # regression heads were added they are TARGETS, and `classify` reaches them
+    # as labels. Declaring a target as provenance would have hidden it from the
+    # head-to-column cross-check.
     "A2_measurement_blind": {
-        "hr_bpm": ("declared provenance", "§4.A.2.5 `# provenance`"),
-        "qrs_ms": ("declared provenance", "§4.A.2.5 `# provenance`"),
-        "qtc_ms": ("declared provenance", "§4.A.2.5 `# provenance`"),
         "qtc_ms_bazett": ("declared provenance", "§4 decision 14 sensitivity row"),
     },
     "B1_measurement_blind": {
-        "hr_bpm": ("declared provenance", "§4.B.1.5 = §4.A.2.5"),
-        "qrs_ms": ("declared provenance", "§4.B.1.5 = §4.A.2.5"),
-        "qtc_ms": ("declared provenance", "§4.B.1.5 = §4.A.2.5"),
         "qtc_ms_bazett": ("declared provenance", "§4 decision 14 sensitivity row"),
     },
     "A3_lab_abnormality": {
@@ -135,6 +133,9 @@ PROVENANCE: dict[str, dict[str, tuple[str, str]]] = {
     },
     "A5_cross_modal_verification": {
         "report_text_masked": ("model text input (masked)", "§4.A.5.4 allowed input"),
+        "text_override": ("model text input (level-5 negative)",
+                          "Plan A/B §6.7 level 5 — the anchor's own report with one claim "
+                          "swapped; replaces the text `text_id` points at, on those rows only"),
         "masked_positions": ("masking provenance", "§4.A.5.3"),
         "n_masked_spans": ("masking provenance", "§4.A.5.3"),
         "masked_families": ("masking provenance", "§4 decision 16"),
@@ -144,6 +145,26 @@ PROVENANCE: dict[str, dict[str, tuple[str, str]]] = {
         "days_to_readmission": ("label provenance", "§4.A.6.5"),
         "next_admission_type": ("label provenance", "§4.A.6.5"),
         "next_admission_location": ("label provenance", "§4.A.6.5"),
+        # Plan A/B §5.8's nested-baseline covariates. Every one is knowable at
+        # `ecg_time` and every one is BASELINE-ONLY -- the policy's
+        # `baseline_only_exemptions` block declares them, and gate 3 proves the
+        # dataloader hands none of them to a model.
+        "age_at_ecg": ("baseline covariate", "Plan A/B §5.8 demographics tier"),
+        "sex_male": ("baseline covariate", "Plan A/B §5.8 demographics tier"),
+        "race": ("baseline covariate", "Plan A/B §5.8 demographics tier"),
+        "insurance": ("baseline covariate", "Plan A/B §5.8 demographics tier"),
+        "admission_type": ("baseline covariate", "Plan A/B §5.8 utilization tier"),
+        "ed_disposition": ("baseline covariate", "Plan A/B §5.8 utilization tier"),
+        "n_prior_admissions": ("baseline covariate", "Plan A/B §5.8 utilization tier"),
+        "n_prior_ecgs": ("baseline covariate", "Plan A/B §5.8 utilization tier"),
+        "days_since_last_discharge": ("baseline covariate", "Plan A/B §5.8 utilization tier"),
+        "re:^prior_dx_.+$": ("baseline covariate",
+                             "Plan A/B §5.8 comorbidity tier — prior ICD before the ECG, "
+                             "using the locked A1 group map"),
+    },
+    "B4_cross_modal_verification": {
+        "text_override": ("model text input (level-5 negative)",
+                          "Plan A/B §6.7 level 5 — same construction as A5's"),
     },
     "B3_temporal_grounding": {
         "link_tier": ("cohort provenance", "§4.B.3.5"),
@@ -246,6 +267,20 @@ def gate_columns(audit: ac.Audit) -> None:
             elif reference and reference in policy[task_key].get("forbidden_inputs", ()):
                 if role.startswith("declared provenance"):
                     verdict = "provenance"
+                elif role == "label":
+                    # A column that IS a head's target is not an input. A2/B1
+                    # regress `hr_bpm`, `qrs_ms` and `qtc_ms` (Plan A/B §5.4
+                    # makes MAE/RMSE the primary metric there), so the machine
+                    # measurement is the ANSWER those heads are scored against,
+                    # exactly as the already-unflagged `hr_label` is. What keeps
+                    # it out of the model is gate 3, which builds the real
+                    # dataloader and checks the tensor keys -- a schema rule
+                    # never could.
+                    verdict = "label (target, not input)"
+                elif role.startswith("baseline covariate"):
+                    # Declared under `baseline_only_exemptions`; gate 6 proves
+                    # only `algorithmic_baselines.py` reads them.
+                    verdict = "baseline-only"
                 else:
                     forbidden_hits.append(f"{name} ({reference})")
                     verdict = "FORBIDDEN"
@@ -359,6 +394,14 @@ def gate_dataloader(audit: ac.Audit, log) -> None:
         allowed_keys = set(STATIC_BATCH_KEYS)
         for head in spec.heads:
             allowed_keys |= {f"y__{head.name}", f"m__{head.name}"}
+            if head.kind == "regression":
+                # `raw__<head>` is the same target as `y__<head>` in real units,
+                # carried so the trainer can report MAE in bpm/ms without
+                # re-deriving the standardisation. It is a TARGET, never an
+                # input: no encoder and no head reads it -- `compute_losses`
+                # reads only `y__`/`m__`, and gate 6 keeps the machine
+                # measurements out of every module on the model path.
+                allowed_keys.add(f"raw__{head.name}")
         allowed_keys |= {"y__fiducials_onset", "y__fiducials_offset", "y__fiducials_regmask"}
 
         seen_families: set[str] = set()
@@ -538,11 +581,14 @@ def gate_source_tree(audit: ac.Audit) -> None:
     baseline_source = _strip_comments(baselines.read_text(encoding="utf-8"))
     reads_machine = any(token in baseline_source for token in SOURCE_FORBIDDEN)
     declared = [key for key in TASK_KEYS if policy[key].get("baseline_only_exemptions")]
+    # A3 joined A1 and A6 when Plan A/B §5.9's structured baseline was restored
+    # (§5.9 requires it for all three; spec §4.A.3.7 had waived A3's).
+    expected_exemptions = ["A1_ecg_diagnosis", "A3_lab_abnormality", "A6_risk_stratification"]
     audit.check("(all tasks)", "baseline_exemptions_declared",
-                (not reads_machine) or sorted(declared) == ["A1_ecg_diagnosis",
-                                                            "A6_risk_stratification"],
+                (not reads_machine) or sorted(declared) == expected_exemptions,
                 f"`algorithmic_baselines.py` reads machine measurements: {reads_machine}; "
-                f"tasks declaring `baseline_only_exemptions`: {declared}")
+                f"tasks declaring `baseline_only_exemptions`: {declared} "
+                f"(expected {expected_exemptions})")
 
 
 def _strip_comments(source: str) -> str:

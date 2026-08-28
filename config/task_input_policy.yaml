@@ -147,6 +147,11 @@ tasks:
       ST elevation) that the model should learn from raw signal — feeding
       pre-computed morphology features would short-circuit that learning
       and bias the comparison.
+    baseline_only_exemptions:
+    - baseline: "algorithmic multinomial logistic regression on machine-measurement summary stats (HR/QRS/QTc/axis/PR)"
+      reads: [machine_measurements]
+      spec: "Plan A/B §5.9 (structured baseline required for A1, A3 and A6); restores what §4.A.3.7 waived"
+      scope: "50_run_baselines_algorithmic.py only; never reaches a trained encoder"
 
   A4_event_localization:
     allowed_inputs:
@@ -227,6 +232,20 @@ tasks:
     - baseline: "algorithmic Cox proportional hazards on age + sex + machine HR + QRS + QTc"
       reads: [machine_measurements]
       spec: "§4.A.6.7, §5.1"
+      scope: "50_run_baselines_algorithmic.py only; never reaches a trained encoder"
+    - baseline: "the nested clinical ladder — prevalence, demographics, demographics+comorbidities, utilization"
+      reads: [ehr_covariates]
+      columns: [age_at_ecg, sex_male, race, insurance, admission_type, ed_disposition,
+                n_prior_admissions, n_prior_ecgs, days_since_last_discharge, "prior_dx_*"]
+      spec: "Plan A/B §5.8 baseline table + Figure 5; §7 names 'only compared to random/prevalence baseline' as a failure condition"
+      index_time_rule: |
+        Every covariate is knowable at ecg_time. Prior counts read admissions
+        DISCHARGED before the ECG; prior diagnoses come from those admissions
+        only (ICD codes are assigned at discharge, so the current admission's
+        codes describe the episode being predicted); the ED disposition is taken
+        from a stay that had already ended. Plan A/B Appendix F lists "using
+        future covariates for risk" as a named failure mode, and the builder
+        asserts the one-sided cut rather than assuming it.
       scope: "50_run_baselines_algorithmic.py only; never reaches a trained encoder"
 
   B1_measurement_blind:

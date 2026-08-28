@@ -99,6 +99,13 @@ shared_label_defs:
     SIGNAL_SWAP:        "Replace signal with signal from a different subject's study"
     HARD_NEGATIVE_TEXT: "Replace text with text from a same-HR-bucket, different-subject study"
     PARTIAL_MISMATCH:   "Replace two modalities, keep one anchor-aligned"
+    # Plan A/B §6.7 Levels 2-5. TEST SPLIT ONLY — they measure generalisation to
+    # harder negatives (§6.7: "most shortcut models plateau"), so training on
+    # them would train the plateau away. No model is retrained to obtain them.
+    HARD_NEGATIVE_L2:   "Replace text with text from a same-HR + same-QRS-bucket, different-subject study (§6.7 level 2)"
+    HARD_NEGATIVE_L3:   "Replace text with text matched on HR + QRS + axis + QTc bucket, different subject (§6.7 level 3)"
+    HARD_NEGATIVE_L4:   "Replace text with text from ANOTHER STUDY OF THE SAME SUBJECT (§6.7 level 4 — the patient-identity shortcut test)"
+    HARD_NEGATIVE_L5:   "Keep the anchor's own report but swap one clinical claim, reusing B5's locked injection (§6.7 level 5)"
 
 # =============================================================================
 # 4.A — Plan A tasks (main paper). Conditional on config/decision.yaml
@@ -358,7 +365,8 @@ tasks:
         rows_per_anchor: 7
         positives_per_anchor: 2       # clean image + scanlike image
         negatives_per_anchor: 5
-        negative_types: [TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, HARD_NEGATIVE_TEXT, PARTIAL_MISMATCH]
+        negative_types: [TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, HARD_NEGATIVE_TEXT, PARTIAL_MISMATCH,
+                         HARD_NEGATIVE_L2, HARD_NEGATIVE_L3, HARD_NEGATIVE_L4, HARD_NEGATIVE_L5]
         hard_negative_condition: "HARD_NEGATIVE_TEXT emitted only when a same-HR-bucket, different-subject alternative exists"
         anchor_pool: "OPEN QUESTION #2 — random or stratified over the 5 negative types; resolve before running the A5 builder"
       masked_attribute:

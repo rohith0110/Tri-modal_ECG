@@ -11,17 +11,25 @@ B4 parquet.
 
 Tiers (§4.B.6.2):
 
-| tier | ``neg_type`` |
-| --- | --- |
-| easy | TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH -- cross-subject swaps |
-| medium | HARD_NEGATIVE_TEXT -- same-HR-bucket swap |
-| hard | RESERVED, ships empty |
+Tiers are Plan A/B §6.7's six levels (§4.B.6.2 originally named three, of which
+the third shipped empty -- see below):
 
-**Open question 13, proceeding under the stated default.** The hard tier would
-be a same-HR-bucket, SAME-SUBJECT swap; Round 3 left it RESERVED and the
-progress-doc default is "ship the hard tier empty". It ships empty. The tier is
-declared in the output's tier vocabulary so adding it later is a rebuild of this
-one small table, not of B4.
+| tier | ``neg_type`` | §6.7 level |
+| --- | --- | --- |
+| level_0_random | TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH | 0 |
+| level_1_hr | HARD_NEGATIVE_TEXT -- same-HR-bucket swap | 1 |
+| level_2_hr_qrs | HARD_NEGATIVE_L2 -- HR + QRS matched | 2 |
+| level_3_full_physio | HARD_NEGATIVE_L3 -- HR + QRS + axis + QTc matched | 3 |
+| level_4_same_patient | HARD_NEGATIVE_L4 -- same patient, different study | 4 |
+| level_5_near_duplicate | HARD_NEGATIVE_L5 -- own report, one claim swapped | 5 |
+
+**Open question 13 is now closed, and closed differently.** The old "hard" tier
+was to be a same-HR-bucket SAME-SUBJECT swap and shipped empty, leaving a
+two-point "curve" where §6.8's Figure 4 needs six. Levels 2-5 replace it and
+subsume the same-subject idea as Level 4. They live only in the TEST split, so
+the curve measures generalisation to harder negatives -- §6.7's predicted
+plateau -- rather than something the model was trained on, and no model needs
+retraining to produce it.
 
 Positives carry no ``neg_type`` and so belong to no difficulty tier, but they
 are still needed to compute AUPRC and Recall@1 within a tier. They are emitted
@@ -48,11 +56,31 @@ SCRIPT = "12_build_B6_difficulty_stratified"
 TASK = "B6_difficulty_stratified"
 B4_TASK = "B4_cross_modal_verification"
 
+# Plan A/B §6.7's six levels, in the order Figure 4 plots them. The tier NAME is
+# the level, so the curve reads off `difficulty_tier` directly.
 TIERS = {
-    "easy": ["TEXT_SWAP", "IMAGE_SWAP", "SIGNAL_SWAP", "PARTIAL_MISMATCH"],
-    "medium": ["HARD_NEGATIVE_TEXT"],
-    "hard": [],          # RESERVED -- progress-doc question 13, default: empty
+    # Level 0 -- a random different-subject study. "All competent models
+    # should be high" (§6.7).
+    "level_0_random": ["TEXT_SWAP", "IMAGE_SWAP", "SIGNAL_SWAP", "PARTIAL_MISMATCH"],
+    # Level 1 -- matched on HR bin. "Performance drops if model used only HR."
+    "level_1_hr": ["HARD_NEGATIVE_TEXT"],
+    # Level 2 -- matched on HR + QRS bin.
+    "level_2_hr_qrs": ["HARD_NEGATIVE_L2"],
+    # Level 3 -- matched on HR + QRS + axis + QTc. "Most shortcut models plateau."
+    "level_3_full_physio": ["HARD_NEGATIVE_L3"],
+    # Level 4 -- same patient, different study. Prevents the patient/demographic
+    # shortcut; the rung that matters most in MIMIC, where one subject carries
+    # many ECGs.
+    "level_4_same_patient": ["HARD_NEGATIVE_L4"],
+    # Level 5 -- the anchor's own report with one clinical claim swapped
+    # (B5's locked injection). "Only robust multimodal models should remain high."
+    "level_5_near_duplicate": ["HARD_NEGATIVE_L5"],
 }
+# Levels 2-5 exist only in the TEST split by design -- see
+# `_dataset_lib/verification_task.py`. Their tier rows therefore cover test only,
+# and no model is retrained to obtain the curve.
+TEST_ONLY_TIERS = ("level_2_hr_qrs", "level_3_full_physio",
+                   "level_4_same_patient", "level_5_near_duplicate")
 
 SCHEMA = pa.schema([
     ("study_id", pa.int64()),
@@ -122,13 +150,27 @@ def main() -> int:
         "test_rows_per_neg_type": {
             str(k): int(v) for k, v in test.neg_type.value_counts(dropna=False).items()
         },
-        "hard_tier_status": "RESERVED, empty (progress-doc question 13, stated default)",
+        "levels_2_to_5_are_test_only": True,
         "n_subjects": int(df.subject_id.nunique()),
     }
     log.info("validation:\n%s", json.dumps(stats, indent=2, default=str))
 
-    if stats["rows_per_tier"].get("medium", 0) == 0:
-        raise RuntimeError("the medium tier is empty -- B4 emitted no HARD_NEGATIVE_TEXT rows")
+    # Every one of Plan A/B §6.7's six levels must have rows in TEST, or Figure 4
+    # has a gap. This is the check that would have caught the empty "hard" tier
+    # the first time round.
+    empty = [tier for tier in TIERS if int(stats["test_rows_per_tier"].get(tier, 0)) == 0]
+    if empty:
+        raise RuntimeError(
+            f"§6.7 requires all six difficulty levels; these have no TEST rows: {empty}. "
+            "Rebuild A5/B4 first -- levels 2-5 come from "
+            "`_dataset_lib/verification_task.py`.")
+    # Levels 2-5 are test-only by design; a train row for one means the ladder
+    # leaked into training and Figure 4 would measure the training distribution.
+    leaked = df[(df.split != "test") & df.difficulty_tier.isin(TEST_ONLY_TIERS)]
+    if len(leaked):
+        raise RuntimeError(
+            f"{len(leaked)} level-2..5 rows sit outside the test split. Those levels "
+            "must never be trained on -- see verification_task.DIFFICULTY_NEG_TYPES.")
 
     bc.write_task_readme(TASK, README.format(
         stats=json.dumps(stats, indent=2, default=str), built_at=bc.utc_now_iso()

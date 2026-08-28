@@ -185,6 +185,36 @@ def build_matrix() -> list[dict[str, Any]]:
                                     "dropout": 0.2, "mode": "end_to_end_fine_tuned"}
                 configs.append(config)
 
+                # -- the no-text leakage-controlled tier ----------------------
+                # Plan A/B §5.3 ablation 6, Figure 2 and Appendix F: the no-text
+                # multimodal run is the PRIMARY leakage-controlled setting, and
+                # it has to be TRAINED, not simulated.
+                #
+                # §7.2 originally listed "no-text ablation" among the sweeps that
+                # "re-evaluate the same trained model" without retraining. That
+                # was written when fusion was frozen late fusion. Round 5.1 made
+                # fusion end-to-end fine-tuned (`mode` above), and zeroing the
+                # text branch of a jointly-trained encoder does not yield "the
+                # same model without text" -- it yields a forward pass outside
+                # the model's own training distribution. So the ablation gets its
+                # own trained tier.
+                #
+                # Only where dropping text still leaves a FUSION: a task whose
+                # only other modality is signal would collapse to the
+                # signal-only tier that already exists (B5 is that case).
+                if has_text and signal_kind and image_kind:
+                    no_text = {k: v for k, v in config.items()}
+                    no_text["arch_tier"] = f"multimodal_fusion_notext_{layout}"
+                    no_text["train"] = dict(config["train"])
+                    no_text["fusion"] = dict(config["fusion"])
+                    no_text.pop("text", None)
+                    no_text["ablation"] = "no_text"
+                    no_text["ablation_spec"] = (
+                        "Plan A/B §5.3 ablation 6 / Figure 2 / Appendix F — the "
+                        "leakage-controlled multimodal setting, trained without "
+                        "report text rather than evaluated with it zeroed")
+                    configs.append(no_text)
+
                 if task_key in EMBEDDING_TIER_TASKS:
                     # §4.A.5.7 / §4.B.4.7 "cosine similarity between frozen S/I/T
                     # embeddings" -- the no-fusion reference point.

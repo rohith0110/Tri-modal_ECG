@@ -41,9 +41,11 @@ from _dataset_lib.task_spec import B3_QUERIES, MEASUREMENT_CLASSES, get_task  # 
 from _model_lib import algorithmic_baselines as ab                     # noqa: E402
 
 STAGE = "P2.4"
-# §5.1's table plus the two task_definitions.yaml adds (A1 logistic, B2 detector).
-MANDATED = ("A1_ecg_diagnosis", "A2_measurement_blind", "A4_event_localization",
-            "A6_risk_stratification", "B1_measurement_blind", "B2_noise_robustness",
+# §5.1's table, plus the two task_definitions.yaml adds (A1 logistic, B2 detector),
+# plus A3's structured baseline -- Plan A/B §5.9 requires it for A1, A3 and A6.
+MANDATED = ("A1_ecg_diagnosis", "A2_measurement_blind", "A3_lab_abnormality",
+            "A4_event_localization", "A6_risk_stratification", "A6_nested_baselines",
+            "B1_measurement_blind", "B2_noise_robustness",
             "B3_temporal_grounding", "B5_contradiction_detection")
 MODEL_RUNS = bc.PROJECT_ROOT / "outputs" / "model_runs"
 
@@ -55,9 +57,15 @@ MEASUREMENT_SCHEMA = pa.schema([
 ])
 
 
-def out_dir(task: str, dev: bool) -> Path:
+def out_dir(task: str, dev: bool, tier: str = "algorithmic") -> Path:
+    """Where one baseline's predictions live.
+
+    `tier` is the arch_tier name, so A6's nested Plan A/B §5.8 ladder writes to
+    sibling directories (`algorithmic_demographics`, ...) and `31_eval.py` scores
+    each rung with the same code it uses for a trained tier.
+    """
     root = MODEL_RUNS / "_dev" if dev else MODEL_RUNS
-    path = root / task / "algorithmic"
+    path = root / task / tier
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -74,13 +82,14 @@ def task_test_frame(task: str, dev: bool, limit: int = 0) -> pd.DataFrame:
     return frame.head(limit).reset_index(drop=True) if limit else frame
 
 
-def write_predictions(frame: pd.DataFrame, task: str, dev: bool, log) -> Path:
+def write_predictions(frame: pd.DataFrame, task: str, dev: bool, log,
+                      tier: str = "algorithmic") -> Path:
     frame = frame.copy()
     frame["seed"] = -1                     # §5.1: no seed variability
-    frame["arch_tier"] = "algorithmic"
+    frame["arch_tier"] = tier
     if "lead_subset" not in frame.columns:
         frame["lead_subset"] = "lead2"
-    path = out_dir(task, dev) / "test_predictions.parquet"
+    path = out_dir(task, dev, tier) / "test_predictions.parquet"
     tmp = path.with_suffix(".parquet.tmp")
     frame.to_parquet(tmp, index=False)
     bc.atomic_replace(tmp, path)
@@ -336,6 +345,59 @@ def run_a1(dev: bool, log, limit: int) -> int:
     return len(predictions)
 
 
+def run_a3(dev: bool, log, limit: int) -> int:
+    """A3: multinomial logistic on machine-measurement summary stats.
+
+    Plan A/B §5.9 requires the structured baseline for A1, A3 and A6. Spec
+    §4.A.3.7 had waived A3's; this restores it. BASELINE-ONLY exemption, the
+    same one A1 uses and now declared for A3 in `task_input_policy.yaml`.
+    """
+    spec = get_task("A3_lab_abnormality")
+    root = bc.TASKS_DIR / "_dev" if dev else bc.TASKS_DIR
+    train = pd.read_parquet(root / "A3_lab_abnormality" / "train.parquet")
+    train = train[train.is_primary.fillna(False)]
+    test = task_test_frame("A3_lab_abnormality", dev, limit)
+
+    features = ab.machine_feature_table(
+        pd.concat([train.study_id, test.study_id]).unique().tolist())
+    feature_columns = [c for c in features.columns if c != "study_id"]
+    train = train.merge(features, on="study_id", how="inner")
+    test = test.merge(features, on="study_id", how="inner")
+
+    classes = list(spec.heads[0].classes)
+    labels = [h.label_column for h in spec.heads]
+    log.info("A3 structured baseline: %d heads x %d classes on %d train / %d test rows",
+             len(labels), len(classes), len(train), len(test))
+    scored = ab.multiclass_logistic_baseline(train, test, feature_columns, labels, classes)
+
+    predictions = pd.DataFrame({"study_id": test.study_id.to_numpy(),
+                                "subject_id": test.subject_id.to_numpy()})
+    for column in ("sqi_tier", "cart_id", "link_tier", "boundary_flag"):
+        if column in test.columns:
+            predictions[column] = test[column].to_numpy()
+    # 35 heads x 5 classes is 210 new columns; assembled as one dict and
+    # concatenated once, because inserting them one at a time fragments the
+    # frame and crawls at the real 84 K-row test split.
+    columns: dict[str, Any] = {}
+    for head in spec.heads:
+        label = head.label_column
+        for name in classes:
+            columns[f"y_pred_proba_{head.name}__{name}"] = \
+                scored[f"y_pred_proba_{label}__{name}"].to_numpy()
+        index = scored[f"y_pred_index_{label}"].to_numpy()
+        truth = test[label].astype("string")
+        true_index = np.array([classes.index(v) if pd.notna(v) and v in classes else -1
+                               for v in truth], dtype="int64")
+        columns[f"y_pred_index_{head.name}"] = index
+        columns[f"y_pred_label_{head.name}"] = [classes[i] for i in index]
+        columns[f"y_true_index_{head.name}"] = true_index
+        columns[f"valid_{head.name}"] = true_index >= 0
+    predictions = pd.concat(
+        [predictions, pd.DataFrame(columns, index=predictions.index)], axis=1)
+    write_predictions(predictions, "A3_lab_abnormality", dev, log)
+    return len(predictions)
+
+
 def run_a6(dev: bool, log, limit: int) -> int:
     """A6: Cox PH on age + sex + machine HR/QRS/QTc (§4.A.6.7, §5.1). BASELINE-ONLY."""
     spec = get_task("A6_risk_stratification")
@@ -344,12 +406,19 @@ def run_a6(dev: bool, log, limit: int) -> int:
     train = train[train.is_primary.fillna(False)]
     test = task_test_frame("A6_risk_stratification", dev, limit)
 
-    demographics = ab.patient_demographics()
+    # Age and sex now come from the task parquet, not from a second join on
+    # `patients`. The parquet carries `age_at_ecg` -- the age at INDEX TIME,
+    # which is what §5.8 asks a risk model to condition on -- where
+    # `patient_demographics()` returns `anchor_age`, the age at an unrelated
+    # anchor year. Joining both would also collide on `sex_male` and silently
+    # suffix the columns.
     features = ab.machine_feature_table(
         pd.concat([train.study_id, test.study_id]).unique().tolist())
-    feature_columns = ["anchor_age", "sex_male", "hr_bpm", "qrs_ms", "qtc_ms"]
-    train = train.merge(features, on="study_id").merge(demographics, on="subject_id", how="left")
-    test = test.merge(features, on="study_id").merge(demographics, on="subject_id", how="left")
+    feature_columns = ["age_at_ecg", "sex_male", "hr_bpm", "qrs_ms", "qtc_ms"]
+    train = train.merge(features, on="study_id")
+    test = test.merge(features, on="study_id")
+    for frame in (train, test):
+        frame["sex_male"] = frame["sex_male"].astype("boolean").fillna(False).astype("float64")
 
     predictions = pd.DataFrame({"study_id": test.study_id.to_numpy(),
                                 "subject_id": test.subject_id.to_numpy()})
@@ -387,7 +456,7 @@ def run_a6(dev: bool, log, limit: int) -> int:
             ranked = np.full(len(test), np.nan)
         predictions[f"y_pred_proba_{head.name}"] = ranked
         truth = test[head.label_column]
-        predictions[f"y_true_{head.name}"] = truth.fillna(False).astype(float).to_numpy()
+        predictions[f"y_true_{head.name}"] = truth.astype("boolean").fillna(False).astype("float64").to_numpy()
         predictions[f"y_pred_label_{head.name}"] = (np.nan_to_num(ranked) >= 0.5).astype(int)
         valid = truth.notna().to_numpy()
         if head.mask_column and head.mask_column in test.columns:
@@ -398,6 +467,151 @@ def run_a6(dev: bool, log, limit: int) -> int:
     (out_dir("A6_risk_stratification", dev) / "cox_fit.json").write_text(
         json.dumps(info_all, indent=2, default=str), encoding="utf-8")
     return len(predictions)
+
+
+# -----------------------------------------------------------------------------
+# A6 nested clinical baselines (Plan A/B section 5.8, Figure 5)
+# -----------------------------------------------------------------------------
+# 5.8 requires six tiers and Figure 5 plots the nested curve across them.
+# Section 7 states the failure condition outright -- "Only compared to
+# random/prevalence baseline" -- and 1.1 makes this ladder the evidence for the
+# claim "ECG adds prognostic signal beyond demographics". Each rung ADDS
+# features to the one before it, so the increment is attributable.
+#
+# The Cox tier (`run_a6` above) is the fifth rung -- machine measurements -- and
+# the trained encoders are the sixth. These four fill the gap between the floor
+# and the ECG models, which had nothing in it.
+#
+# BASELINE-ONLY, like every other entry in this file: `task_input_policy.yaml`
+# forbids these covariates to every trained encoder and declares the exemption.
+PRIOR_DX_GROUPS = ("atrial_fibrillation_flutter", "heart_failure_narrow",
+                   "acute_myocardial_infarction", "conduction_disorder",
+                   "ventricular_arrhythmia_or_arrest")
+_PRIOR_DX = [f"prior_dx_{g}" for g in PRIOR_DX_GROUPS]
+
+A6_BASELINE_TIERS: dict[str, dict[str, Any]] = {
+    "algorithmic_prevalence": {
+        "numeric": [], "categorical": [],
+        "spec": "5.8 Prevalence/logistic intercept -- the minimum sanity floor",
+    },
+    "algorithmic_demographics": {
+        "numeric": ["age_at_ecg", "sex_male"],
+        "categorical": ["race", "insurance"],
+        "spec": "5.8 Demographics-only -- tests whether ECG beats simple covariates",
+    },
+    "algorithmic_demographics_comorbidities": {
+        "numeric": ["age_at_ecg", "sex_male"] + _PRIOR_DX,
+        "categorical": ["race", "insurance"],
+        "spec": "5.8 Demographics + comorbidities -- prior ICD before the ECG only",
+    },
+    "algorithmic_utilization": {
+        "numeric": (["age_at_ecg", "sex_male"] + _PRIOR_DX
+                    + ["n_prior_admissions", "n_prior_ecgs", "days_since_last_discharge"]),
+        "categorical": ["race", "insurance", "admission_type", "ed_disposition"],
+        "spec": "5.8 Utilization -- controls for sick-patient ECG frequency",
+    },
+}
+
+
+def _design_matrix(train: pd.DataFrame, test: pd.DataFrame, numeric: list[str],
+                   categorical: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    """Standardised numerics + one-hot categoricals, fitted on TRAIN only.
+
+    Plan A/B 4.7: "All preprocessing scalers ... must be fit or selected using
+    train/validation only." The category vocabulary comes from train as well, so
+    a level seen only in test lands in the all-zero column instead of silently
+    widening the matrix.
+    """
+    from sklearn.preprocessing import StandardScaler
+
+    blocks_train, blocks_test = [], []
+    if numeric:
+        raw_train = train[numeric].astype("float64")
+        raw_test = test[numeric].astype("float64")
+        medians = raw_train.median()
+        scaler = StandardScaler().fit(raw_train.fillna(medians).to_numpy())
+        blocks_train.append(scaler.transform(raw_train.fillna(medians).to_numpy()))
+        blocks_test.append(scaler.transform(raw_test.fillna(medians).to_numpy()))
+    for column in categorical:
+        levels = sorted(train[column].dropna().astype(str).unique())
+        if not levels:
+            continue
+        blocks_train.append(np.column_stack(
+            [(train[column].astype(str) == level).to_numpy(dtype="float64")
+             for level in levels]))
+        blocks_test.append(np.column_stack(
+            [(test[column].astype(str) == level).to_numpy(dtype="float64")
+             for level in levels]))
+    if not blocks_train:
+        # The prevalence tier has no features at all -- a single constant column,
+        # so the fit has nothing but an intercept to learn.
+        return np.ones((len(train), 1)), np.ones((len(test), 1))
+    return np.hstack(blocks_train), np.hstack(blocks_test)
+
+
+def run_a6_nested(dev: bool, log, limit: int) -> int:
+    """The four Plan A/B 5.8 rungs that sit below the machine-measurement Cox."""
+    from sklearn.linear_model import LogisticRegression
+
+    spec = get_task("A6_risk_stratification")
+    root = bc.TASKS_DIR / "_dev" if dev else bc.TASKS_DIR
+    train_all = pd.read_parquet(root / "A6_risk_stratification" / "train.parquet")
+    train_all = train_all[train_all.is_primary.fillna(False)]
+    test = task_test_frame("A6_risk_stratification", dev, limit)
+
+    required = ("age_at_ecg", "n_prior_admissions", "prior_dx_heart_failure_narrow")
+    absent = [c for c in required if c not in train_all.columns]
+    if absent:
+        raise RuntimeError(
+            f"the A6 parquet lacks the 5.8 nested-baseline covariates ({absent}). "
+            "Re-run 06_build_A6_risk_stratification.py --force first.")
+
+    total = 0
+    for tier, config in A6_BASELINE_TIERS.items():
+        numeric = [c for c in config["numeric"] if c in train_all.columns]
+        categorical = [c for c in config["categorical"] if c in train_all.columns]
+        x_train, x_test = _design_matrix(train_all, test, numeric, categorical)
+
+        predictions = pd.DataFrame({"study_id": test.study_id.to_numpy(),
+                                    "subject_id": test.subject_id.to_numpy()})
+        for column in ("sqi_tier", "cart_id", "link_tier", "boundary_flag"):
+            if column in test.columns:
+                predictions[column] = test[column].to_numpy()
+
+        for head in spec.heads:
+            truth_train = train_all[head.label_column]
+            keep = truth_train.notna().to_numpy()
+            if head.mask_column and head.mask_column in train_all.columns:
+                keep = keep & train_all[head.mask_column].fillna(False).to_numpy()
+            y = truth_train[keep].astype(bool).to_numpy()
+
+            if y.size == 0 or len(np.unique(y)) < 2 or (not numeric and not categorical):
+                # Nothing fittable, or the prevalence tier by construction: emit
+                # the train prevalence rather than a fabricated model.
+                proba = np.full(len(test), float(y.mean()) if y.size else 0.0)
+            else:
+                model = LogisticRegression(max_iter=2000, class_weight="balanced")
+                model.fit(x_train[keep], y)
+                proba = model.predict_proba(x_test)[:, 1]
+
+            truth_test = test[head.label_column]
+            valid = truth_test.notna().to_numpy()
+            if head.mask_column and head.mask_column in test.columns:
+                valid = valid & test[head.mask_column].fillna(False).to_numpy()
+            predictions[f"y_pred_proba_{head.name}"] = proba
+            predictions[f"y_true_{head.name}"] = truth_test.astype("boolean").fillna(False).astype("float64").to_numpy()
+            predictions[f"y_pred_label_{head.name}"] = (proba >= 0.5).astype(int)
+            predictions[f"valid_{head.name}"] = valid
+
+        write_predictions(predictions, "A6_risk_stratification", dev, log, tier=tier)
+        (out_dir("A6_risk_stratification", dev, tier) / "features.json").write_text(
+            json.dumps({"spec": config["spec"], "numeric": numeric,
+                        "categorical": categorical, "n_train": int(len(train_all)),
+                        "n_test": int(len(test))}, indent=2), encoding="utf-8")
+        log.info("A6 %-42s %2d numeric + %d categorical",
+                 tier, len(numeric), len(categorical))
+        total += len(predictions)
+    return total
 
 
 def run_b5(dev: bool, log, limit: int, workers: int | None) -> int:
@@ -456,8 +670,12 @@ def main(argv: list[str] | None = None) -> int:
         "A1_ecg_diagnosis": lambda: run_a1(args.dev, log, args.limit),
         "A2_measurement_blind": lambda: run_measurement_task(
             "A2_measurement_blind", args.dev, log, args.limit, workers),
+        "A3_lab_abnormality": lambda: run_a3(args.dev, log, args.limit),
         "A4_event_localization": lambda: run_a4(args.dev, log, args.limit),
         "A6_risk_stratification": lambda: run_a6(args.dev, log, args.limit),
+        # Plan A/B 5.8 four rungs below the Cox model; Figure 5 needs the
+        # whole nested ladder, not only its top and bottom.
+        "A6_nested_baselines": lambda: run_a6_nested(args.dev, log, args.limit),
         "B1_measurement_blind": lambda: run_measurement_task(
             "B1_measurement_blind", args.dev, log, args.limit, workers),
         "B2_noise_robustness": lambda: run_b2(args.dev, log, args.limit, workers),

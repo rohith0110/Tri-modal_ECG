@@ -6,7 +6,7 @@ spec: docs/PHASE2_SOURCE_OF_TRUTH.md §5.8
 note: Architecture values are fixed by config/decision_phase2.yaml (§5). This file selects encoders, input
   modalities and head shape only.
 head:
-  n_out_total: 9
+  n_out_total: 12
   heads:
   - name: hr_label
     kind: multiclass
@@ -17,6 +17,15 @@ head:
   - name: qtc_label
     kind: multiclass
     n_out: 3
+  - name: hr_bpm
+    kind: regression
+    n_out: 1
+  - name: qrs_ms
+    kind: regression
+    n_out: 1
+  - name: qtc_ms
+    kind: regression
+    n_out: 1
 train:
   epochs: 30
   batch_size: 256

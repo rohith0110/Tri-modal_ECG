@@ -478,10 +478,17 @@ def run() -> int:
             got = classes(head)
             assert got == expected, f"{head}: {sorted(got)} != {sorted(expected)}"
         assert int(bins["validity"]["missing_sentinel"]) == 29999
-        assert set(td["shared_label_defs"]["negative_types"]) == {
-            "TEXT_SWAP", "IMAGE_SWAP", "SIGNAL_SWAP", "HARD_NEGATIVE_TEXT", "PARTIAL_MISMATCH"
-        }
-        return "HR/QRS/QTc bins + 5 negative types + sentinel rule"
+        # Compared against `task_spec.NEG_TYPES` rather than a literal set: the
+        # roster grew from 5 to 9 when Plan A/B §6.7's Levels 2-5 were added
+        # (Round 10.4), and a second hard-coded copy here would just have to be
+        # edited again next time.
+        from task_spec import NEG_TYPES  # same package dir; run as a script too
+
+        declared = set(td["shared_label_defs"]["negative_types"])
+        assert declared == set(NEG_TYPES), (
+            f"negative_types drifted from task_spec.NEG_TYPES: "
+            f"{sorted(declared ^ set(NEG_TYPES))}")
+        return f"HR/QRS/QTc bins + {len(NEG_TYPES)} negative types + sentinel rule"
 
     gate.check("shared label definitions (§4.A.2.3)", _td_shared_defs)
 

@@ -731,6 +731,29 @@ qtc_label str                 # short | normal | prolonged
 **4.A.2.6 Metrics.** Per-head macro-AUPRC primary, per-class AUPRC,
 per-class F1 at val-optimal threshold.
 
+**Regression heads (Round 10.1).** A2 also carries three continuous heads —
+`hr_bpm`, `qrs_ms`, `qtc_ms` — alongside the bins. Plan A/B §5.4 makes
+MAE/RMSE the PRIMARY metric for heart rate and QRS duration ("MAE, RMSE,
+Pearson/Spearman, Bland-Altman"; "MAE/RMSE; percentage within 10 ms") and §7.1
+repeats it for the whole regression/measurement task type; bins alone cannot
+produce a limits-of-agreement plot, which is the standard figure for an ECG
+measurement paper. Reported per head, in real units:
+
+| metric | note |
+| --- | --- |
+| MAE, RMSE | Plan §7.1 primary pair for this task type |
+| R², Pearson r, Spearman r | Plan §5.4 secondary |
+| bias, SD of differences, 95 % limits of agreement | Bland-Altman (Plan §5.4) |
+| percentage within tolerance | QRS ±10 ms is Plan-mandated; **HR ±5 bpm and QTc ±20 ms are declared conventions, not from the plan** — disclose |
+
+Targets are standardised by DECLARED PHYSIOLOGICAL CONSTANTS
+(`task_spec.MEASUREMENT_REGRESSION`), never by statistics fitted to a split, so
+no split can leak through the scaling; `31_eval.py` inverts it and every
+reported number is in bpm or ms. The bins remain the early-stopping metric —
+§4.A.2.6's macro-AUPRC is unchanged — so this adds no run. **B2 keeps bins
+only**: its parquet carries no continuous columns and Plan §7.1 scores the
+robustness task type on AUCC and relative drop, not MAE.
+
 **4.A.2.7 Baselines.**
 
 | Tier              | Baseline                                                                                       | Required |
@@ -857,8 +880,21 @@ ecg_time timestamp_ns
   vs `not_missing` from ECG features. Reported in supplementary;
   documents the modelable missingness process per Plan A/B §5.5.
 
-**4.A.3.7 Baselines.** Same matrix as A1 minus the algorithmic
-(no rule-based ECG → lab predictor exists).
+**4.A.3.7 Baselines.** Same matrix as A1, **including the algorithmic tier**
+(Round 10.3). This section previously waived it — "no rule-based ECG → lab
+predictor exists" — which is true of a *rule* but not of what Plan A/B §5.9
+asks for: §5.9 requires the structured baseline (logistic regression / XGBoost
+on machine measurements and/or NeuroKit features) for **A1, A3 and A6**, and
+reference [R5] (CardioLab, ECG features → lab values) is precisely that
+comparison. Without it A3's neural numbers have no floor, and the obvious
+reviewer question — "does a logistic regression on HR/QRS/QTc already predict
+hyperkalaemia?" — has no answer.
+
+| Tier | Baseline | Required |
+| --- | --- | -------- |
+| Algorithmic | Multinomial logistic regression on machine-measurement summary stats (HR/QRS/QTc/axis/PR), fit on train, scored on test, one model per (lab × window) head. FORBIDDEN as model input; permitted here under the `baseline_only_exemptions` block A3 now declares, exactly as A1 does. | Yes |
+
+Everything else is A1's matrix unchanged.
 
 **4.A.3.8 Sensitivity analyses.**
 
@@ -1196,8 +1232,22 @@ days_to_readmission float32?   # provenance
 
 **4.A.6.7 Baselines.**
 
+**The nested clinical ladder is mandatory (Round 10.2).** Plan A/B §5.8
+specifies six baseline tiers and its Figure 5 is the nested curve across them;
+Plan §7 names the failure condition outright — *"Only compared to
+random/prevalence baseline"* — and §1.1 makes this ladder the evidence for the
+claim **"ECG adds prognostic signal beyond demographics."** This section
+previously carried one Cox model that bundled age, sex and the machine
+measurements together, then jumped straight to the neural tiers, so the
+intermediate rungs did not exist — and neither did the columns to build them.
+A6's schema now carries them (see §4.A.6.5), every one knowable at `ecg_time`.
+
 | Tier            | Baseline                                                                 | Required |
 | --------------- | ------------------------------------------------------------------------ | -------- |
+| Prevalence      | Intercept only — the train prevalence per head. Plan §5.8's "minimum sanity baseline" | Yes |
+| Demographics    | Logistic regression on `age_at_ecg + sex_male + race + insurance`         | Yes      |
+| + comorbidities | Adds the five `prior_dx_*` flags — prior ICD from admissions **discharged before the ECG**, using the locked A1 group map | Yes |
+| + utilization   | Adds `n_prior_admissions`, `n_prior_ecgs`, `days_since_last_discharge`, `admission_type`, `ed_disposition`. Plan §5.8: "controls for sick-patient ECG frequency" | Yes |
 | Algorithmic     | Cox proportional hazards on age + sex + machine HR + QRS + QTc (FORBIDDEN as model input, ALLOWED as baseline-only) | Yes      |
 | Signal          | 1D ResNet (§5) on `raw_lead2`                                            | Yes      |
 | Signal 12-lead  | 1D ResNet on `raw_12lead`                                                | Yes      |
@@ -1557,11 +1607,34 @@ the test-row groupings per difficulty tier.
 
 Difficulty tiers:
 
-| Tier   | Source rows                                                                                  |
-| ------ | -------------------------------------------------------------------------------------------- |
-| Easy   | `neg_type ∈ {TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH}` (cross-subject swaps)    |
-| Medium | `neg_type == HARD_NEGATIVE_TEXT` (same-HR-bucket swap)                                       |
-| Hard   | RESERVED — see Round 3 decision: do we add a same-cohort same-HR-bucket *same-subject* swap? |
+**Six levels, not three (Round 10.4).** Plan A/B §6.7 specifies Levels 0–5 and
+its Figure 4 is the *curve* across them — the evidence for Plan B's core
+shortcut-elimination claim, whose predicted behaviour is "most shortcut models
+plateau". The three tiers below originally collapsed to two, because the third
+shipped empty; a two-point curve is not a curve, and the missing Level 4 is the
+rung that tests the patient-identity shortcut, the one most likely to be real in
+MIMIC where a subject carries many ECGs.
+
+| Tier | Source rows | Plan §6.7 level |
+| ---- | ----------- | --------------- |
+| `level_0_random` | `neg_type ∈ {TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH}` | 0 |
+| `level_1_hr` | `HARD_NEGATIVE_TEXT` — same-HR-bucket swap | 1 |
+| `level_2_hr_qrs` | `HARD_NEGATIVE_L2` — donor matched on HR + QRS bucket | 2 |
+| `level_3_full_physio` | `HARD_NEGATIVE_L3` — matched on HR + QRS + axis + QTc | 3 |
+| `level_4_same_patient` | `HARD_NEGATIVE_L4` — **the anchor's own subject**, another study | 4 |
+| `level_5_near_duplicate` | `HARD_NEGATIVE_L5` — the anchor's own report with one claim swapped, reusing B5's locked injection | 5 |
+
+**Levels 2–5 exist only in the TEST split**, and are therefore added to A5 and
+B4 alike so §4.B.4.8's controlled comparison still holds. Two reasons, pointing
+the same way: the levels measure *generalisation* to harder negatives, so
+training on them would train away the plateau §6.7 predicts and Figure 4 would
+describe the training distribution instead of the model; and keeping them out of
+train means **no model is retrained** to obtain the curve. Round 3's reserved
+"hard" tier is closed by this — its same-subject idea is Level 4.
+
+Axis bucketing for Level 3 reads the locked clear zones in
+`claim_dictionary_LOCKED.yaml` (LAD < −45°, normal −35…95°, RAD > 105°,
+everything else `borderline`); no new threshold is invented.
 
 **4.B.6.3 Label generation.** Inherited from B4 + `neg_type` column.
 
@@ -1636,6 +1709,8 @@ Implemented in `_model_lib/algorithmic_baselines.py`. No learned parameters.
 | Task   | Algorithm                                                                                                     |
 | ------ | ------------------------------------------------------------------------------------------------------------- |
 | A2, B1 | NeuroKit2 R-peak detector → instantaneous HR mean → bin to {brady/normal/tachy}; NeuroKit2 wavelet QRS → QRS-duration mean → bin |
+| A3     | Multinomial logistic regression on machine-measurement summary stats, per (lab × window) head — Plan A/B §5.9's structured baseline, restored (Round 10.3; §4.A.3.7 had waived it) |
+| A6 ×4  | The Plan A/B §5.8 nested ladder: prevalence → demographics → +comorbidities → +utilization. Four sibling `arch_tier`s so §7 scores each rung with the trained-model code (Round 10.2) |
 | A4     | NeuroKit2 Pan-Tompkins R-peak + wavelet QRS delineator — F1=1.0 oracle (the same algorithm that built ground truth) |
 | A6     | Cox proportional hazards on `age + sex + machine_hr_bpm + machine_qrs_ms + machine_qtc_ms`, fit on train, scored on test (Note: machine features are forbidden as MODEL input but allowed as BASELINE input for this single baseline) |
 | B3     | Rule-based per-bin labeler from NeuroKit2 R-peaks + per-bin SQI threshold (oracle by construction)             |
@@ -2082,14 +2157,30 @@ sweeps (matrix in §4 per-task spec):
 | Lab window {pm6h, pm12h, pre_24h, post_24h, pm24h} | A3            |
 | ED-included vs hospital-only ICD           | A1                       |
 | Same-hadm restriction                      | A3                       |
-| No-text ablation (drop text input)         | A1, A3, A5, A6, B4       |
+| No-text ablation — **RETRAINED**, see below | A1, A3, A5, A6, B4      |
 
 Each sweep produces its own `outputs/results/<task>_sensitivity_<sweep>.csv`
-that is included in the supplementary tables. The sweep does NOT
-retrain by default; it re-evaluates the same trained model on the
-filtered cohort (cheap). When the sweep requires retraining (e.g.,
+that is included in the supplementary tables. Most sweeps do NOT
+retrain; they re-evaluate the same trained model on the
+filtered cohort (cheap). When a sweep requires retraining (e.g.,
 "swap TF-IDF for Bio-ClinicalBERT"), that's a separate `30_train.py`
 invocation with a different model config.
+
+**The no-text ablation is one of those, and this section used to say
+otherwise (Round 10.5).** Plan A/B §5.3 ablation 6, Figure 2 and Appendix F all
+make the no-text multimodal run the **primary leakage-controlled setting** —
+Appendix F: *"include no-text multimodal as primary leakage-controlled
+setting."* Re-evaluating with the text branch zeroed was defensible while fusion
+was frozen late fusion; Round 5.1 made fusion **end-to-end fine-tuned**, and
+feeding zeros to a jointly-trained text encoder does not produce "the same model
+without text", it produces a forward pass outside the model's own training
+distribution. The resulting number would not be an ablation.
+
+The ablation therefore has its own trained tier,
+`multimodal_fusion_notext_{lead2,12lead}` — 10 configs across A1/A3/A5/A6/B4,
+**+30 runs** in campaigns 7 and 8. B5 is excluded: its only other modality is
+signal, so dropping text collapses it to the signal-only tier that already
+exists.
 
 ### 7.3 B2-specific three-regime evaluation
 
@@ -3002,6 +3093,111 @@ the correct action is to amend §4.B.2.2's wording and describe B2 anchors
 in the paper as an SQI-representative test-split sample — arguably the
 better design, since a high-SQI-only anchor set would overstate
 robustness, but it must be described accurately.
+
+---
+
+### 12.9 Round 10 — locked 2026-08-28 (the Plan A/B compliance audit)
+
+A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`
+against what is actually on disk (`docs/PLAN_DOCX_COMPLIANCE_AUDIT.md`) found
+six gaps between the plan and this spec. All six are closed here. **Nothing had
+been trained yet**, so five cost no GPU time at all and the sixth costs +30 runs.
+
+1. **A2 and B1 gain regression heads.** Plan §5.4 makes MAE/RMSE the *primary*
+   metric for HR and QRS and asks for Bland-Altman limits; §7.1 repeats it for
+   the whole regression/measurement task type. We had bins only, with the
+   continuous truth sitting unused in the parquet as provenance. Three
+   regression heads now ride alongside the three binned heads on the same
+   encoder — **no extra run** — and the bins remain the early-stopping metric.
+   Standardisation uses declared physiological constants, not fitted statistics,
+   so no split can leak through it. Tolerances: QRS ±10 ms is Plan-mandated;
+   **HR ±5 bpm and QTc ±20 ms are conventions declared here — disclose in the
+   supplementary.** B2 keeps bins only (no continuous columns; Plan §7.1 scores
+   robustness on AUCC). See §4.A.2.6.
+
+2. **A6 gains the Plan §5.8 nested clinical ladder, and the columns to build
+   it.** §5.8 requires six baseline tiers and Figure 5 is the nested curve;
+   Plan §7 names *"Only compared to random/prevalence baseline"* as a failure
+   condition, and §1.1 makes this the evidence for "ECG adds prognostic signal
+   beyond demographics". We had one Cox model bundling age + sex + machine
+   measurements, then a jump straight to the neural tiers — and the A6 parquet
+   carried **no age, sex, race, insurance, prior-admission count, prior-ECG
+   count or admission type**, so the intermediate rungs were not merely missing,
+   they were unbuildable. A6's schema now carries fifteen strictly pre-ECG
+   covariates and four nested baselines are emitted as sibling `arch_tier`s.
+   Every covariate is knowable at `ecg_time` — prior counts read admissions
+   *discharged* before the ECG, prior diagnoses come from those admissions only
+   (ICD codes are assigned at discharge, so the current admission's codes
+   describe the very episode being predicted), the ED disposition comes from a
+   stay that had already ended — and the builder asserts the one-sided cut
+   rather than assuming it. Plan Appendix F lists "using future covariates for
+   risk" as a named failure mode. The comorbidity vocabulary is the **locked A1
+   ICD map**, imported not copied, so A1 and A6 cannot drift. CPU only; no GPU
+   time. See §4.A.6.7.
+
+3. **A3's structured baseline is restored.** Plan §5.9 requires it for A1, A3
+   *and* A6; §4.A.3.7 had waived A3's on the grounds that no rule-based
+   ECG → lab predictor exists. True of a *rule*, but §5.9 asks for a *fitted*
+   feature model, and reference [R5] (CardioLab) is exactly that comparison.
+   A3 was shipping with no floor. A multinomial logistic on the machine
+   measurements now runs per (lab × window) head, under a `baseline_only`
+   exemption A3 declares like A1's. See §4.A.3.7, §5.1.
+
+4. **B6's difficulty ladder goes from two rungs to six.** Plan §6.7 specifies
+   Levels 0–5 and Figure 4 is the curve across them — the evidence for Plan B's
+   core shortcut-elimination claim. We had Level 0, Level 1, and a "hard" tier
+   that shipped empty. Levels 2–5 are added to A5 and B4 alike (§4.B.4.8's
+   comparison requires identical rows) and **only in the TEST split**: the
+   levels measure generalisation to harder negatives, so training on them would
+   train away the plateau §6.7 predicts, and keeping them out of train means
+   **no model is retrained** to get the curve. Level 5 reuses B5's locked
+   contradiction injection rather than inventing a second text-alteration rule.
+   Round 3's reserved "hard" tier is closed by this; its same-subject idea is
+   Level 4. See §4.B.6.2.
+
+5. **The no-text ablation is retrained, not simulated.** Plan §5.3 ablation 6,
+   Figure 2 and Appendix F make the no-text multimodal run the *primary
+   leakage-controlled setting*. §7.2 listed it among the sweeps that
+   "re-evaluate the same trained model" — reasoning written when fusion was
+   frozen late fusion. Round 5.1 made fusion end-to-end fine-tuned, and zeroing
+   the text branch of a jointly-trained encoder yields a forward pass outside
+   the model's training distribution, not an ablation. Ten
+   `multimodal_fusion_notext_*` configs (A1/A3/A5/A6/B4 × 2 lead sets) now
+   exist: **+30 runs**, in campaigns 7 and 8. This is the only one of the six
+   gaps that costs GPU time, and it buys the word "leakage-audited" in the
+   title. B5 is excluded — dropping text there collapses to the existing
+   signal-only tier. See §7.2.
+
+6. **Contrastive / CLIP-style pretraining is DECLINED, explicitly.** Plan §5.9
+   lists it as a model family ("CLIP-style alignment among signal, image and
+   text; then fine-tune on tasks. Tasks: A5 plus downstream A1/A3/A6"). Round 3
+   locked late-concat fusion and this spec has never mentioned contrastive
+   learning at all — a silent omission a reviewer would read as an oversight.
+   The decision is to **not build it**, for stated reasons: it is a whole
+   pretraining regime rather than a baseline, it would need its own
+   hyperparameter search on a 50 GB quota, and §5.9 frames its table as a menu
+   of families rather than a required set. `A5/B4_embedding_cosine_*` already
+   supplies the no-fusion alignment reference point that §7.5's retrieval
+   evaluation needs. **State this as a limitation in the paper**, not as a
+   result. Revisit only if a reviewer asks.
+
+7. **B5's fourth contradiction family is PR, not QTc — recorded as a
+   deviation.** Plan §6.6 lists HR, QRS width, QTc, axis and an optional
+   lead/findings phrase; the locked `claim_dictionary_LOCKED.yaml` implements
+   HR, QRS, axis and **PR**. The substitution was made at Round 2 and never
+   written down as a divergence from the plan. It stands — PR has a clean
+   surface form in this report vocabulary and a defensible clear zone, where a
+   QTc claim rarely appears as swappable text — but it is **a documented
+   deviation and must be disclosed in the supplementary**, alongside the other
+   Round 6/7 measurement deviations.
+
+**Audit consequences.** `20_audit_tasks_leakage.py` gained three rules: a column
+that is a head's *target* is not an input (A2/B1's `hr_bpm`/`qrs_ms`/`qtc_ms`
+are now labels, and gate 3 remains what proves unreachability); `baseline
+covariate` is a declared role backed by the policy's `baseline_only_exemptions`;
+and the exemption roster is now A1, A3, A6. `12_build_B6_*.py` gained a gate
+that **fails if any of the six levels has no test rows** — the check that would
+have caught the empty "hard" tier the first time.
 
 ---
 

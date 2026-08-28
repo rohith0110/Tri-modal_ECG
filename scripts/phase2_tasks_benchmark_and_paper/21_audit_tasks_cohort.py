@@ -169,6 +169,18 @@ def label_counts(values: pd.Series, head) -> dict[str, int]:
         counts = {cls: int((values == cls).sum()) for cls in head.classes}
         counts["null"] = int(values.isna().sum())
         return counts
+    if head.kind == "regression":
+        # A continuous head has no classes to count; what the §1.1 table needs
+        # instead is the distribution, so a shifted or truncated target shows up.
+        numeric = pd.to_numeric(values, errors="coerce").dropna()
+        if numeric.empty:
+            return {"rows": int(len(values)), "null": int(values.isna().sum())}
+        return {"rows": int(len(values)), "null": int(values.isna().sum()),
+                "mean": round(float(numeric.mean()), 2),
+                "sd": round(float(numeric.std()), 2),
+                "min": round(float(numeric.min()), 2),
+                "p50": round(float(numeric.median()), 2),
+                "max": round(float(numeric.max()), 2)}
     return {"rows": int(len(values)), "null": int(values.isna().sum())}
 
 

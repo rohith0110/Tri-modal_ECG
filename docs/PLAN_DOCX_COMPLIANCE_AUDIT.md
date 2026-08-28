@@ -8,6 +8,12 @@ spec, the configs, the task parquets and the campaign table.
 from it and checked against what is actually on disk — not against what
 `PHASE2_SOURCE_OF_TRUTH.md` claims about itself.
 
+> **STATUS 2026-08-28, later the same day: all six gaps are CLOSED in code and
+> spec.** See §6 at the bottom for what each fix was and what it cost, and spec
+> §12.9 (Round 10) for the binding decision record. The findings below are kept
+> in their original form — they are the evidence for the decisions, and a
+> rewritten audit that only describes the fixed state cannot be checked.
+
 **Verdict: substantially compliant, with six gaps.** Three are cheap to close
 today and expensive to close after Step 6's uploads and the first GPU campaigns.
 None invalidate work already done.
@@ -285,3 +291,47 @@ change task parquets the upload carries.
 
 Actions 4 and 5 are scope decisions for the project owner. Actions 1, 2, 3, 6, 7
 and 8 are unambiguous — the plan requires them and they cost no GPU time.
+
+
+---
+
+## 6. Resolution — 2026-08-28
+
+All six closed. Recorded as **Round 10** in `docs/PHASE2_SOURCE_OF_TRUTH.md`
+§12.9. The window was open because **no model had been trained yet**; five of
+the six therefore cost zero GPU time.
+
+| Gap | Fix | Cost |
+| --- | --- | --- |
+| 1 — no regression head on A2/B1 | Three regression heads per task alongside the bins, on the same encoder. MAE / RMSE / R² / Pearson / Spearman / Bland-Altman bias + 95 % LoA / percent-within, all in real units. Standardised by declared physiological constants, never by fitted statistics. | **0 runs** (would have been 24 reruns after campaign 4/5/9) |
+| 2 — A6 had no nested baselines, and no columns for them | 15 strictly pre-ECG covariates added to the A6 schema; four nested `arch_tier`s emitted (prevalence → demographics → +comorbidities → +utilization). Comorbidity vocabulary is the locked A1 ICD map, imported not copied. | **0 GPU**; one A6 rebuild |
+| 3 — no-text ablation was an eval-time drop | 10 trained `multimodal_fusion_notext_*` configs (A1/A3/A5/A6/B4 × 2 lead sets). §7.2 rewritten to say it retrains. | **+30 runs** — the only GPU cost |
+| 4 — B6 ladder had 2 rungs, plan wants 6 | Levels 2–5 added to A5 and B4, **test split only**; B6 now has six named tiers and a gate that fails if any has no test rows. Level 5 reuses B5's locked injection. | **0 runs**; A5/B4/B6 rebuild |
+| 5 — no structured baseline for A3 | Multinomial logistic on machine measurements, per (lab × window) head, under a declared baseline-only exemption. | **0 GPU**; CPU hours |
+| 6 — contrastive family never declined | Declined explicitly, with reasons, in §12.9 decision 6. Goes in the paper's limitations. | none |
+| (extra) B5 PR-for-QTc family | Recorded as a numbered deviation in §12.9 decision 7. Disclose in the supplementary. | none |
+
+**Verified on real bytes, not asserted.** The regression heads produced 30
+metric rows with patient-level bootstrap CIs on a dev train+eval; the no-text
+tier trained and evaluated for both A5 and B4; the level 2–5 rows built with
+Levels 2/3/4/5 populated in test and absent from train, A5/B4 row equality
+passing; the four A6 rungs produced a clean nested AUROC ladder
+(0.500 → 0.72 → 0.70 → 0.73 on mortality_30d, dev sample). Every module
+self-check passes and the Stage P2.0 gate is 26/26.
+
+**One bug was found by doing this**, not by reading: `run_a6` was re-deriving
+age and sex from `patients.parquet` and collided with the parquet's own new
+`sex_male` column. The fix also improved the model — it now conditions on
+`age_at_ecg` (age at index time, which is what §5.8 asks for) instead of
+`anchor_age`.
+
+**Three audit rules changed** so the gates stay meaningful rather than merely
+green: a column that is a head's *target* is not an input (A2/B1's `hr_bpm` etc.
+are labels now, and gate 3 remains what proves unreachability); `baseline
+covariate` is a declared role backed by the policy file; and the exemption
+roster is A1 / A3 / A6.
+
+**The gate is red until Step 10R runs.** Four task tables are mid-rebuild, so
+`leakage_audit_phase2.md` is left reading FAIL rather than reverted to its last
+green copy — a stale PASS would be worse. `docs/PHASE2_PROGRESS.md` carries the
+ordered rebuild recipe.

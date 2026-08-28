@@ -296,6 +296,19 @@ def train_class_stats(spec: TaskSpec, train_frame: "Any") -> dict[str, Any]:
                 weights = np.ones(len(head.classes), dtype="float64")
             stats[head.name] = {"counts": {c: int(counts[c]) for c in head.classes},
                                 "class_weights": [round(float(w), 4) for w in weights]}
+        elif head.kind == "regression":
+            # Nothing is FITTED here -- `center`/`unit` are declared constants
+            # (task_spec.MEASUREMENT_REGRESSION). The train-split summary is
+            # recorded anyway so `train_config.yaml` shows the §11 reviewer what
+            # the target distribution actually looked like next to the constants.
+            column = pd.to_numeric(train_frame[head.label_column], errors="coerce").dropna()
+            stats[head.name] = {
+                "center": head.center, "unit": head.unit, "units": head.units,
+                "tolerance": head.tolerance,
+                "train_mean": round(float(column.mean()), 4) if len(column) else None,
+                "train_std": round(float(column.std()), 4) if len(column) else None,
+                "n": int(len(column)),
+            }
     return stats
 
 
@@ -347,6 +360,16 @@ def compute_losses(spec: TaskSpec, outputs: dict[str, torch.Tensor],
             loss = F.cross_entropy(logits, target, weight=weight_tensor, ignore_index=-1)
             if torch.isnan(loss):                # every row in the batch masked out
                 loss = torch.zeros((), dtype=torch.float32, device=device)
+
+        elif head.kind == "regression":
+            # SmoothL1 on the standardised target: robust to the QTc tail
+            # (max 773 ms) in a way plain MSE is not, and bounded gradients keep
+            # the shared trunk from being dragged by one outlier measurement.
+            prediction = outputs[head.name].squeeze(-1)
+            target = batch[f"y__{head.name}"].to(device)
+            mask = batch[f"m__{head.name}"].to(device)
+            raw = F.smooth_l1_loss(prediction, target, reduction="none")
+            loss = (raw * mask).sum() / mask.sum().clamp(min=1.0)
 
         elif head.kind == "peak_seq":
             # §6.4: BCE summed over samples, normalised per study, pos_weight 14
@@ -436,6 +459,12 @@ def _self_check() -> None:
             elif head.kind == "multiclass":
                 batch[f"y__{head.name}"] = torch.tensor([0, min(1, len(head.classes) - 1)])
                 rows.append({head.label_column: list(head.classes[:2])})
+            elif head.kind == "regression":
+                values = [head.center, head.center + head.unit]
+                batch[f"y__{head.name}"] = torch.tensor(
+                    [head.standardise(v) for v in values], dtype=torch.float32)
+                batch[f"raw__{head.name}"] = torch.tensor(values, dtype=torch.float32)
+                rows.append({head.label_column: values})
             elif head.kind == "peak_seq":
                 batch["y__fiducials"] = (torch.rand(batch_size, N_SAMPLES) > 0.95).float()
                 batch["y__fiducials_onset"] = torch.rand(batch_size, N_SAMPLES) * 0.01

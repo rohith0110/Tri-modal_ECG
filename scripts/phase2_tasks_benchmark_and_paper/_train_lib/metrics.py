@@ -84,6 +84,66 @@ def multiclass_macro_auprc(y_true_index: np.ndarray, proba: np.ndarray,
 # -----------------------------------------------------------------------------
 # A4 -- fiducial matching (§7.4)
 # -----------------------------------------------------------------------------
+def regression_metrics(y_true, y_pred, *, tolerance: float | None = None,
+                       units: str = "") -> dict[str, float]:
+    """MAE / RMSE / agreement for a continuous measurement head (Plan §5.4, §7.1).
+
+    Plan A/B §5.4 asks for "MAE, RMSE, Pearson/Spearman, Bland-Altman" on heart
+    rate and "MAE/RMSE; percentage within 10 ms" on QRS duration; §7.1 makes MAE
+    and RMSE the primary pair for the whole regression/measurement task type.
+
+    The Bland-Altman triple is the one that answers the question a cardiologist
+    actually asks -- not "how correlated is it" but "how far off can it be" --
+    so bias and the 95 % limits of agreement are returned alongside the errors.
+    ``bias`` is signed (prediction minus truth): a model that reads every QRS
+    8 ms wide has a bias no correlation coefficient will reveal.
+
+    Inputs are in REAL units (bpm, ms); the trainer inverts the standardisation
+    before calling this.
+    """
+    truth = np.asarray(y_true, dtype="float64").ravel()
+    predicted = np.asarray(y_pred, dtype="float64").ravel()
+    keep = np.isfinite(truth) & np.isfinite(predicted)
+    truth, predicted = truth[keep], predicted[keep]
+
+    out: dict[str, float] = {"n": int(truth.size), "units": units}
+    if truth.size == 0:
+        return {**out, "mae": float("nan"), "rmse": float("nan"), "r2": float("nan"),
+                "pearson_r": float("nan"), "spearman_r": float("nan"),
+                "bias": float("nan"), "sd_diff": float("nan"),
+                "loa_lower": float("nan"), "loa_upper": float("nan")}
+
+    difference = predicted - truth
+    out["mae"] = float(np.mean(np.abs(difference)))
+    out["rmse"] = float(np.sqrt(np.mean(difference ** 2)))
+
+    variance = float(np.var(truth))
+    out["r2"] = (float(1.0 - np.mean(difference ** 2) / variance)
+                 if variance > 0 else float("nan"))
+
+    # Correlations need both vectors non-constant, and > 1 point.
+    if truth.size > 1 and np.std(truth) > 0 and np.std(predicted) > 0:
+        from scipy import stats as _stats
+        out["pearson_r"] = float(_stats.pearsonr(truth, predicted).statistic)
+        out["spearman_r"] = float(_stats.spearmanr(truth, predicted).statistic)
+    else:
+        out["pearson_r"] = float("nan")
+        out["spearman_r"] = float("nan")
+
+    # Bland-Altman: bias and the 95 % limits of agreement.
+    out["bias"] = float(np.mean(difference))
+    sd_diff = float(np.std(difference, ddof=1)) if truth.size > 1 else float("nan")
+    out["sd_diff"] = sd_diff
+    out["loa_lower"] = out["bias"] - 1.96 * sd_diff
+    out["loa_upper"] = out["bias"] + 1.96 * sd_diff
+
+    if tolerance is not None:
+        out["tolerance"] = float(tolerance)
+        out[f"pct_within_{tolerance:g}"] = float(
+            np.mean(np.abs(difference) <= tolerance) * 100.0)
+    return out
+
+
 def match_events(true_positions: np.ndarray, predicted_positions: np.ndarray,
                  tolerance: int = PEAK_TOLERANCE_SAMPLES) -> dict[str, float]:
     """Greedy nearest-neighbour match inside +/-tolerance samples.
@@ -332,6 +392,25 @@ def _self_check() -> None:
         "a badly miscalibrated model scored well"
 
     assert net_benefit(np.ones(100), np.ones(100), 0.1) > 0
+
+    # regression / Bland-Altman. A predictor that reads every QRS 8 ms too wide
+    # has near-perfect correlation and a bias no correlation would reveal --
+    # which is the whole reason Plan A/B §5.4 asks for the agreement numbers.
+    qrs_true = rng.normal(100.0, 20.0, 4000)
+    qrs_pred = qrs_true + 8.0 + rng.normal(0.0, 2.0, 4000)
+    stats = regression_metrics(qrs_true, qrs_pred, tolerance=10.0, units="ms")
+    assert abs(stats["bias"] - 8.0) < 0.3, stats["bias"]
+    assert stats["pearson_r"] > 0.99, "a shifted-but-linear predictor must still correlate"
+    assert abs(stats["mae"] - 8.0) < 0.4, stats["mae"]
+    assert stats["loa_lower"] < stats["bias"] < stats["loa_upper"]
+    assert abs(stats["sd_diff"] - 2.0) < 0.2, stats["sd_diff"]
+    assert 60.0 < stats["pct_within_10"] < 90.0, stats["pct_within_10"]
+    exact = regression_metrics(qrs_true, qrs_true, tolerance=10.0)
+    assert exact["mae"] == 0.0 and exact["rmse"] == 0.0 and exact["r2"] == 1.0
+    assert exact["pct_within_10"] == 100.0
+    empty = regression_metrics(np.array([]), np.array([]))
+    assert empty["n"] == 0 and np.isnan(empty["mae"]), "empty slice must be NaN, not 0.0"
+
     print("metrics self-check: PASS")
 
 

@@ -317,6 +317,58 @@ def logistic_baseline(train: pd.DataFrame, test: pd.DataFrame, feature_columns: 
     return out
 
 
+def multiclass_logistic_baseline(train: pd.DataFrame, test: pd.DataFrame,
+                                 feature_columns: Sequence[str],
+                                 label_columns: Sequence[str],
+                                 classes: Sequence[str]) -> pd.DataFrame:
+    """Per-head multinomial logistic fitted on TRAIN, scored on TEST.
+
+    A3's structured-feature floor (Plan A/B §5.9, which requires the structured
+    baseline for A1, A3 **and** A6). Spec §4.A.3.7 waived it on the grounds that
+    "no rule-based ECG -> lab predictor exists" -- true of a *rule*, but §5.9
+    asks for a *fitted* feature model, and reference [R5] (CardioLab) is exactly
+    that comparison. Without it A3's neural numbers have no floor to clear.
+
+    Returns one probability column per (head, class), plus the arg-max label, so
+    the frame matches what `31_eval.py` expects from a multiclass head.
+    """
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+
+    columns = list(feature_columns)
+    classes = list(classes)
+    scaler = StandardScaler().fit(train[columns].to_numpy())
+    x_train = scaler.transform(train[columns].to_numpy())
+    x_test = scaler.transform(test[columns].to_numpy())
+
+    # Collected into a dict and concatenated once -- 35 heads x 6 columns
+    # inserted one at a time fragments the frame badly at full scale.
+    collected: dict[str, Any] = {"study_id": test["study_id"].to_numpy()}
+    for label in label_columns:
+        y = train[label].astype("string").to_numpy()
+        keep = pd.notna(y)
+        present = sorted(set(y[keep]))
+        proba = np.zeros((len(x_test), len(classes)), dtype="float64")
+
+        if len(present) < 2:
+            # A head with one observed class in train cannot be fitted. Emit the
+            # train prevalence rather than a fabricated model -- honest, and the
+            # §6.7 support rule already flags these slices.
+            for index, name in enumerate(classes):
+                proba[:, index] = float((y[keep] == name).mean()) if keep.any() else 0.0
+        else:
+            model = LogisticRegression(max_iter=2000, class_weight="balanced")
+            model.fit(x_train[keep], y[keep])
+            fitted = model.predict_proba(x_test)
+            for position, name in enumerate(model.classes_):
+                proba[:, classes.index(str(name))] = fitted[:, position]
+
+        for index, name in enumerate(classes):
+            collected[f"y_pred_proba_{label}__{name}"] = proba[:, index]
+        collected[f"y_pred_index_{label}"] = proba.argmax(axis=1)
+    return pd.DataFrame(collected)
+
+
 # -----------------------------------------------------------------------------
 # A6 -- Cox proportional hazards (§4.A.6.7, §5.1)
 # -----------------------------------------------------------------------------

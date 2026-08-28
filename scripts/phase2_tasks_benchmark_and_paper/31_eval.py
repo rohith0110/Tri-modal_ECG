@@ -191,6 +191,27 @@ def head_metric_fns(spec, head) -> dict[str, Callable[[pd.DataFrame], float]]:
             fns[f"auprc__{class_name}"] = _class_auprc
         return fns
 
+    if head.kind == "regression":
+        # Plan A/B §5.4 / §7.1. Every value is in real units (bpm / ms) -- the
+        # trainer inverted the standardisation before writing the frame.
+        def _pair(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+            part = frame[frame[f"valid_{name}"].to_numpy(dtype=bool)]
+            return (part[f"y_true_{name}"].to_numpy(dtype="float64"),
+                    part[f"y_pred_{name}"].to_numpy(dtype="float64"))
+
+        def _metric(key: str):
+            def _fn(frame: pd.DataFrame) -> float:
+                stats = M.regression_metrics(*_pair(frame), tolerance=head.tolerance,
+                                             units=head.units)
+                return float(stats.get(key, float("nan")))
+            return _fn
+
+        keys = ["mae", "rmse", "r2", "pearson_r", "spearman_r",
+                "bias", "sd_diff", "loa_lower", "loa_upper"]
+        if head.tolerance is not None:
+            keys.append(f"pct_within_{head.tolerance:g}")
+        return {key: _metric(key) for key in keys}
+
     if head.kind == "peak_seq":
         def _matches(frame: pd.DataFrame, true_col: str, pred_col: str) -> dict[str, float]:
             return M.aggregate_event_matches([
@@ -250,6 +271,9 @@ def n_positive_for(head, frame: pd.DataFrame) -> int:
     if head.kind == "multiclass" and f"y_true_index_{head.name}" in frame.columns:
         valid = frame[f"valid_{head.name}"].to_numpy(dtype=bool)
         return int((frame[f"y_true_index_{head.name}"].to_numpy()[valid] >= 0).sum())
+    if head.kind == "regression" and f"valid_{head.name}" in frame.columns:
+        # A regression head has no "positives"; §1.1 wants the scored n.
+        return int(frame[f"valid_{head.name}"].to_numpy(dtype=bool).sum())
     return int(len(frame))
 
 

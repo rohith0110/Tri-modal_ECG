@@ -22,15 +22,43 @@ from typing import Sequence
 # --- head kinds ---------------------------------------------------------------
 # binary      : one sigmoid logit, label column is bool/0-1
 # multiclass  : softmax over `classes`, label column is the class string
+# regression  : one linear output, label column is the continuous measurement
 # peak_seq    : per-sample sigmoid over 5000 samples + 2 regression channels (A4)
 # bins        : per-bin sigmoid over 10 one-second bins, one query per row (B3)
 # span        : two regression outputs, normalised character offsets (B5)
-HEAD_KINDS = ("binary", "multiclass", "peak_seq", "bins", "span")
+HEAD_KINDS = ("binary", "multiclass", "regression", "peak_seq", "bins", "span")
 
 MEASUREMENT_CLASSES = {
     "hr_label": ["bradycardia", "normal", "tachycardia"],
     "qrs_label": ["normal", "borderline", "wide"],
     "qtc_label": ["short", "normal", "prolonged"],
+}
+
+# Continuous measurement targets for A2 and B1.
+#
+# Plan A/B §5.4 makes MAE/RMSE the PRIMARY metric for heart rate and QRS
+# duration ("MAE, RMSE, Pearson/Spearman, Bland-Altman"; "MAE/RMSE; percentage
+# within 10 ms"), and §7.1 repeats it for the regression/measurement task type.
+# §6.2 extends the same construction to B1. The binned heads stay -- they are
+# what §4.A.2.6 locks for early stopping -- and these ride alongside them on the
+# same encoder, so the regression numbers cost no extra run.
+#
+# `center` / `unit` are DECLARED PHYSIOLOGICAL CONSTANTS, not statistics fitted
+# to any split. They exist only to condition the optimiser (raw QTc ~450 next to
+# raw HR ~82 would let one head dominate the shared loss). Because they are
+# constants, no split can leak through them, and `31_eval.py` inverts them so
+# every reported number is in real bpm / ms.
+#
+# `tolerance` drives the "percentage within" metric. **10 ms for QRS is
+# mandated by Plan A/B §5.4.** The HR and QTc tolerances are NOT in the plan;
+# they are declared here (and in spec §4.A.2.6) as reporting conventions so the
+# table has a comparable column for all three heads. They are recorded rather
+# than invented silently, per the plan's "do not invent thresholds" rule.
+MEASUREMENT_REGRESSION = {
+    #  name       column      units   center  unit   tolerance  mandated?
+    "hr_bpm":  ("hr_bpm",   "bpm",   80.0,   25.0,   5.0),      # convention
+    "qrs_ms":  ("qrs_ms",   "ms",   100.0,   25.0,  10.0),      # Plan §5.4
+    "qtc_ms":  ("qtc_ms",   "ms",   450.0,   35.0,  20.0),      # convention
 }
 LAB_CLASSES = ["missing", "low_abnormal", "high_abnormal",
                "abnormal_unknown_direction", "normal"]
@@ -39,8 +67,11 @@ LAB_WINDOWS = ("pm24h", "pre_24h", "post_24h", "pm6h", "pm12h")
 PRIMARY_LAB_WINDOW = "pm24h"
 B3_QUERIES = ("HIGH_HEART_RATE", "LOW_HEART_RATE", "WIDE_QRS", "NOISY_SEGMENT")
 B5_CLASSES = ["clean", "corrupted_HR", "corrupted_QRS", "corrupted_axis", "corrupted_PR"]
+# The last four are Plan A/B §6.7 Levels 2-5 and exist only in the TEST split;
+# see `_dataset_lib/verification_task.py` for why they are not trained on.
 NEG_TYPES = ("TEXT_SWAP", "IMAGE_SWAP", "SIGNAL_SWAP", "HARD_NEGATIVE_TEXT",
-             "PARTIAL_MISMATCH")
+             "PARTIAL_MISMATCH", "HARD_NEGATIVE_L2", "HARD_NEGATIVE_L3",
+             "HARD_NEGATIVE_L4", "HARD_NEGATIVE_L5")
 
 N_SAMPLES = 5000
 FS_HZ = 500
@@ -62,6 +93,17 @@ class Head:
     mask_column: str | None = None
     loss: str = "auto"
     pos_weight: float | None = None
+    # regression heads only -- see MEASUREMENT_REGRESSION for what these mean.
+    units: str = ""
+    center: float = 0.0
+    unit: float = 1.0
+    tolerance: float | None = None
+
+    def standardise(self, raw: float) -> float:
+        return (float(raw) - self.center) / self.unit
+
+    def destandardise(self, value):
+        return value * self.unit + self.center
 
     @property
     def n_out(self) -> int:
@@ -69,6 +111,8 @@ class Head:
             return 1
         if self.kind == "multiclass":
             return len(self.classes)
+        if self.kind == "regression":
+            return 1
         if self.kind == "peak_seq":
             return 3 * N_SAMPLES        # 1 sigmoid channel + 2 regression channels
         if self.kind == "bins":
@@ -124,11 +168,27 @@ class TaskSpec:
         return [h.mask_column for h in self.heads if h.mask_column]
 
 
-def _measurement_heads() -> tuple[Head, ...]:
-    return tuple(
+def _measurement_heads(*, with_regression: bool = False) -> tuple[Head, ...]:
+    """The three binned measurement heads, optionally plus their regressions.
+
+    B2 gets bins only: its task parquet carries no continuous columns (it is a
+    corruption grid keyed on the label bins), and Plan A/B §7.1 scores the
+    robustness task type on AUCC / relative drop over AUPRC, not on MAE. A2 and
+    B1 get both -- §5.4 and §6.2 require the regression numbers there.
+    """
+    binned = tuple(
         Head(name=name, kind="multiclass", label_column=name, classes=classes)
         for name, classes in MEASUREMENT_CLASSES.items()
     )
+    if not with_regression:
+        return binned
+    continuous = tuple(
+        Head(name=name, kind="regression", label_column=column, units=units,
+             center=center, unit=unit, tolerance=tolerance)
+        for name, (column, units, center, unit, tolerance)
+        in MEASUREMENT_REGRESSION.items()
+    )
+    return binned + continuous
 
 
 def _lab_heads() -> tuple[Head, ...]:
@@ -161,7 +221,7 @@ TASKS: dict[str, TaskSpec] = {
 
     "A2_measurement_blind": TaskSpec(
         key="A2_measurement_blind", plan="A",
-        heads=_measurement_heads(),
+        heads=_measurement_heads(with_regression=True),
         primary_metric="mean_head_macro_AUPRC",
         subgroup_columns=("sqi_tier", "cart_id", "link_tier"),
     ),
@@ -206,7 +266,7 @@ TASKS: dict[str, TaskSpec] = {
         image_type_column="image_type",
         primary_flag_column=None,
         subgroup_columns=("neg_type", "image_type"),
-        extra_columns=("neg_type", "image_type"),
+        extra_columns=("neg_type", "image_type", "text_override"),
         notes="masked-attribute targets are joined from masked_attribute_<split>.parquet",
     ),
 
@@ -229,7 +289,7 @@ TASKS: dict[str, TaskSpec] = {
 
     "B1_measurement_blind": TaskSpec(
         key="B1_measurement_blind", plan="B",
-        heads=_measurement_heads(),
+        heads=_measurement_heads(with_regression=True),
         primary_metric="mean_head_macro_AUPRC",
         subgroup_columns=("sqi_tier", "cart_id", "link_tier"),
     ),
@@ -262,7 +322,7 @@ TASKS: dict[str, TaskSpec] = {
         image_type_column="image_type",
         primary_flag_column=None,
         subgroup_columns=("neg_type", "image_type"),
-        extra_columns=("neg_type", "image_type"),
+        extra_columns=("neg_type", "image_type", "text_override"),
     ),
 
     "B5_contradiction_detection": TaskSpec(
@@ -327,9 +387,9 @@ def _self_check() -> None:
     assert set(TASK_KEYS) == set(policy["tasks"]), "task set differs from task_input_policy.yaml"
 
     expected_head_counts = {
-        "A1_ecg_diagnosis": 5, "A2_measurement_blind": 3, "A3_lab_abnormality": 35,
+        "A1_ecg_diagnosis": 5, "A2_measurement_blind": 6, "A3_lab_abnormality": 35,
         "A4_event_localization": 1, "A5_cross_modal_verification": 4,
-        "A6_risk_stratification": 4, "B1_measurement_blind": 3, "B2_noise_robustness": 3,
+        "A6_risk_stratification": 4, "B1_measurement_blind": 6, "B2_noise_robustness": 3,
         "B3_temporal_grounding": 1, "B4_cross_modal_verification": 1,
         "B5_contradiction_detection": 3, "B6_difficulty_stratified": 1,
     }
@@ -341,6 +401,9 @@ def _self_check() -> None:
             assert head.kind in HEAD_KINDS, f"{key}.{head.name}: bad kind {head.kind!r}"
             if head.kind == "multiclass":
                 assert head.classes, f"{key}.{head.name}: multiclass head with no classes"
+            if head.kind == "regression":
+                assert head.unit > 0, f"{key}.{head.name}: regression unit must be positive"
+                assert head.units, f"{key}.{head.name}: regression head must declare units"
 
     # A1's five heads must be the five locked ICD groups, in the config's order.
     assert [h.name for h in TASKS["A1_ecg_diagnosis"].heads] == \

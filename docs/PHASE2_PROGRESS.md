@@ -4,13 +4,25 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-27 (session 6)
-- **Current stage:** Stages P2.1/P2.2/P2.3 complete, and **Stage P2.4 is now
-  complete at full scale** — Step 3's code plus Step 11's eight algorithmic
-  baselines run over the real test split. **The §4.C invariant-4 audit gate is
-  OPEN:** all three audits are PASS on disk and `30_train.py::check_audit_gate`
-  returns PASS for each. Reports: `stage_P2.3_report.md`,
-  `stage_P2.4_report.md`.
+- **Last updated:** 2026-08-28 (session 7)
+- **Current stage:** Stages P2.1–P2.4 were complete at full scale. **Round 10 —
+  the Plan A/B compliance audit — then reopened four of them on purpose.**
+  A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`
+  against what is on disk found six gaps; all six are now closed in code and
+  spec (spec §12.9, `docs/PLAN_DOCX_COMPLIANCE_AUDIT.md`). Five cost no GPU
+  time; one costs +30 runs. **Nothing had been trained**, which is why they were
+  cheap — and why they had to be done before Step 6's first upload.
+- **⛔ THE AUDIT GATE IS DELIBERATELY RED. Do not start any training run.**
+  `leakage_audit_phase2.md` currently reads **FAIL**, and that is correct: four
+  task tables (A5, B4, B6, A6) are mid-rebuild for Round 10, so any PASS on disk
+  right now would describe data that no longer exists. A stale PASS is worse
+  than no PASS. The gate re-opens when **Step 10R** below has run.
+- **Next action — Step 10R, then Step 5/6.** Once Step 5's int16 conversion
+  finishes (leave it alone until it does — it is running in another session),
+  re-run at full scale, in this order: `05_build_A5…`, `10_build_B4…`,
+  `12_build_B6…`, `06_build_A6…` (all `--force`), then the three P2.3 audits,
+  then `50_run_baselines_algorithmic.py` for `A3_lab_abnormality`,
+  `A6_nested_baselines` and `A6_risk_stratification`. See "Step 10R" in §6.
 - **Next action:** Step 4 (chunk-cutter + campaign launchers) and Step 5 (int16
   conversion + equivalence proof), then Step 6's first upload.
 - **Step 12 — SIGNED OFF 2026-08-28 by the project owner. The first upload is
@@ -24,13 +36,13 @@ starting cold reads this first, works, then updates it before the session ends.
   `1.000000` over 55,140 rows with mean |offset| 0.0000 ms, and B3 `mIoU`
   `1.000000` over 598,568 rows with every row bin-for-bin exact. The baselines
   therefore read exactly the fiducials the builders wrote.
-- **Audit gate (Step 10 / Stage P2.3) — DONE 2026-08-27.**
-  `leakage_audit_phase2.md` **PASS** (88 checks), `cohort_audit.md` **PASS**
-  (184 checks), `split_audit_phase2.md` **PASS** (75 checks); 347 checks, zero
-  violations, all measured off the task parquets rather than restated from a
-  builder's state file. Re-run any of them freely — they read only artifacts
-  already on disk and write only their own report, and re-running them is how
-  the gate is re-opened after any rebuild.
+- **Audit gate (Step 10 / Stage P2.3) — PASSED 2026-08-27, INVALIDATED by
+  Round 10 on 2026-08-28.** The 2026-08-27 run was PASS on all three
+  (88 / 184 / 75 = 347 checks, zero violations) and the method stands: every
+  number is measured off the task parquets rather than restated from a builder's
+  state file. But four task tables are being rebuilt, so those numbers no longer
+  describe the data. **Re-running the three audits is how the gate re-opens** —
+  they read only artifacts already on disk and write only their own report.
 - **Blockers:** none. The A3 lab-cache prerequisite is **DONE** (§4 decision 13).
   Every §5 question is now resolved, dissolved, or proceeding under its stated
   default — see §5.
@@ -684,6 +696,33 @@ now happen inside Steps 2 and 3 rather than after Step 8.
       Resumability was exercised for real: the run was killed one minute into
       B2 and the identical command replayed B5/A2/B1 from their part parquets in
       six seconds before continuing. Wall clock ≈ 2 h 45 m at 15 workers.
+- [ ] **Step 10R — Round 10 rebuild + re-audit (THE CURRENT BLOCKER).**
+      Closing the six Plan A/B compliance gaps changed four task schemas, so the
+      affected tables and every audit that reads them must be regenerated at
+      full scale. Laptop only, no GPU. Run **after** Step 5's int16 job
+      finishes — both are CPU-heavy and would fight each other on 14 cores.
+
+      Order matters (B6 reads B4; the audits read everything):
+
+      1. `05_build_A5_cross_modal_verification.py --force` — gains the §6.7
+         level 2–5 test negatives and the `text_override` column
+      2. `10_build_B4_cross_modal_verification.py --force` — same rows; the
+         builder asserts A5/B4 equality and refuses to finish if they disagree
+      3. `12_build_B6_difficulty_stratified.py --force` — six tiers; it now
+         **fails if any of the six levels has no test rows**
+      4. `06_build_A6_risk_stratification.py --force` — gains the fifteen
+         pre-ECG §5.8 covariates
+      5. `20_audit_tasks_leakage.py`, `21_audit_tasks_cohort.py`,
+         `22_audit_tasks_split.py` — all three must be PASS before anything trains
+      6. `50_run_baselines_algorithmic.py --tasks A3_lab_abnormality
+         A6_nested_baselines A6_risk_stratification` — the new A3 structured
+         baseline, the four new A6 rungs, and the A6 Cox (its feature list
+         changed from `anchor_age` to `age_at_ecg`)
+
+      Expect a few hours. A5/B4 are ~5.8 M rows each; the rest are minutes.
+      Every one of these scripts is resumable and `--force` is idempotent.
+      **Do not re-run steps 1–4 of Stage P2.1/P2.2 for the other eight tasks** —
+      their schemas did not change.
 - [x] **Step 12 — Review the cohort report. SIGNED OFF 2026-08-28 by the
       project owner.** `outputs/audit_reports/cohort_audit.md` (PASS, 184 checks,
       0 violations) was read head by head. **Step 6's first upload is released.**
@@ -729,8 +768,12 @@ now happen inside Steps 2 and 3 rather than after Step 8.
 
 ### Part 6 — Campaigns 7–8, the heart of the paper (~1.5 weeks)
 
-- [ ] **Step 19 — End-to-end fusion, L3 tasks A1/A3/A6** (9, fits resident)
-- [ ] **Step 20 — End-to-end fusion, full cohort A5/B4/B5/B6** (12, chunked)
+Round 10.5 added the trained no-text tier here: campaign 7 is now 12 configs /
+36 runs and campaign 8 is 10 / 30. Project total **104 configs, 312 runs**
+(was 94 / 282). `campaign_runs.py --table` is the authority.
+
+- [ ] **Step 19 — End-to-end fusion, L3 tasks A1/A3/A6** (36 runs, fits resident)
+- [ ] **Step 20 — End-to-end fusion, full cohort A5/B4/B5/B6** (30 runs, chunked)
 - [ ] **Step 21 — Frozen-fusion ablation** (near-free by-product)
 
 ### Part 7 — Campaigns 9–11 (~1.5 weeks)
@@ -741,9 +784,11 @@ now happen inside Steps 2 and 3 rather than after Step 8.
 
 ### Audits that must all be PASS before submission (spec §1.2)
 
-- [x] `leakage_audit_phase2.md` · [x] `split_audit_phase2.md` · [x] `cohort_audit.md`
-      — all three PASS 2026-08-27 (88 / 75 / 184 checks). Re-run them after any
-      task rebuild; a stale PASS is worse than no PASS.
+- [ ] `leakage_audit_phase2.md` · [ ] `split_audit_phase2.md` · [ ] `cohort_audit.md`
+      — all three were PASS 2026-08-27 (88 / 75 / 184 checks) and were
+      **invalidated by the Round 10 rebuild**. Re-run them in Step 10R; a stale
+      PASS is worse than no PASS, which is why the leakage report is left
+      reading FAIL rather than reverted to its last green copy.
 - [ ] `threshold_audit.md` · [ ] `calibration_audit.md` · [ ] `sensitivity_audit.md`
 - [ ] `reproducibility_audit.md`
 

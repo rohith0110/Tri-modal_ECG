@@ -2,23 +2,27 @@
   "stage": "P2.2",
   "script": "10_build_B4_cross_modal_verification_dev",
   "done": true,
-  "started_at": "2026-08-26T19:18:40Z",
-  "updated_at": "2026-08-26T19:18:43Z",
-  "finished_at": "2026-08-26T19:18:43Z",
-  "n_rows": 35000,
+  "started_at": "2026-08-28T12:52:19Z",
+  "updated_at": "2026-08-28T12:52:21Z",
+  "finished_at": "2026-08-28T12:52:21Z",
+  "n_rows": 37318,
   "n_anchors": 5000,
   "n_subjects": 4761,
-  "positive_rate_pct": 28.571,
+  "positive_rate_pct": 26.797,
   "rows_per_neg_type": {
     "positive": 10000,
     "HARD_NEGATIVE_TEXT": 5000,
-    "IMAGE_SWAP": 5000,
-    "PARTIAL_MISMATCH": 5000,
     "SIGNAL_SWAP": 5000,
-    "TEXT_SWAP": 5000
+    "TEXT_SWAP": 5000,
+    "PARTIAL_MISMATCH": 5000,
+    "IMAGE_SWAP": 5000,
+    "HARD_NEGATIVE_L2": 1069,
+    "HARD_NEGATIVE_L3": 1051,
+    "HARD_NEGATIVE_L5": 100,
+    "HARD_NEGATIVE_L4": 98
   },
   "image_type_counts": {
-    "clean": 30000,
+    "clean": 32318,
     "scanlike": 5000
   },
   "by_split": {
@@ -35,23 +39,23 @@
       "n_negative": 2435
     },
     "test": {
-      "n_rows": 7497,
+      "n_rows": 9815,
       "n_anchors": 1071,
       "n_positive": 2142,
-      "n_negative": 5355
+      "n_negative": 7673
     }
   },
   "splits": {
     "train": 24094,
     "val": 3409,
-    "test": 7497
+    "test": 9815
   },
-  "identical_to_A5_verification": null,
+  "identical_to_A5_verification": true,
   "n_rows_train": 24094,
   "n_subjects_train": 3272,
   "n_rows_val": 3409,
   "n_subjects_val": 468,
-  "n_rows_test": 7497,
+  "n_rows_test": 9815,
   "n_subjects_test": 1021,
   "subject_overlap": 0
 }

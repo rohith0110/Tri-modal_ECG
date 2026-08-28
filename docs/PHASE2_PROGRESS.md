@@ -12,8 +12,12 @@ starting cold reads this first, works, then updates it before the session ends.
   returns PASS for each. Reports: `stage_P2.3_report.md`,
   `stage_P2.4_report.md`.
 - **Next action:** Step 4 (chunk-cutter + campaign launchers) and Step 5 (int16
-  conversion + equivalence proof), then Step 6's first upload. The upload also
-  wants Step 12's human sign-off on `cohort_audit.md`; nothing else is gated.
+  conversion + equivalence proof), then Step 6's first upload.
+- **Step 12 — SIGNED OFF 2026-08-28 by the project owner. The first upload is
+  released.** `cohort_audit.md` PASS, 184 checks, 0 violations; four disclosure
+  items accepted for the paper's limitations (A3's structurally-absent rare
+  classes, QTc `short` thin in val, the ~0.7 % high-SQI tier, and A5/B4/B6
+  carrying no SQI/linkage columns for §7 subgrouping). See Step 12 below.
 - **Step 11 — DONE 2026-08-27 at full scale.** 8/8 doc-mandated §5.1 baselines
   wrote `test_predictions.parquet`; `missing_mandated = []`. **The §9.5 oracle
   gate passed exactly:** A4 `r_peak_f1` / `qrs_onset_f1` / `qrs_offset_f1` all
@@ -586,10 +590,38 @@ now happen inside Steps 2 and 3 rather than after Step 8.
       Resumability was exercised for real: the run was killed one minute into
       B2 and the identical command replayed B5/A2/B1 from their part parquets in
       six seconds before continuing. Wall clock ≈ 2 h 45 m at 15 workers.
-- [ ] **Step 12 — Review the cohort report.** Nothing to pull down; it is all
-      already here — `outputs/audit_reports/cohort_audit.md`, written 2026-08-27.
-      **This is the gate that releases Step 6's first upload**, and it is a human
-      read of a report that already exists, not another run.
+- [x] **Step 12 — Review the cohort report. SIGNED OFF 2026-08-28 by the
+      project owner.** `outputs/audit_reports/cohort_audit.md` (PASS, 184 checks,
+      0 violations) was read head by head. **Step 6's first upload is released.**
+      Both §12-locked cohort sizes still measure correctly (A2 primary 275,088;
+      B5 128,653 — 21 below the originally locked 128,674, which is decision 17).
+      Split balance is tight: the largest train-vs-test prevalence gap across all
+      64 heads is 0.0121. A5/B4 `y_match` positives are 28.57 % = 2/7 exactly, and
+      B5 `is_corrupted` is 50.40 %, both matching their constructions.
+      **Four disclosure items were accepted, none a build defect** — they belong
+      in the paper's limitations, not in a rebuild:
+      1. **A3's rare classes** — 45 test slices fall under §6.7's 100-positive
+         threshold and 36 are empty, all in A3. They are clinically correct
+         absences, not under-sampling: `abnormal_unknown_direction` is a MIMIC
+         reference-range artifact (0-1 rows), troponin `low_abnormal` does not
+         exist as a clinical entity, and lactate `low_abnormal` is 10-28 rows.
+         State them as structurally absent.
+      2. **QTc `short` is thin in VAL, where thresholds are selected** — test is
+         fine (A2 104, B1 131, B2 536, all >= 100) but val is 41 / 51 / 51. This
+         is the one place a §6.7 fallback touches threshold *selection* rather
+         than only the CI.
+      3. **The high-SQI tier is ~0.7 % of every cohort** (3,606-16,664 rows; about
+         700 test rows for the A-series). The low-vs-medium contrast has power;
+         low-vs-high does not. Do not headline a high-SQI number.
+      4. **A5, B4 and B6 carry no `sqi_tier` / `link_tier` / `cart_id` columns**,
+         but `eval_configs/default.yaml` lists them as subgroup keys — so §7's
+         subgroup breakdown comes back EMPTY for the three largest tasks. B6
+         substitutes `difficulty_tier`. If SQI-stratified verification numbers
+         are wanted in the paper, that needs a schema change, not a re-run.
+      A4's 36.7 % and A2's 55.0 % "primary kept" figures are not shrinkage — both
+      apply the same §4 decision-10 primary rule and their primary counts are
+      nearly identical (192,082 vs 192,087 train); A4 simply has a wider
+      denominator because it needs no EHR linkage.
 
 ### Part 4 — Campaigns 1–4 (~1 week)
 

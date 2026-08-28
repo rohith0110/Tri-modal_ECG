@@ -5,6 +5,16 @@ Youden's J that chose it (spec §6.5). `selected_on_split` is `val` on every row
 by construction — `_train_lib/threshold.py` refuses to select on any other split
 and refuses to apply a threshold that was not selected on `val`.
 
+> **PROVENANCE — READ BEFORE CITING. Every row currently in this file comes
+> from Stage P2.5's int16 equivalence proof (2026-08-28), NOT from a paper
+> run.** Those arms trained `A2_measurement_blind` on a deliberately reduced
+> slice (`--limit-rows 10000`, 2 epochs) purely to compare float32 against
+> int16 storage, so the thresholds below are real, correctly val-selected, and
+> **not the numbers any results table should quote**. The campaign runs will
+> append their own rows; when they do, delete this banner and treat rows dated
+> before the first campaign as superseded. Ignoring this would put a
+> 10,000-row smoke threshold into the paper.
+
 | task | arch_tier | lead_subset | seed | head | class | threshold | val Youden J | sens | spec | n_val | n_pos_val | selected_on_split |
 | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | A2_measurement_blind | signal_resnet18_lead2_preprocessed | lead2 | 42 | hr_label | bradycardia | 0.122757 | 0.971646 | 0.9890 | 0.9827 | 10000 | 815 | val |

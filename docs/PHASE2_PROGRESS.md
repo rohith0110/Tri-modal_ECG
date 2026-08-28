@@ -602,6 +602,13 @@ plan; this is the index of record.
       change. Verified round-trip relative error **1.53e-05**.
       **`lead2_preprocessed.h5`: 12.73 GB -> 7.42 GB (58.3 %)**, half-step ratio
       1.000000, `verify` re-checks sha256 + 64 spot rows and passes.
+      **`outputs/audit_reports/threshold_audit.md` now EXISTS, and every row in
+      it is from the equivalence arms, not a paper run.** The four arms are real
+      full-scale-path runs (the §4.C gate passes, thresholds are val-selected),
+      but they trained A2 on `--limit-rows 10000` for 2 epochs purely to compare
+      encodings. A provenance banner at the top of the file says so. Delete the
+      banner and supersede those rows once the campaigns append their own —
+      otherwise a 10,000-row smoke threshold could reach a results table.
       **SIZE FINDING — §8.2's "56.7 GB" is wrong.** The 12-lead preprocessed set
       converts at ~62.5 % of source, not ~40 %, because the float32 source is
       *already* gzip-4 compressed and int16 does not compress as much further as

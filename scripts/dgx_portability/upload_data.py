@@ -48,6 +48,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -123,6 +124,10 @@ DATASETS: dict[str, dict] = {
 CHUNK_ROOT = Path(os.environ.get("TRIMODAL_CHUNK_ROOT", DATA / "chunks"))
 # Where `derived/` actually lives; see TRIMODAL_DERIVED_BASE in make_subsets.py.
 DERIVED_BASE = Path(os.environ.get("TRIMODAL_DERIVED_BASE", DATA))
+# A file that cannot be hard-linked into the staging tree (different volume) is
+# copied instead, up to this size. Overlays and manifests are a few MB; a
+# container is tens of GB and copying one would be a silent waste of a disk.
+LINK_FALLBACK_MAX_BYTES = 2 * 1024**3
 
 CHUNKS: dict[str, str] = {
     "signals_12lead": "preprocessed_12lead__train__p8",
@@ -286,10 +291,19 @@ def stage(pairs: list[tuple[Path, str]], dataset: str, cache: dict,
             try:
                 os.link(source, target)
             except OSError as error:                  # different volume, or no perm
-                raise SystemExit(
-                    f"cannot hard-link {source} -> {target} ({error}). The staging tree "
-                    f"must sit on the same volume as the data; set STAGE_ROOT or move "
-                    f"outputs/ onto the data volume.") from error
+                # One dataset can legitimately straddle two volumes: the big
+                # containers were built onto C: for space while the manifest
+                # overlay stayed beside the data on D:. A hard link cannot cross
+                # a volume, so copy the small file rather than refusing the whole
+                # dataset -- which is what silently cost images_clean_12lead_valtest
+                # an upload, because the failure came after the "N files" line.
+                if source.stat().st_size > LINK_FALLBACK_MAX_BYTES:
+                    raise SystemExit(
+                        f"cannot hard-link {source} -> {target} ({error}) and it is too "
+                        f"large to copy ({source.stat().st_size / 2**30:.1f} GiB). Put the "
+                        f"staging tree on the same volume as this file: "
+                        f"TRIMODAL_UPLOAD_STAGE=<dir on that volume>.") from error
+                shutil.copy2(source, target)
         digest = sha256_file(source, cache) if checksums else ""
         if digest:
             _cross_check(source, digest)

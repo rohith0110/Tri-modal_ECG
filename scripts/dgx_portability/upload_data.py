@@ -168,6 +168,31 @@ def sha256_file(path: Path, cache: dict) -> str:
     return cache[key]
 
 
+_BUILDER_MANIFESTS: dict[Path, dict] = {}
+
+
+def _cross_check(source: Path, digest: str) -> None:
+    """Refuse a file that no longer matches the digest its builder recorded.
+
+    `make_subsets.py` and `make_chunks.py` both write a `checksums.json` beside
+    what they produce, at the moment they produce it. Comparing against it here
+    costs nothing (the hash is computed for the upload manifest anyway) and
+    catches a truncated or half-written file -- a power cut mid-write is a
+    hazard this project has already met once -- before it reaches R2 and
+    becomes the thing the DGX trains on.
+    """
+    manifest_path = source.parent / "checksums.json"
+    if manifest_path not in _BUILDER_MANIFESTS:
+        _BUILDER_MANIFESTS[manifest_path] = json.loads(
+            manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+    recorded = _BUILDER_MANIFESTS[manifest_path].get(source.name)
+    if recorded and recorded.get("sha256") and recorded["sha256"] != digest:
+        raise SystemExit(
+            f"REFUSING to upload {source}: sha256 {digest[:12]} does not match the "
+            f"{recorded['sha256'][:12]} its builder recorded in {manifest_path}. "
+            f"Rebuild that file before uploading it.")
+
+
 # --- resolving a dataset to (local file, remote key) pairs -------------------
 def dataset_files(dataset: str) -> list[tuple[Path, str]]:
     if dataset.endswith("_pieces"):
@@ -179,8 +204,14 @@ def dataset_files(dataset: str) -> list[tuple[Path, str]]:
             raise SystemExit(
                 f"{directory} does not exist -- cut it first:\n"
                 f"  make_chunks.py cut --kinds {CHUNKS[base].split('__')[0]} --pieces 8")
+        # A piece counts as cut only once make_chunks.py has recorded it in
+        # checksums.json, which it does after the atomic rename -- so a
+        # `piece_NNN.h5.tmp` still being written by a running cut is never
+        # picked up, and neither is a piece whose write died before the rename.
+        recorded = json.loads((directory / "checksums.json").read_text(encoding="utf-8")) \
+            if (directory / "checksums.json").exists() else {}
         pieces = sorted(p for p in directory.iterdir()
-                        if p.name.startswith("piece_")
+                        if p.name in recorded
                         or p.name in ("checksums.json", "assignment.parquet",
                                       "fairness.json"))
         if not any(p.name.startswith("piece_") for p in pieces):
@@ -239,9 +270,12 @@ def stage(pairs: list[tuple[Path, str]], dataset: str, cache: dict,
                     f"cannot hard-link {source} -> {target} ({error}). The staging tree "
                     f"must sit on the same volume as the data; set STAGE_ROOT or move "
                     f"outputs/ onto the data volume.") from error
+        digest = sha256_file(source, cache) if checksums else ""
+        if digest:
+            _cross_check(source, digest)
         remote_dir = str(Path(key).parent.as_posix())
         by_directory.setdefault(remote_dir, {})[Path(key).name] = {
-            "sha256": sha256_file(source, cache) if checksums else "",
+            "sha256": digest,
             "bytes": source.stat().st_size,
         }
 

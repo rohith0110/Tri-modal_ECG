@@ -78,6 +78,18 @@ for dataset in $DATASETS; do
             fetch "chunks/$base/checksums.json" "$DATA_ROOT/$base" || true
             fetch "chunks/$base/assignment.parquet" "$DATA_ROOT/$base" || true
             ;;
+        code|configs)
+            # These are repo paths (`scripts/`, `config/`), not data paths, and
+            # the loader resolves them under PROJECT_ROOT. Everything else keeps
+            # its path relative to data/processed and unpacks into DATA_ROOT,
+            # which _campaign_body.sh links to $PROJECT_ROOT/data/processed.
+            log "staging $dataset into $PROJECT_ROOT"
+            fetch "$dataset" "$PROJECT_ROOT"
+            ;;
+        results)
+            log "staging $dataset from $R2_RESULTS"
+            R2_DATA="$R2_RESULTS" fetch "" "$RESULTS_ROOT"
+            ;;
         *)
             log "staging $dataset"
             fetch "$dataset" "$DATA_ROOT"
@@ -112,7 +124,12 @@ for name, meta in sorted(recorded.items()):
         print(f"  ok {name}")
 sys.exit(1 if bad else 0)
 PY
-done < <(find "$DATA_ROOT" -name checksums.json 2>/dev/null)
+    # `checksums_<dataset>.json` for a plain dataset -- two datasets can land in
+    # the same directory (`text` and `index` both write into `index/`) and a
+    # single shared name would let the second shadow the first, leaving the
+    # first's files verified against nothing. `checksums.json` is the chunked
+    # cut's own manifest, written by make_chunks.py.
+done < <(find "$DATA_ROOT" "$PROJECT_ROOT" -name 'checksums*.json' 2>/dev/null | sort -u)
 
 if [ "$verify_failed" -ne 0 ]; then
     echo "ERROR: checksum verification FAILED -- do not train on this data." >&2

@@ -31,6 +31,9 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_PROCESSED = PROJECT_ROOT / "data" / "processed"
 MANIFEST_PATH = DATA_PROCESSED / "modality_manifest.parquet"
+# Subset datasets (§8.2 campaigns 5 / 7 / 10) drop one parquet each in here; see
+# _manifest_with_overlays(). Empty or absent on the laptop.
+OVERLAY_DIR = DATA_PROCESSED / "manifest_overlays"
 
 # --- the locked modality-kind enum (spec §2.6) -------------------------------
 # Adding a kind here is a CRITICAL spec violation.
@@ -83,6 +86,36 @@ class ModalityError(KeyError):
 # -----------------------------------------------------------------------------
 # index
 # -----------------------------------------------------------------------------
+def _manifest_with_overlays(cols: list[str]):
+    """The modality manifest, with any staged subset overlay applied.
+
+    §8.2 campaigns 5, 7 and 10 read a SUBSET of a modality (the L3 group, or the
+    test split only). Those subsets are separate, much smaller containers, so
+    their rows land at different container rows/offsets than the base manifest
+    records. Each derived dataset therefore ships one overlay parquet -- the
+    same schema, only its own studies -- into ``manifest_overlays/``, and an
+    overlay row REPLACES the base row for that (study_id, kind, layout).
+
+    A study outside the subset keeps pointing at the base container, which is
+    not staged on a subset campaign, so a miss fails loudly with a missing-file
+    error instead of quietly returning the wrong bytes. With no overlays on
+    disk -- the laptop's normal state -- this is the base manifest unchanged.
+    """
+    import pandas as pd
+
+    base = pd.read_parquet(MANIFEST_PATH, columns=cols)
+    if not OVERLAY_DIR.is_dir():
+        return base
+    overlays = [pd.read_parquet(path, columns=cols)
+                for path in sorted(OVERLAY_DIR.glob("*.parquet"))]
+    if not overlays:
+        return base
+    merged = pd.concat([base, *overlays], ignore_index=True)
+    keys = [c for c in ("study_id", "modality_kind", "layout",
+                        "corruption_type", "snr_db") if c in merged.columns]
+    return merged.drop_duplicates(subset=keys, keep="last")
+
+
 def _build_index(kind: str) -> dict[int, tuple]:
     """Load the manifest rows for one kind into a study_id -> row lookup.
 
@@ -104,7 +137,7 @@ def _build_index(kind: str) -> dict[int, tuple]:
     if kind == CORRUPTED_KIND:
         cols += ["corruption_type", "snr_db"]
 
-    manifest = pd.read_parquet(MANIFEST_PATH, columns=cols)
+    manifest = _manifest_with_overlays(cols)
 
     if kind in _IMAGE_KIND_TO_MANIFEST:
         manifest_kind, layout = _IMAGE_KIND_TO_MANIFEST[kind]

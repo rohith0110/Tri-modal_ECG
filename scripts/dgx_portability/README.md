@@ -170,3 +170,85 @@ missing. Two further corrections fell out of the same read:
 * **The loader has no data-root flag.** It resolves everything under
   `$PROJECT_ROOT/data/processed`, so when `DATA_ROOT` is elsewhere (node-local
   scratch) the body symlinks rather than copying.
+
+---
+
+## Written at Step 6 (2026-08-29)
+
+```
+make_subsets.py   # build / verify the three derived datasets + their manifest overlays
+upload_data.py    # push a campaign's data to R2 in the layout stage_data.sh reads back
+```
+
+### The layout, which is defined by the reader
+
+`stage_data.sh` is the only consumer, so it decides the shape:
+
+```
+plain dataset      r2:trimodal-data/<dataset>/<path relative to data/processed>
+chunked dataset    r2:trimodal-data/chunks/<base>/piece_NNN.h5   (or .tar)
+                   r2:trimodal-data/chunks/<base>/checksums.json
+                   r2:trimodal-data/chunks/<base>/assignment.parquet
+```
+
+The paths **inside** a dataset are relative to `data/processed`, not to the
+dataset name, because `_campaign_body.sh` symlinks `DATA_ROOT` to
+`$PROJECT_ROOT/data/processed` and `modality.py` resolves everything under that
+one path. So `signals_lead2` ships `signals_int16/lead2_preprocessed.h5` and
+`signals/lead2_raw.h5`, and each lands exactly where the modality manifest
+already points. `code` and `configs` are repo paths and stage into
+`PROJECT_ROOT`; `results` comes from `r2:trimodal-results`, not from here.
+
+Chunk name mappings: `preprocessed_12lead → chunks/signals_12lead`,
+`image_clean_12lead → chunks/images_clean_12lead`,
+`raw_12lead → chunks/signals_raw`.
+
+### Two read-path bugs fixed at Step 6
+
+1. **`fetch()` named the destination after the object.** `rclone copy SRC
+   "$dest/$(basename "$rel")"` put a chunk piece at
+   `piece_000.h5/piece_000.h5` and every plain dataset one directory too deep.
+   Both now copy *into* `$dest`.
+2. **Checksum manifests are per dataset** (`checksums_<dataset>.json`). Two
+   datasets can land in one directory — `text` and `index` both write into
+   `index/` — and a shared `checksums.json` let the second shadow the first,
+   leaving the first's files verified against nothing.
+
+Verified by round trip, not by reading: campaign 1 was uploaded and pulled back
+with the real `stage_data.sh`, 49 files checksum-verified, zero mismatches.
+
+### Subsets and manifest overlays
+
+A subset container (`derived/<dataset>/<dataset>__<split>.h5|.tar`) holds its own
+rows in its own order, so the base `modality_manifest.parquet` no longer
+describes it. Each derived dataset ships `manifest_overlays/<dataset>.parquet`
+and `modality.py` lets an overlay row replace the base row for that
+(study_id, kind, layout). Callers are unchanged. A study outside the subset keeps
+its base-container row, and that container is not staged on a subset campaign, so
+a miss is a loud missing-file error rather than silently wrong bytes.
+
+`make_subsets.py selfcheck` builds a 40-study micro-subset, puts a live overlay
+in place, asserts `read_modality()` returns bit-identical arrays and image bytes,
+and deletes everything it wrote.
+
+### Usage
+
+```bash
+PY=./ecg_env/Scripts/python.exe
+$PY scripts/dgx_portability/make_subsets.py plan            # counts + byte estimates
+$PY scripts/dgx_portability/make_subsets.py build --datasets signals_12lead_L3
+$PY scripts/dgx_portability/make_subsets.py verify
+
+$PY scripts/dgx_portability/upload_data.py --all --dry-run  # sizes, moves nothing
+$PY scripts/dgx_portability/upload_data.py --campaign 1     # one campaign, resumable
+```
+
+`TRIMODAL_CHUNK_ROOT` moves a cut off the data volume (the remote path comes
+from the directory *name*); `TRIMODAL_UPLOAD_STAGE` moves the hard-link staging
+tree to follow it — hard links cannot cross volumes.
+
+Never: `rclone lsd r2:` (403 by design — always name the bucket), public access
+or an r2.dev URL on `trimodal-data`, raw MIMIC, the EHR cache, the linkage
+tables, `structured_features.parquet`, or credentials in the repo. The uploader
+refuses all of those by path pattern and scans every task parquet for binary
+columns before it moves a byte.

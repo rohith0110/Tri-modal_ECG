@@ -4,7 +4,7 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-28 (session 7)
+- **Last updated:** 2026-08-29 (session 8)
 - **Current stage:** Stages P2.1–P2.4 were complete at full scale. **Round 10 —
   the Plan A/B compliance audit — then reopened four of them on purpose.**
   A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`
@@ -16,13 +16,24 @@ starting cold reads this first, works, then updates it before the session ends.
   Round 10 tables were rebuilt at full scale and all three audits re-run:
   leakage **PASS 88/88**, cohort **PASS 199/199**, split **PASS 79/79** —
   **366 checks, zero violations**. `30_train.py` will now start.
-- **Next action — Step 6, the staged uploads to R2.** Steps 4, 5, 10R, 11 and
-  12 are all DONE; nothing is gated. Step 6 is four jobs, in order: build the
-  three derived datasets nothing produces yet (`signals_12lead_L3`,
-  `images_clean_12lead_L3`, `images_scanlike_test`), cut the chunks for real
-  (`data/processed/chunks/` currently holds only plans — no piece files, no
-  checksums), write the uploader (none exists; `stage_data.sh` only pulls), then
-  upload in campaign order.
+- **Step 6 — IN PROGRESS since 2026-08-29 (session 8). The tooling is done and
+  proved; the bytes are still moving.** Report:
+  `outputs/stage_reports/step6_staging_report.md`.
+  **Campaign 1 is uploaded AND was pulled back with the real `stage_data.sh`:
+  49 files checksum-verified, zero mismatches, every path where `modality.py`
+  looks for it.** Campaigns 2–4 are uploading; the L3 subsets and the three
+  chunk cuts are building locally.
+  New: `make_subsets.py` (the three derived datasets, from the task parquets'
+  `is_primary` rows — 422,147 studies) and `upload_data.py` (resumable,
+  `--dry-run`, per-dataset checksum manifests). `modality.py` gained **manifest
+  overlays** so a subset container is read with no caller changed.
+  **Two read-path bugs were found and fixed before any campaign could have hit
+  them** — `fetch()` named the destination after the object (a piece landed at
+  `piece_000.h5/piece_000.h5`) and datasets have to carry paths *relative to
+  `data/processed`*, not under a directory named after themselves. See §5
+  questions 14 and 15 for what Step 6 uncovered and did not fix.
+- **Next action — finish Step 6's uploads**, one command per campaign:
+  `upload_data.py --campaign N` (`--all --dry-run` prints every size first).
 - **Step 12 — SIGNED OFF 2026-08-28 by the project owner. The first upload is
   released.** `cohort_audit.md` PASS, 184 checks, 0 violations; four disclosure
   items accepted for the paper's limitations (A3's structurally-absent rare
@@ -138,11 +149,24 @@ Phase 1 data. It is separate from the Phase 2 benchmark paper.
 | indexes / linkage / qc / features                    |                     ~0.4 GB |
 | `data/raw/ehr_cache/`                                | 1.26 GB (labevents 1.19 GB) |
 
-Signals are float32 + gzip-4. Measured requantisation: **int16 + per-record
-scale + shuffle + gzip-4 = 0.40×** (12-lead preprocessed → 56.7 GB), max abs
-error 1.1e-3 on signals reaching 70. That is finer than the source ADC
-resolution, so it is a storage change, not a precision compromise — but Stage
-P2.0 must still prove it empirically (see Step 5).
+Added by Steps 5 and 6:
+
+| Artifact                                             |                        Size |
+| ---------------------------------------------------- | --------------------------: |
+| `signals_int16/` (6 files, Step 5)                   |                     90.7 GB |
+| `derived/signals_12lead_L3/` (3 splits, Step 6)      |                     43.9 GB |
+| `derived/images_clean_12lead_L3/` (3 splits)         |                      5.1 GB |
+| `derived/images_scanlike_test/` (test, both layouts) |                     20.4 GB |
+| `chunks/` — 3 cuts × 8 train pieces (on C:, Step 6)  |                     ~84 GB |
+
+**CORRECTED 2026-08-28 (Step 5), measured.** The requantisation ratio above was
+an estimate and it was wrong: int16 + per-record scale + gzip-4 measures
+**0.55×**, not 0.40×, because the float32 source is *already* gzip-4 compressed.
+12-lead preprocessed is **83.24 GB (77.5 GiB)**, not 56.7 GB; the whole
+conversion was 164.98 → 90.66 GB. The "max abs error 1.1e-3 against amplitude
+70" also does not describe this data — the preprocessed signals are z-scored per
+lead and reach 1,923. What was proved instead (Step 5, four arms): the int16
+encoding moves every metric **0.42× as much as changing the training seed does**.
 
 ---
 
@@ -400,6 +424,8 @@ session and touch no laptop work.
 | 11  | **B5 row emission.** §4.B.5.3 ("one clean row per ECG + a corrupted row with p=0.5") gives 12:1; §6.4 asserts "balanced 50/50 by dataset design". Both cannot hold. | P2.2, B5 builder | **RESOLVED 2026-08-26** — one row per **eligible** study, corrupted with p=0.5 → exact 50/50 over **128,674 rows**, 38,438 subjects, train 89,855 / val 12,944 / test 25,875. Spec §12.8.5. |
 | 12  | **Regime_2 augmentation policy** is unspecified in §7.3. | P2.5, B2 regime_2 trainer | **DEFAULT APPLIED 2026-08-27** — `corruption_recipes_LOCKED.yaml` `regimes.regime_2.augmentation_policy`: p = 0.5 per sample, family uniform over all 8, SNR uniform over {30,20,10,5,0}, a train_augmentation RNG stream distinct from the frozen test set. The B2 builder stamps the policy into the task README so the trainer reads it from one place. Still revisitable at P2.5 — it changes a trainer, not the data. |
 | 13  | **B6 hard tier** — add a same-HR-bucket, SAME-SUBJECT swap? (Round 3 left it RESERVED.) | P2.2, B6 builder | **DEFAULT APPLIED 2026-08-27** — the hard tier ships empty. The tier name stays in `eval_keys.parquet`'s vocabulary, so adding it later rebuilds one small pointer table plus the matching B4 rows, and no trained model. |
+| 14  | **Campaigns 7, 8 and 11 read the Lead-II streams too, and no longer fit.** Their configs include `multimodal_fusion_lead2` / `embedding_cosine_lead2`; `campaigns.sh` did not list those datasets, so those runs would have died at the first read. The lists are now correct, which puts campaign 7 at **69 GB** and 8 at **48 GB** against a 45 GB ceiling, and `require_fit` now refuses them. **The fix is to split each campaign by lead subset** — a 12-lead half and a Lead-II half — which needs `campaign_runs.py` to route by lead subset as well as by tier. Left refusing until then: a refusal beats a run that dies on a file nobody staged. | before campaign 7 | **OPEN, raised 2026-08-29 (Step 6)** |
+| 15  | **The chunked campaigns (6, 8, 9) are not runnable on pieces yet, for two reasons beyond Step 6.** (a) Nothing reads `piece_NNN.h5` — the pieces are self-describing (`signal`, `study_id`, `scale`) but no dataloader consumes them, and §8.2 rule 2's within-epoch cycling lives in that unwritten reader. (b) Pieces are cut from **train** only, by design, so those campaigns have no val split resident for early stopping and no test split for evaluation. | Step 7/8 planning | **OPEN, raised 2026-08-29 (Step 6)** |
 
 ---
 
@@ -634,8 +660,73 @@ plan; this is the index of record.
       note: the "max abs error 1.1e-3 against amplitude 70" does not describe
       this data (the preprocessed signals are z-scored per lead and reach
       **1923**), and the validation belongs to Stage P2.5, not P2.0.
-- [ ] **Step 6 — Staged uploads to R2** (~173 GB total, in campaign order —
-      revised up from ~145 GB by Step 5's measured int16 ratio)
+- [ ] **Step 6 — Staged uploads to R2. TOOLING DONE + PROVED 2026-08-29; the
+      uploads themselves run across nights.** Report:
+      `outputs/stage_reports/step6_staging_report.md`. **~195 GB** total, revised
+      up again: Step 5's measured int16 ratio plus the chunk cuts, which
+      duplicate the training split in piece form.
+  - [x] **Job 1 — the three derived datasets.** New `make_subsets.py`.
+        The study list is read off the task parquets, as the plan requires, not
+        re-derived: the union of the `is_primary` rows of A1/A3/A4/A6 —
+        **422,147 studies, train 295,236 / val 42,563 / test 84,348**, which is
+        exactly what `TaskDataset(primary_only=True)` asks for.
+        `signals_12lead_L3` **43.93 GB** (int16 codes copied, not requantised, so
+        Step 5's equivalence proof still covers it), `images_clean_12lead_L3`
+        **5.10 GB**, `images_scanlike_test` **20.40 GB** (both layouts, test
+        split, which is what campaign 10's configs read). One file per split,
+        because campaign 5 trains on train+val and swaps in test to evaluate.
+        **A4 is not an L3-only table** — its parquets carry the full clean
+        cohort with `is_primary` marking L3, per §4.A.4.2. Building the subset
+        from the row set instead of the flag would have produced the entire
+        cohort and campaign 5 would not have fitted.
+  - [x] **The overlay mechanism, which is what makes a subset readable.** A
+        subset container holds its own rows in its own order, so the base
+        `modality_manifest.parquet` no longer describes it. Each dataset ships
+        `manifest_overlays/<dataset>.parquet` and `modality.py` lets an overlay
+        row replace the base row for that (study_id, kind, layout). **No caller
+        changed.** A study outside the subset keeps its base row, whose container
+        is not staged, so a miss is a loud missing-file error, never silently
+        wrong bytes. `make_subsets.py selfcheck` proves a live overlay returns
+        **bit-identical** signal arrays and image bytes for 40 studies; the P2.0
+        gate is still **26/26** and `modality.py`'s own self-check still 9/9.
+  - [ ] **Job 2 — cut the chunks.** `chunks/` held only plans. Three cuts, TRAIN
+        split, 8 pieces, `--int16` for the signal kinds, running into
+        `TRIMODAL_CHUNK_ROOT` on C: (D: has 84 GB free and the cuts are ~84 GB).
+        **Two bugs fixed first:** `cut_image_piece` called a
+        `modality.read_modality_bytes()` that does not exist (`read_modality`
+        already returns encoded bytes for an image kind), and `--int16` now
+        exports `TRIMODAL_SIGNAL_INT16=1` so a signal cut reads the int16 copies
+        — half the I/O, and for `preprocessed_12lead` the codes survive exactly.
+  - [x] **Job 3 — the uploader.** New `upload_data.py`: hard-link staging tree +
+        `rclone copy --checksum` (resumable), sha256 cache, `--dry-run` sizes per
+        campaign, `checksums_<dataset>.json` per uploaded directory in the format
+        the stager's verifier expects, and the three chunk name mappings
+        (`preprocessed_12lead → chunks/signals_12lead`, `image_clean_12lead →
+        chunks/images_clean_12lead`, `raw_12lead → chunks/signals_raw`).
+        **The layout was verified by round trip, not by reading**: campaign 1 was
+        uploaded and pulled back with the real `stage_data.sh` — 49 files
+        checksum-verified, `code → scripts/`, `configs → config/`, data at its
+        manifest paths under `data/processed/`.
+  - [x] **The read-path check the plan called the most likely thing to be
+        quietly wrong — it WAS wrong, twice, and both are fixed.** `fetch()`
+        named its destination after the object, so a chunk piece landed at
+        `piece_000.h5/piece_000.h5` and every plain dataset went one directory
+        too deep; and a dataset's objects must carry their paths **relative to
+        `data/processed`** (the int16 Lead-II copy has to land at
+        `signals_int16/lead2_preprocessed.h5`), with `code`/`configs` routed to
+        `PROJECT_ROOT` instead. On int16 specifically: `lead2_raw.h5` has no
+        int16 copy, `_resolve_h5` falls back to the float32 original when the
+        int16 file is absent, and both files are uploaded at exactly the two
+        paths the manifest names — so campaign 4 resolves both encodings.
+  - [ ] **Job 4 — upload, in campaign order.** Campaign 1 **UPLOADED** (1.10 GB)
+        and round-trip verified. Campaigns 2 (8.94 GB), 3 (17.84 GB) and 4
+        (13.50 GB) uploading. The rest are one command each:
+        `upload_data.py --campaign N`.
+        Privacy checked before the first push: raw MIMIC, the EHR cache, the
+        linkage tables, `structured_features.parquet` and anything
+        credential-shaped are refused **by path pattern**, every task parquet's
+        schema is scanned for binary columns (101 files, all clean), the bucket
+        stays private, and no `rclone lsd r2:` is ever issued.
 
 ### Part 2 — First DGX session (~1 hour)
 
@@ -1375,3 +1466,47 @@ Append a short entry per session: what changed, what to do next. Newest last.
 - **Next:** Step 4 (chunk-cutter + campaign launchers), Step 5 (int16 + the
   equivalence proof), then Step 6's first upload — which also wants Step 12's
   human sign-off on `cohort_audit.md`.
+
+### Session 7 — 2026-08-28
+
+No narrative entry was written at the time. What it did is recorded in full in
+the step ledger: **Step 5** (the int16 copies and the four-arm equivalence
+proof), the **Round 10** compliance closure, and **Step 10R** (all four tables
+rebuilt, all three audits re-run — 366 checks, 0 violations).
+
+### Session 8 — 2026-08-29 — Step 6, the staged uploads
+
+**Started only after checking the gate rather than trusting it:** Step 10R DONE
+(366/366), Step 5's six int16 files present and in `int16_manifest.json`, and
+`rclone size r2:trimodal-data` = **0 objects**, so nothing was overwritten.
+
+- **Built the three derived datasets nothing produced** — new `make_subsets.py`.
+  Study list read off the task parquets (`is_primary` of A1/A3/A4/A6):
+  **422,147 studies**, train 295,236 / val 42,563 / test 84,348.
+  `signals_12lead_L3` 43.93 GB, `images_clean_12lead_L3` 5.10 GB,
+  `images_scanlike_test` 20.40 GB.
+- **Gave `modality.py` manifest overlays** so those subsets are readable with no
+  caller changed, and proved it: a 40-study micro-subset with a live overlay
+  returns bit-identical arrays and image bytes. P2.0 gate still 26/26.
+- **Wrote `upload_data.py`** and proved the layout by round trip — campaign 1
+  uploaded, then pulled back with the real `stage_data.sh`: **49 files
+  checksum-verified, zero mismatches.**
+- **Fixed the read path, which was broken in two ways.** `fetch()` named the
+  destination after the object (`piece_000.h5/piece_000.h5`, and every dataset a
+  directory too deep); and dataset objects must carry paths relative to
+  `data/processed`, with `code`/`configs` routed to `PROJECT_ROOT`. Also
+  `checksums_<dataset>.json`, because `text` and `index` share a directory and a
+  single name let the second shadow the first.
+- **Fixed two bugs in `make_chunks.py`** before the first cut: the image path
+  called a `read_modality_bytes()` that does not exist, and `--int16` now reads
+  the int16 copies instead of re-quantising the float32 originals.
+- **Corrected `campaigns.sh`** — resident sizes measured off disk, dataset lists
+  matched to what each campaign's configs actually read, run counts from
+  `campaign_runs.py --table` (104 configs, 312 runs).
+- **Raised two open questions the step uncovered and did not fix** — §5 #14
+  (campaigns 7/8/11 read Lead-II too and no longer fit; split them by lead
+  subset) and #15 (nothing reads chunk pieces yet, and pieces are train-only).
+- **Left running:** campaigns 2–4 uploading, the L3 subsets and the three chunk
+  cuts building. Report: `outputs/stage_reports/step6_staging_report.md`.
+- **Next:** finish the uploads, one campaign per night
+  (`upload_data.py --campaign N`), then Step 7, the DGX environment survey.

@@ -80,6 +80,13 @@ transport() {
 }
 
 # fetch <remote-relative-path> <local-dest-dir>
+#
+# `rel` is either a dataset PREFIX -- whose objects carry their own paths
+# relative to data/processed and must keep them, so `signals_int16/x.h5` lands
+# at `$DATA_ROOT/signals_int16/x.h5` where modality.py looks for it -- or a
+# single chunk piece. Both copy INTO `$dest`; naming the destination after the
+# object (the previous behaviour) buried a piece at `piece_000.h5/piece_000.h5`
+# and put every dataset one directory too deep.
 fetch() {
     local rel="$1" dest="$2"
     mkdir -p "$dest"
@@ -87,11 +94,15 @@ fetch() {
         local)
             [ -e "$TRIMODAL_SOURCE/$rel" ] || {
                 echo "ERROR: $TRIMODAL_SOURCE/$rel not found" >&2; return 1; }
-            cp -r "$TRIMODAL_SOURCE/$rel" "$dest/"
+            if [ -d "$TRIMODAL_SOURCE/$rel" ]; then
+                cp -r "$TRIMODAL_SOURCE/$rel/." "$dest/"
+            else
+                cp "$TRIMODAL_SOURCE/$rel" "$dest/"
+            fi
             ;;
         rclone|rclone-offline)
             rclone copy --progress --transfers 4 --checksum \
-                "$R2_DATA/$rel" "$dest/$(basename "$rel")" \
+                "$R2_DATA/$rel" "$dest" \
                 || { echo "ERROR: rclone copy failed for $rel" >&2; return 1; }
             ;;
         none)
@@ -132,19 +143,36 @@ push() {
 # campaign_spec <n> -> "name|resident_gb|runs|gpu_hours|chunked|datasets..."
 # `chunked` is yes for the campaigns whose training data exceeds the quota
 # (6, 8, 9) -- those stage pieces, not whole files.
+#
+# AMENDED 2026-08-29 (Step 6). Both the resident sizes and the dataset lists
+# were re-derived from what is actually on disk and from what each campaign's
+# model configs actually read (`--table` in campaign_runs.py, plus the
+# `input_modality` of every config). Three corrections, all measured:
+#
+#  * Resident GB now reflect Step 5's measured int16 ratio (77.5 GiB of 12-lead,
+#    not the 56.7 the plan estimated) and the real file sizes, so campaign 4 is
+#    15 GB rather than 8 and campaign 5 is 34 rather than 27.
+#  * Campaigns 7, 8 and 11 read the Lead-II fusion streams too -- their configs
+#    include `multimodal_fusion_lead2` / `embedding_cosine_lead2` -- so those
+#    datasets are now listed. That makes 7 and 8 exceed the 45 GB ceiling and
+#    `require_fit` will refuse them: the fix is to SPLIT each by lead subset
+#    (a 12-lead half and a Lead-II half), which needs campaign_runs.py to route
+#    by lead subset as well as tier. Refusing loudly beats a run that dies at
+#    the first read of a file nobody staged.
+#  * Runs come from campaign_runs.py --table (104 configs x 3 seeds = 312).
 campaign_spec() {
     case "$1" in
-        1)  echo "text_models|3|21|23|no|code configs tasks fiducials index text" ;;
-        2)  echo "images_12lead|12|21|14|no|code configs tasks index images_clean_12lead" ;;
-        3)  echo "images_lead2|21|21|14|no|code configs tasks index images_clean_lead2" ;;
-        4)  echo "signals_lead2|8|33|8|no|code configs tasks index signals_lead2 signals_corrupted" ;;
-        5)  echo "signals_12lead_L3|27|12|6|no|code configs tasks index signals_12lead_L3" ;;
-        6)  echo "signals_12lead_full|30|18|10|yes|code configs tasks index signals_12lead_pieces" ;;
-        7)  echo "fusion_L3|32|9|20|no|code configs tasks index text signals_12lead_L3 images_clean_12lead_L3" ;;
-        8)  echo "fusion_full|33|12|30|yes|code configs tasks index text signals_12lead_pieces images_clean_12lead_pieces" ;;
-        9)  echo "retrain_sweeps|30|30|25|yes|code configs tasks index signals_raw_pieces text" ;;
-        10) echo "test_sweeps|20|0|6|no|code configs tasks index images_scanlike_test signals_corrupted" ;;
-        11) echo "final_eval|5|0|4|no|code configs results" ;;
+        1)  echo "text_models|2|36|23|no|code configs tasks fiducials index text" ;;
+        2)  echo "images_12lead|11|15|14|no|code configs tasks index images_clean_12lead" ;;
+        3)  echo "images_lead2|20|15|14|no|code configs tasks index images_clean_lead2" ;;
+        4)  echo "signals_lead2|15|78|8|no|code configs tasks index signals_lead2 signals_corrupted" ;;
+        5)  echo "signals_12lead_L3|34|12|6|no|code configs tasks index signals_12lead_L3" ;;
+        6)  echo "signals_12lead_full|14|18|10|yes|code configs tasks index signals_12lead_pieces" ;;
+        7)  echo "fusion_L3|69|36|20|no|code configs tasks index text signals_12lead_L3 images_clean_12lead_L3 signals_lead2 images_clean_lead2" ;;
+        8)  echo "fusion_full|48|30|30|yes|code configs tasks index text signals_12lead_pieces images_clean_12lead_pieces signals_lead2 images_clean_lead2" ;;
+        9)  echo "retrain_sweeps|8|30|25|yes|code configs tasks index signals_raw_pieces text" ;;
+        10) echo "test_sweeps|21|30|6|no|code configs tasks index images_scanlike_test signals_corrupted" ;;
+        11) echo "final_eval|48|12|4|no|code configs tasks index text results signals_12lead_L3 images_clean_12lead_L3 signals_lead2 images_clean_lead2" ;;
         *)  return 1 ;;
     esac
 }

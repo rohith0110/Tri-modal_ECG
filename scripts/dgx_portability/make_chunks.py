@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sys
 import tarfile
@@ -58,7 +59,10 @@ STAGE = "P2.4b"
 # cut they are holding.
 PIECE_SALT = "trimodal-phase2-chunk-v1"
 
-CHUNK_ROOT = bc.DATA_PROCESSED / "chunks"
+# Cuts are large and reproducible, so they may live off the data volume while a
+# night of uploads drains them: TRIMODAL_CHUNK_ROOT moves them and nothing else
+# (the remote path comes from the directory NAME, not from its parent).
+CHUNK_ROOT = Path(os.environ.get("TRIMODAL_CHUNK_ROOT", bc.DATA_PROCESSED / "chunks"))
 SPLITS_PATH = bc.DATA_PROCESSED / "splits_subject_level.parquet"
 
 # Kinds this script knows how to materialise. Signal kinds become one HDF5 per
@@ -286,12 +290,10 @@ def cut_image_piece(frame: pd.DataFrame, kind: str, index: int, target: Path,
     written = 0
     with tarfile.open(tmp, "w") as out:
         for study_id in rows.study_id.to_numpy():
-            payload = mod.read_modality_bytes(int(study_id), kind) \
-                if hasattr(mod, "read_modality_bytes") else None
-            if payload is None:
-                raise SystemExit(
-                    "modality.read_modality_bytes() is missing -- image pieces need the "
-                    "raw encoded bytes, not a decoded array. Add it before cutting images.")
+            # read_modality returns the ENCODED bytes for an image kind (it is
+            # _read_image that seeks into the tar), which is exactly what a piece
+            # tar needs -- no decode, no re-encode, byte-identical members.
+            payload = mod.read_modality(int(study_id), kind)
             info = tarfile.TarInfo(name=f"{int(study_id)}.png")
             info.size = len(payload)
             import io
@@ -476,6 +478,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.action == "selfcheck":
         _self_check()
         return 0
+
+    # --int16 means "the pieces are int16", so read the int16 copies where they
+    # exist: half the I/O, and for a kind already converted at Step 5 the codes
+    # survive the round trip exactly (peak/32767 is idempotent). raw_12lead has
+    # no int16 copy, so _resolve_h5 falls back to the float32 original and the
+    # quantisation happens here instead.
+    if args.int16:
+        os.environ["TRIMODAL_SIGNAL_INT16"] = "1"
 
     log = bc.setup_logging("make_chunks", stage=STAGE)
     log.info("make_chunks %s: kinds=%s split=%s pieces=%d int16=%s salt=%s",

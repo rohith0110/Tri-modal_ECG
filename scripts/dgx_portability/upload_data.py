@@ -292,8 +292,27 @@ def stage(pairs: list[tuple[Path, str]], dataset: str, cache: dict,
 
 
 def push(root: Path, dry_run: bool) -> int:
+    """rclone copy, tuned so a single huge file can still fill the link.
+
+    `--transfers` only parallelises across FILES, and the datasets that dominate
+    this upload are one or three enormous ones (`signals_12lead_L3__train.h5` is
+    30.9 GB, a scan-like tar is 20.3 GB), so it does nothing for them. What does
+    is `--s3-upload-concurrency`: the number of multipart chunks of ONE file in
+    flight at once. Default 4 x 5 MiB = 20 MiB outstanding, which cannot saturate
+    a fast link over a long round trip; 12 x 32 MiB = 384 MiB can.
+
+    Peak memory is roughly transfers x upload-concurrency x chunk-size (here
+    ~1.5 GB worst case, against 9 GB free). Turn any of them down on a smaller
+    machine -- each is an env var, and rclone reads its own `RCLONE_*` vars too.
+    """
+    transfers = os.environ.get("TRIMODAL_RCLONE_TRANSFERS", "4")
+    concurrency = os.environ.get("TRIMODAL_RCLONE_UPLOAD_CONCURRENCY", "12")
+    chunk = os.environ.get("TRIMODAL_RCLONE_CHUNK_SIZE", "32M")
     command = ["rclone", "copy", str(root), REMOTE, "--checksum",
-               "--transfers", "4", "--stats", "30s", "--stats-one-line"]
+               "--transfers", transfers,
+               "--s3-upload-concurrency", concurrency,
+               "--s3-chunk-size", chunk,
+               "--stats", "30s", "--stats-one-line"]
     if dry_run:
         command.append("--dry-run")
     print("+ " + " ".join(command), flush=True)

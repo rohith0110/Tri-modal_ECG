@@ -312,7 +312,12 @@ def push(root: Path, dry_run: bool) -> int:
                "--transfers", transfers,
                "--s3-upload-concurrency", concurrency,
                "--s3-chunk-size", chunk,
-               "--stats", "30s", "--stats-one-line"]
+               # rclone logs stats at INFO, which the default NOTICE level hides,
+               # so without this the log shows the command and then nothing for
+               # the twenty minutes a 20 GB tar takes. `rclone size` is no
+               # substitute: a multipart object does not appear in the bucket
+               # until its last part lands.
+               "--stats", "30s", "--stats-one-line", "--stats-log-level", "NOTICE"]
     if dry_run:
         command.append("--dry-run")
     print("+ " + " ".join(command), flush=True)

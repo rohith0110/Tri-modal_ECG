@@ -80,6 +80,9 @@ COHORT_RULES: dict[str, dict[str, Any]] = {
     "A5_cross_modal_verification": {
         "spec": "§4.A.5.2 — every clean-cohort ECG, 2 positives + 5 negatives",
         "rows_per_anchor": 7, "row_key": ["anchor_study_id", "neg_type", "image_type"],
+        # Round 10 / §12.9 item 4: the §6.7 Levels 2-5 negatives, TEST only.
+        "ladder_neg_types": ("HARD_NEGATIVE_L2", "HARD_NEGATIVE_L3",
+                             "HARD_NEGATIVE_L4", "HARD_NEGATIVE_L5"),
     },
     "A6_risk_stratification": {
         "spec": "§4.A.6.2", "primary_link_tier": {"L3"}, "row_key": ["study_id"],
@@ -99,6 +102,9 @@ COHORT_RULES: dict[str, dict[str, Any]] = {
     "B4_cross_modal_verification": {
         "spec": "§4.B.4.2 — identical rows to A5 (§4.B.4.8)",
         "rows_per_anchor": 7, "row_key": ["anchor_study_id", "neg_type", "image_type"],
+        # Round 10 / §12.9 item 4: the §6.7 Levels 2-5 negatives, TEST only.
+        "ladder_neg_types": ("HARD_NEGATIVE_L2", "HARD_NEGATIVE_L3",
+                             "HARD_NEGATIVE_L4", "HARD_NEGATIVE_L5"),
     },
     "B5_contradiction_detection": {
         "spec": "§4.B.5.2 as amended by §4 decisions 11 and 17",
@@ -111,6 +117,9 @@ COHORT_RULES: dict[str, dict[str, Any]] = {
         # (clean and scan-like image) and the pointer table does not carry
         # `image_type`. Coverage against B4 is the check that means something.
         "rows_per_anchor": 7,
+        # Round 10 / §12.9 item 4: the §6.7 Levels 2-5 negatives, TEST only.
+        "ladder_neg_types": ("HARD_NEGATIVE_L2", "HARD_NEGATIVE_L3",
+                             "HARD_NEGATIVE_L4", "HARD_NEGATIVE_L5"),
     },
 }
 
@@ -123,6 +132,56 @@ def split_files(spec: TaskSpec) -> dict[str, Path]:
     return {"train": directory / spec.train_file,
             "val": directory / spec.val_file,
             "test": directory / spec.test_file}
+
+
+def check_rows_per_anchor(audit, task_key: str, rows: pd.DataFrame, id_column: str,
+                          rules: dict) -> None:
+    """Every anchor carries the same base row count, PER SPLIT.
+
+    Round 10 (§12.9 item 4) added the §6.7 Levels 2-5 negatives to the TEST
+    split only, so a single ``len(rows) == anchors * 7`` over all three splits
+    is no longer the right assertion -- it was measuring a uniformity the ladder
+    deliberately breaks. Split it in two, which is strictly stronger than what it
+    replaced:
+
+    * the BASE rows (everything outside the ladder) are exactly
+      ``rows_per_anchor`` per anchor **in every split**, so a dropped or
+      duplicated base row still fails; and
+    * the ladder rows appear in **test only**, which is the §12.9 requirement
+      that keeping them out of train is what lets the curve be produced without
+      retraining anything.
+    """
+    per_anchor = rules["rows_per_anchor"]
+    ladder = set(rules.get("ladder_neg_types", ()))
+    has_neg_type = "neg_type" in rows.columns
+
+    base = rows
+    if ladder and has_neg_type:
+        base = rows[~rows["neg_type"].isin(ladder)]
+
+    for split_name in ("train", "val", "test"):
+        part = base[base["split"] == split_name] if "split" in base.columns else base
+        if part.empty:
+            continue
+        anchors = part[id_column].nunique()
+        expected = anchors * per_anchor
+        audit.check(task_key, f"rows_per_anchor[{split_name}]", len(part) == expected,
+                    f"{anchors:,} anchors x {per_anchor} = {expected:,}, "
+                    f"measured {len(part):,} base rows")
+
+    if ladder and has_neg_type:
+        extra = rows[rows["neg_type"].isin(ladder)]
+        splits_seen = set(extra["split"].dropna().unique()) if "split" in extra.columns else set()
+        audit.check(task_key, "ladder_negatives_are_test_only",
+                    splits_seen <= {"test"},
+                    f"{len(extra):,} Level 2-5 rows live in {sorted(splits_seen) or 'no split'}; "
+                    "§12.9 item 4 puts them in TEST only, so no model is retrained "
+                    "to produce the §6.7 curve")
+        counts = extra["neg_type"].value_counts().to_dict()
+        audit.check(task_key, "ladder_negatives_present",
+                    set(counts) == ladder,
+                    f"ladder rows per type: {ac.fmt_counts(counts)}; "
+                    f"expected all of {sorted(ladder)}")
 
 
 def read_split(spec: TaskSpec, path: Path, split: str) -> pd.DataFrame:
@@ -279,11 +338,7 @@ def audit_task(audit: ac.Audit, task_key: str, log) -> None:
                     f"measured {len(primary_all):,} primary rows against the locked "
                     f"{rules['locked_rows']:,}")
     if "rows_per_anchor" in rules:
-        anchors = all_rows[id_column].nunique()
-        expected = anchors * rules["rows_per_anchor"]
-        audit.check(task_key, "rows_per_anchor", len(all_rows) == expected,
-                    f"{anchors:,} anchors x {rules['rows_per_anchor']} = {expected:,}, "
-                    f"measured {len(all_rows):,}")
+        check_rows_per_anchor(audit, task_key, all_rows, id_column, rules)
     if "rows_per_study" in rules:
         studies = all_rows[id_column].nunique()
         expected = studies * rules["rows_per_study"]
@@ -420,11 +475,7 @@ def audit_pointer_table(audit: ac.Audit, spec: TaskSpec,
                     f"`{tier}` holds {sorted(present) or 'no rows'}; the config declares "
                     f"{sorted(declared) or 'none (RESERVED, ships empty)'}")
 
-    anchors = pointer[spec.id_column].nunique()
-    audit.check(task_key, "rows_per_anchor",
-                len(pointer) == anchors * rules["rows_per_anchor"],
-                f"{anchors:,} anchors x {rules['rows_per_anchor']} = "
-                f"{anchors * rules['rows_per_anchor']:,}, measured {len(pointer):,}")
+    check_rows_per_anchor(audit, task_key, pointer, spec.id_column, rules)
 
     audit.add("", f"Subjects: {pointer.subject_id.nunique():,}. "
                   f"Splits: {ac.fmt_counts(pointer.split.value_counts().to_dict())}.", "")

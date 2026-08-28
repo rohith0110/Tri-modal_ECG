@@ -1,8 +1,8 @@
 # Cohort audit — Phase 2 tasks (Stage P2.3)
 
-**VERDICT: PASS** — 184 checks run, 184 passed, 0 violations.
+**VERDICT: PASS** — 199 checks run, 199 passed, 0 violations.
 
-Spec §9.4 (Stage P2.3), §1.2 audit inventory. Generated 2026-08-27T12:18:20Z by `scripts/phase2_tasks_benchmark_and_paper/21_audit_tasks_cohort.py` from the task parquets on disk — every number below is measured, none is restated from a builder's own report.
+Spec §9.4 (Stage P2.3), §1.2 audit inventory. Generated 2026-08-28T17:22:08Z by `scripts/phase2_tasks_benchmark_and_paper/21_audit_tasks_cohort.py` from the task parquets on disk — every number below is measured, none is restated from a builder's own report.
 
 Per task: n_ECG, n_subjects, per-class counts and prevalence, missingness, linkage-tier and SQI-tier breakdowns and the cart_id top 5 — every number measured off the task parquets rather than copied from a builder's state file, so this audit can contradict Stage P2.1/P2.2 if they have drifted.
 
@@ -16,14 +16,14 @@ The assertions behind the verdict ask one question: **would a training run on th
 | `A2_measurement_blind` | 13 | **PASS** |
 | `A3_lab_abnormality` | 75 | **PASS** |
 | `A4_event_localization` | 6 | **PASS** |
-| `A5_cross_modal_verification` | 15 | **PASS** |
+| `A5_cross_modal_verification` | 19 | **PASS** |
 | `A6_risk_stratification` | 13 | **PASS** |
 | `B1_measurement_blind` | 11 | **PASS** |
 | `B2_noise_robustness` | 12 | **PASS** |
 | `B3_temporal_grounding` | 5 | **PASS** |
-| `B4_cross_modal_verification` | 7 | **PASS** |
+| `B4_cross_modal_verification` | 11 | **PASS** |
 | `B5_contradiction_detection` | 10 | **PASS** |
-| `B6_difficulty_stratified` | 7 | **PASS** |
+| `B6_difficulty_stratified` | 14 | **PASS** |
 
 
 ## `A1_ecg_diagnosis`
@@ -74,7 +74,7 @@ Cohort rule: §4.A.1.2. Heads: 5 (binary).
 
 ## `A2_measurement_blind`
 
-Cohort rule: §4.A.2.2 as amended by §4 decision 10. Heads: 3 (multiclass).
+Cohort rule: §4.A.2.2 as amended by §4 decision 10. Heads: 6 (multiclass, regression).
 
 | split | rows | unique `study_id` | subjects | primary rows | primary subjects |
 | --- | --- | --- | --- | --- | --- |
@@ -103,6 +103,15 @@ Cohort rule: §4.A.2.2 as amended by §4 decision 10. Heads: 3 (multiclass).
 | qtc_label | train | 349,871 | short 402 · normal 183,698 · prolonged 165,771 | short 0.0011 · normal 0.5250 · prolonged 0.4738 | 0 |
 | qtc_label | val | 50,182 | short 41 · normal 26,666 · prolonged 23,475 | short 0.0008 · normal 0.5314 · prolonged 0.4678 | 0 |
 | qtc_label | test | 99,964 | short 104 · normal 52,785 · prolonged 47,075 | short 0.0010 · normal 0.5280 · prolonged 0.4709 | 0 |
+| hr_bpm | train | 349,871 | regression | (sequence / span target) | 0 |
+| hr_bpm | val | 50,182 | regression | (sequence / span target) | 0 |
+| hr_bpm | test | 99,964 | regression | (sequence / span target) | 0 |
+| qrs_ms | train | 349,871 | regression | (sequence / span target) | 0 |
+| qrs_ms | val | 50,182 | regression | (sequence / span target) | 0 |
+| qrs_ms | test | 99,964 | regression | (sequence / span target) | 0 |
+| qtc_ms | train | 349,871 | regression | (sequence / span target) | 0 |
+| qtc_ms | val | 50,182 | regression | (sequence / span target) | 0 |
+| qtc_ms | test | 99,964 | regression | (sequence / span target) | 0 |
 
 
 **Missingness** (columns with at least one null, over all three splits). Nulls in a label column are only legitimate where a mask column declares the row out of scope; the `mask_implies_label` checks above are what enforce that.
@@ -328,8 +337,8 @@ Cohort rule: §4.A.5.2 — every clean-cohort ECG, 2 positives + 5 negatives. He
 | --- | --- | --- | --- | --- | --- |
 | train | 3,667,615 | 523,945 | 107,851 | 3,667,615 | 107,851 |
 | val | 528,675 | 75,525 | 15,397 | 528,675 | 15,397 |
-| test | 1,047,494 | 149,642 | 30,844 | 1,047,494 | 30,844 |
-| **all** | **5,243,784** | **749,112** | **154,092** | **5,243,784** |  |
+| test | 1,497,699 | 149,642 | 30,844 | 1,497,699 | 30,844 |
+| **all** | **5,693,989** | **749,112** | **154,092** | **5,693,989** |  |
 
 | breakdown | counts over all three splits |
 | --- | --- |
@@ -344,26 +353,27 @@ Cohort rule: §4.A.5.2 — every clean-cohort ECG, 2 positives + 5 negatives. He
 | --- | --- | --- | --- | --- | --- |
 | y_match | train | 3,667,615 | positive 1,047,890 · negative 2,619,725 | positive 0.2857 · negative 0.7143 | 0 |
 | y_match | val | 528,675 | positive 151,050 · negative 377,625 | positive 0.2857 · negative 0.7143 | 0 |
-| y_match | test | 1,047,494 | positive 299,284 · negative 748,210 | positive 0.2857 · negative 0.7143 | 0 |
+| y_match | test | 1,497,699 | positive 299,284 · negative 1,198,415 | positive 0.1998 · negative 0.8002 | 0 |
 | hr_label | train | 2,093,856 | bradycardia 314,228 · normal 1,490,360 · tachycardia 289,268 | bradycardia 0.1501 · normal 0.7118 · tachycardia 0.1382 | 0 |
 | hr_label | val | 301,776 | bradycardia 45,352 · normal 214,532 · tachycardia 41,892 | bradycardia 0.1503 · normal 0.7109 · tachycardia 0.1388 | 0 |
-| hr_label | test | 598,184 | bradycardia 89,256 · normal 425,440 · tachycardia 83,488 | bradycardia 0.1492 · normal 0.7112 · tachycardia 0.1396 | 0 |
+| hr_label | test | 1,048,290 | bradycardia 158,077 · normal 742,618 · tachycardia 147,595 | bradycardia 0.1508 · normal 0.7084 · tachycardia 0.1408 | 0 |
 | qrs_label | train | 2,093,856 | normal 1,345,528 · borderline 401,324 · wide 347,004 | normal 0.6426 · borderline 0.1917 · wide 0.1657 | 0 |
 | qrs_label | val | 301,776 | normal 195,208 · borderline 57,212 · wide 49,356 | normal 0.6469 · borderline 0.1896 · wide 0.1636 | 0 |
-| qrs_label | test | 598,184 | normal 385,456 · borderline 114,828 · wide 97,900 | normal 0.6444 · borderline 0.1920 · wide 0.1637 | 0 |
+| qrs_label | test | 1,048,290 | normal 669,695 · borderline 200,821 · wide 177,774 | normal 0.6388 · borderline 0.1916 · wide 0.1696 | 0 |
 | qtc_label | train | 2,093,856 | short 2,152 · normal 1,233,288 · prolonged 858,416 | short 0.0010 · normal 0.5890 · prolonged 0.4100 | 0 |
 | qtc_label | val | 301,776 | short 204 · normal 179,676 · prolonged 121,896 | short 0.0007 · normal 0.5954 · prolonged 0.4039 | 0 |
-| qtc_label | test | 598,184 | short 524 · normal 354,960 · prolonged 242,700 | short 0.0009 · normal 0.5934 · prolonged 0.4057 | 0 |
+| qtc_label | test | 1,048,290 | short 912 · normal 617,514 · prolonged 429,864 | short 0.0009 · normal 0.5891 · prolonged 0.4101 | 0 |
 
 
 **Missingness** (columns with at least one null, over all three splits). Nulls in a label column are only legitimate where a mask column declares the row out of scope; the `mask_implies_label` checks above are what enforce that.
 
 | column | nulls | fraction |
 | --- | --- | --- |
-| `neg_type` | 1,498,224 | 0.2857 |
-| `hr_label` | 4,606 | 0.0009 |
-| `qrs_label` | 4,606 | 0.0009 |
-| `qtc_label` | 4,606 | 0.0009 |
+| `neg_type` | 1,498,224 | 0.2631 |
+| `text_override` | 5,680,950 | 0.9977 |
+| `hr_label` | 4,705 | 0.0008 |
+| `qrs_label` | 4,705 | 0.0008 |
+| `qtc_label` | 4,705 | 0.0008 |
 
 
 ## `A6_risk_stratification`
@@ -414,11 +424,17 @@ Cohort rule: §4.A.6.2. Heads: 4 (binary).
 | `followup_days_after_discharge` | 47,742 | 0.0954 |
 | `next_admission_type` | 210,829 | 0.4213 |
 | `next_admission_location` | 210,829 | 0.4213 |
+| `age_at_ecg` | 22 | 0.0000 |
+| `race` | 47,742 | 0.0954 |
+| `insurance` | 52,524 | 0.1049 |
+| `admission_type` | 47,742 | 0.0954 |
+| `ed_disposition` | 275,818 | 0.5511 |
+| `days_since_last_discharge` | 216,059 | 0.4317 |
 
 
 ## `B1_measurement_blind`
 
-Cohort rule: §4.B.1.2 — the full clean cohort. Heads: 3 (multiclass).
+Cohort rule: §4.B.1.2 — the full clean cohort. Heads: 6 (multiclass, regression).
 
 | split | rows | unique `study_id` | subjects | primary rows | primary subjects |
 | --- | --- | --- | --- | --- | --- |
@@ -447,6 +463,15 @@ Cohort rule: §4.B.1.2 — the full clean cohort. Heads: 3 (multiclass).
 | qtc_label | train | 523,464 | short 538 · normal 308,322 · prolonged 214,604 | short 0.0010 · normal 0.5890 · prolonged 0.4100 | 0 |
 | qtc_label | val | 75,444 | short 51 · normal 44,919 · prolonged 30,474 | short 0.0007 · normal 0.5954 · prolonged 0.4039 | 0 |
 | qtc_label | test | 149,546 | short 131 · normal 88,740 · prolonged 60,675 | short 0.0009 · normal 0.5934 · prolonged 0.4057 | 0 |
+| hr_bpm | train | 523,464 | regression | (sequence / span target) | 0 |
+| hr_bpm | val | 75,444 | regression | (sequence / span target) | 0 |
+| hr_bpm | test | 149,546 | regression | (sequence / span target) | 0 |
+| qrs_ms | train | 523,464 | regression | (sequence / span target) | 0 |
+| qrs_ms | val | 75,444 | regression | (sequence / span target) | 0 |
+| qrs_ms | test | 149,546 | regression | (sequence / span target) | 0 |
+| qtc_ms | train | 523,464 | regression | (sequence / span target) | 0 |
+| qtc_ms | val | 75,444 | regression | (sequence / span target) | 0 |
+| qtc_ms | test | 149,546 | regression | (sequence / span target) | 0 |
 
 
 **Missingness** (columns with at least one null, over all three splits). Nulls in a label column are only legitimate where a mask column declares the row out of scope; the `mask_implies_label` checks above are what enforce that.
@@ -539,8 +564,8 @@ Cohort rule: §4.B.4.2 — identical rows to A5 (§4.B.4.8). Heads: 1 (binary).
 | --- | --- | --- | --- | --- | --- |
 | train | 3,667,615 | 523,945 | 107,851 | 3,667,615 | 107,851 |
 | val | 528,675 | 75,525 | 15,397 | 528,675 | 15,397 |
-| test | 1,047,494 | 149,642 | 30,844 | 1,047,494 | 30,844 |
-| **all** | **5,243,784** | **749,112** | **154,092** | **5,243,784** |  |
+| test | 1,497,699 | 149,642 | 30,844 | 1,497,699 | 30,844 |
+| **all** | **5,693,989** | **749,112** | **154,092** | **5,693,989** |  |
 
 | breakdown | counts over all three splits |
 | --- | --- |
@@ -555,14 +580,15 @@ Cohort rule: §4.B.4.2 — identical rows to A5 (§4.B.4.8). Heads: 1 (binary).
 | --- | --- | --- | --- | --- | --- |
 | y_match | train | 3,667,615 | positive 1,047,890 · negative 2,619,725 | positive 0.2857 · negative 0.7143 | 0 |
 | y_match | val | 528,675 | positive 151,050 · negative 377,625 | positive 0.2857 · negative 0.7143 | 0 |
-| y_match | test | 1,047,494 | positive 299,284 · negative 748,210 | positive 0.2857 · negative 0.7143 | 0 |
+| y_match | test | 1,497,699 | positive 299,284 · negative 1,198,415 | positive 0.1998 · negative 0.8002 | 0 |
 
 
 **Missingness** (columns with at least one null, over all three splits). Nulls in a label column are only legitimate where a mask column declares the row out of scope; the `mask_implies_label` checks above are what enforce that.
 
 | column | nulls | fraction |
 | --- | --- | --- |
-| `neg_type` | 1,498,224 | 0.2857 |
+| `neg_type` | 1,498,224 | 0.2631 |
+| `text_override` | 5,680,950 | 0.9977 |
 
 
 ## `B5_contradiction_detection`
@@ -620,19 +646,23 @@ An evaluation-time stratification of `B4_cross_modal_verification` (§4.B.6.2 �
 | --- | --- | --- | --- |
 | train | 3,667,615 | 3,667,615 | yes |
 | val | 528,675 | 528,675 | yes |
-| test | 1,047,494 | 1,047,494 | yes |
+| test | 1,497,699 | 1,497,699 | yes |
 
 | difficulty_tier | neg_type | rows |
 | --- | --- | --- |
-| easy | IMAGE_SWAP | 749,112 |
-| easy | PARTIAL_MISMATCH | 749,112 |
-| easy | SIGNAL_SWAP | 749,112 |
-| easy | TEXT_SWAP | 749,112 |
-| medium | HARD_NEGATIVE_TEXT | 749,112 |
+| level_0_random | IMAGE_SWAP | 749,112 |
+| level_0_random | PARTIAL_MISMATCH | 749,112 |
+| level_0_random | SIGNAL_SWAP | 749,112 |
+| level_0_random | TEXT_SWAP | 749,112 |
+| level_1_hr | HARD_NEGATIVE_TEXT | 749,112 |
+| level_2_hr_qrs | HARD_NEGATIVE_L2 | 149,549 |
+| level_3_full_physio | HARD_NEGATIVE_L3 | 149,036 |
+| level_4_same_patient | HARD_NEGATIVE_L4 | 138,581 |
+| level_5_near_duplicate | HARD_NEGATIVE_L5 | 13,039 |
 | positive | (positive row) | 1,498,224 |
 
 
-Subjects: 154,092. Splits: train 3,667,615 · test 1,047,494 · val 528,675.
+Subjects: 154,092. Splits: train 3,667,615 · test 1,497,699 · val 528,675.
 
 
 ### B2 — the frozen corruption grid
@@ -695,8 +725,8 @@ Subjects: 154,092. Splits: train 3,667,615 · test 1,047,494 · val 528,675.
 
 | task | train | val | test |
 | --- | --- | --- | --- |
-| `A5_cross_modal_verification` | 3,667,615 | 528,675 | 1,047,494 |
-| `B4_cross_modal_verification` | 3,667,615 | 528,675 | 1,047,494 |
+| `A5_cross_modal_verification` | 3,667,615 | 528,675 | 1,497,699 |
+| `B4_cross_modal_verification` | 3,667,615 | 528,675 | 1,497,699 |
 
 
 ## Every check, in the order it ran
@@ -808,85 +838,100 @@ Subjects: 154,092. Splits: train 3,667,615 · test 1,047,494 · val 528,675.
 | 103 | `A4_event_localization` | `primary_cohort_link_tier` | PASS | primary rows carry link_tier ['L3'], §4.A.4.2 as amended by §4 decision 10 allows ['L3'] |
 | 104 | `A4_event_localization` | `primary_cohort_sqi_tier` | PASS | primary rows carry sqi_tier ['high', 'medium'], §4.A.4.2 as amended by §4 decision 10 allows ['high', 'medium'] |
 | 105 | `A5_cross_modal_verification` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
-| 106 | `A5_cross_modal_verification` | `cohort_non_empty` | PASS | 5,243,784 rows over 154,092 subjects |
+| 106 | `A5_cross_modal_verification` | `cohort_non_empty` | PASS | 5,693,989 rows over 154,092 subjects |
 | 107 | `A5_cross_modal_verification` | `row_key_unique` | PASS | key ['anchor_study_id', 'neg_type', 'image_type']: 0 duplicate row(s) across the three splits |
 | 108 | `A5_cross_modal_verification` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
-| 109 | `A5_cross_modal_verification` | `rows_per_anchor` | PASS | 749,112 anchors x 7 = 5,243,784, measured 5,243,784 |
-| 110 | `A5_cross_modal_verification` | `head_metric_computable[y_match]` | PASS | at least two label values present in every split |
-| 111 | `A5_cross_modal_verification` | `head_metric_computable[hr_label]` | PASS | at least two label values present in every split |
-| 112 | `A5_cross_modal_verification` | `mask_implies_label[hr_label]` | PASS | `masked_attr_valid` is True on 0 row(s) whose `hr_label` is null |
-| 113 | `A5_cross_modal_verification` | `label_vocabulary[hr_label]` | PASS | every value is one of ['bradycardia', 'normal', 'tachycardia'] |
-| 114 | `A5_cross_modal_verification` | `head_metric_computable[qrs_label]` | PASS | at least two label values present in every split |
-| 115 | `A5_cross_modal_verification` | `mask_implies_label[qrs_label]` | PASS | `masked_attr_valid` is True on 0 row(s) whose `qrs_label` is null |
-| 116 | `A5_cross_modal_verification` | `label_vocabulary[qrs_label]` | PASS | every value is one of ['normal', 'borderline', 'wide'] |
-| 117 | `A5_cross_modal_verification` | `head_metric_computable[qtc_label]` | PASS | at least two label values present in every split |
-| 118 | `A5_cross_modal_verification` | `mask_implies_label[qtc_label]` | PASS | `masked_attr_valid` is True on 0 row(s) whose `qtc_label` is null |
-| 119 | `A5_cross_modal_verification` | `label_vocabulary[qtc_label]` | PASS | every value is one of ['short', 'normal', 'prolonged'] |
-| 120 | `A6_risk_stratification` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
-| 121 | `A6_risk_stratification` | `cohort_non_empty` | PASS | 500,471 rows over 124,602 subjects |
-| 122 | `A6_risk_stratification` | `row_key_unique` | PASS | key ['study_id']: 0 duplicate row(s) across the three splits |
-| 123 | `A6_risk_stratification` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
-| 124 | `A6_risk_stratification` | `primary_cohort_link_tier` | PASS | primary rows carry link_tier ['L3'], §4.A.6.2 allows ['L3'] |
-| 125 | `A6_risk_stratification` | `head_metric_computable[mortality_30d]` | PASS | at least two label values present in every split |
-| 126 | `A6_risk_stratification` | `mask_implies_label[mortality_30d]` | PASS | `mortality_observable` is True on 0 row(s) whose `mortality_30d` is null |
-| 127 | `A6_risk_stratification` | `head_metric_computable[mortality_90d]` | PASS | at least two label values present in every split |
-| 128 | `A6_risk_stratification` | `mask_implies_label[mortality_90d]` | PASS | `mortality_observable` is True on 0 row(s) whose `mortality_90d` is null |
-| 129 | `A6_risk_stratification` | `head_metric_computable[readmission_30d]` | PASS | at least two label values present in every split |
-| 130 | `A6_risk_stratification` | `mask_implies_label[readmission_30d]` | PASS | `readmission_eligible` is True on 0 row(s) whose `readmission_30d` is null |
-| 131 | `A6_risk_stratification` | `head_metric_computable[readmission_90d]` | PASS | at least two label values present in every split |
-| 132 | `A6_risk_stratification` | `mask_implies_label[readmission_90d]` | PASS | `readmission_eligible_90d` is True on 0 row(s) whose `readmission_90d` is null |
-| 133 | `B1_measurement_blind` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
-| 134 | `B1_measurement_blind` | `cohort_non_empty` | PASS | 748,454 rows over 154,079 subjects |
-| 135 | `B1_measurement_blind` | `row_key_unique` | PASS | key ['study_id']: 0 duplicate row(s) across the three splits |
-| 136 | `B1_measurement_blind` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
-| 137 | `B1_measurement_blind` | `whole_cohort_is_primary` | PASS | 748,454 of 748,454 rows flagged primary |
-| 138 | `B1_measurement_blind` | `head_metric_computable[hr_label]` | PASS | at least two label values present in every split |
-| 139 | `B1_measurement_blind` | `label_vocabulary[hr_label]` | PASS | every value is one of ['bradycardia', 'normal', 'tachycardia'] |
-| 140 | `B1_measurement_blind` | `head_metric_computable[qrs_label]` | PASS | at least two label values present in every split |
-| 141 | `B1_measurement_blind` | `label_vocabulary[qrs_label]` | PASS | every value is one of ['normal', 'borderline', 'wide'] |
-| 142 | `B1_measurement_blind` | `head_metric_computable[qtc_label]` | PASS | at least two label values present in every split |
-| 143 | `B1_measurement_blind` | `label_vocabulary[qtc_label]` | PASS | every value is one of ['short', 'normal', 'prolonged'] |
-| 144 | `B2_noise_robustness` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
-| 145 | `B2_noise_robustness` | `cohort_non_empty` | PASS | 900,005 rows over 154,079 subjects |
-| 146 | `B2_noise_robustness` | `row_key_unique` | PASS | key ['study_id', 'regime', 'row_role', 'corruption_type', 'snr_db']: 0 duplicate row(s) across the three splits |
-| 147 | `B2_noise_robustness` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
-| 148 | `B2_noise_robustness` | `head_metric_computable[hr_label]` | PASS | at least two label values present in every split |
-| 149 | `B2_noise_robustness` | `label_vocabulary[hr_label]` | PASS | every value is one of ['bradycardia', 'normal', 'tachycardia'] |
-| 150 | `B2_noise_robustness` | `head_metric_computable[qrs_label]` | PASS | at least two label values present in every split |
-| 151 | `B2_noise_robustness` | `label_vocabulary[qrs_label]` | PASS | every value is one of ['normal', 'borderline', 'wide'] |
-| 152 | `B2_noise_robustness` | `head_metric_computable[qtc_label]` | PASS | at least two label values present in every split |
-| 153 | `B2_noise_robustness` | `label_vocabulary[qtc_label]` | PASS | every value is one of ['short', 'normal', 'prolonged'] |
-| 154 | `B3_temporal_grounding` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
-| 155 | `B3_temporal_grounding` | `cohort_non_empty` | PASS | 2,996,448 rows over 154,092 subjects |
-| 156 | `B3_temporal_grounding` | `row_key_unique` | PASS | key ['study_id', 'query']: 0 duplicate row(s) across the three splits |
-| 157 | `B3_temporal_grounding` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
-| 158 | `B3_temporal_grounding` | `rows_per_study` | PASS | 749,112 studies x 4 = 2,996,448, measured 2,996,448 |
-| 159 | `B4_cross_modal_verification` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
-| 160 | `B4_cross_modal_verification` | `cohort_non_empty` | PASS | 5,243,784 rows over 154,092 subjects |
-| 161 | `B4_cross_modal_verification` | `row_key_unique` | PASS | key ['anchor_study_id', 'neg_type', 'image_type']: 0 duplicate row(s) across the three splits |
-| 162 | `B4_cross_modal_verification` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
-| 163 | `B4_cross_modal_verification` | `rows_per_anchor` | PASS | 749,112 anchors x 7 = 5,243,784, measured 5,243,784 |
-| 164 | `B4_cross_modal_verification` | `head_metric_computable[y_match]` | PASS | at least two label values present in every split |
-| 165 | `B5_contradiction_detection` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
-| 166 | `B5_contradiction_detection` | `cohort_non_empty` | PASS | 128,653 rows over 38,422 subjects |
-| 167 | `B5_contradiction_detection` | `row_key_unique` | PASS | key ['study_id']: 0 duplicate row(s) across the three splits |
-| 168 | `B5_contradiction_detection` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
-| 169 | `B5_contradiction_detection` | `whole_cohort_is_primary` | PASS | 128,653 of 128,653 rows flagged primary |
-| 170 | `B5_contradiction_detection` | `locked_cohort_size` | PASS | measured 128,653 primary rows against the locked 128,653 |
-| 171 | `B5_contradiction_detection` | `head_metric_computable[is_corrupted]` | PASS | at least two label values present in every split |
-| 172 | `B5_contradiction_detection` | `head_metric_computable[label]` | PASS | at least two label values present in every split |
-| 173 | `B5_contradiction_detection` | `label_vocabulary[label]` | PASS | every value is one of ['clean', 'corrupted_HR', 'corrupted_QRS', 'corrupted_axis', 'corrupted_PR'] |
-| 174 | `B5_contradiction_detection` | `mask_implies_label[span]` | PASS | `is_corrupted` is True on 0 row(s) whose `corrupted_span_start` is null |
-| 175 | `B6_difficulty_stratified` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
-| 176 | `B6_difficulty_stratified` | `pointer_covers_base_task_rows` | PASS | pointer rows per split [3667615, 528675, 1047494] against B4_cross_modal_verification's [3667615, 528675, 1047494] |
-| 177 | `B6_difficulty_stratified` | `difficulty_tier_vocabulary` | PASS | tiers present ['easy', 'medium', 'positive']; `task_definitions.yaml` declares ['easy', 'hard', 'medium'] plus the positive rows |
-| 178 | `B6_difficulty_stratified` | `tier_neg_types[easy]` | PASS | `easy` holds ['IMAGE_SWAP', 'PARTIAL_MISMATCH', 'SIGNAL_SWAP', 'TEXT_SWAP']; the config declares ['IMAGE_SWAP', 'PARTIAL_MISMATCH', 'SIGNAL_SWAP', 'TEXT_SWAP'] |
-| 179 | `B6_difficulty_stratified` | `tier_neg_types[medium]` | PASS | `medium` holds ['HARD_NEGATIVE_TEXT']; the config declares ['HARD_NEGATIVE_TEXT'] |
-| 180 | `B6_difficulty_stratified` | `tier_neg_types[hard]` | PASS | `hard` holds no rows; the config declares none (RESERVED, ships empty) |
-| 181 | `B6_difficulty_stratified` | `rows_per_anchor` | PASS | 749,112 anchors x 7 = 5,243,784, measured 5,243,784 |
-| 182 | `B2_noise_robustness` | `corruption_grid_complete` | PASS | 40 of 40 (family, SNR) cells present, smallest holds 3,742 rows |
-| 183 | `B2_noise_robustness` | `frozen_anchor_count` | PASS | 1871 frozen Phase 1 anchors carry usable B1 labels (§5 question 10: 1,871 of the 1,998 that exist) |
-| 184 | `B4_cross_modal_verification` | `a5_b4_row_counts_equal` | PASS | A5 and B4 carry identical per-split row counts (§4.B.4.8 compares the two, which is only meaningful on the same rows) |
+| 109 | `A5_cross_modal_verification` | `rows_per_anchor[train]` | PASS | 523,945 anchors x 7 = 3,667,615, measured 3,667,615 base rows |
+| 110 | `A5_cross_modal_verification` | `rows_per_anchor[val]` | PASS | 75,525 anchors x 7 = 528,675, measured 528,675 base rows |
+| 111 | `A5_cross_modal_verification` | `rows_per_anchor[test]` | PASS | 149,642 anchors x 7 = 1,047,494, measured 1,047,494 base rows |
+| 112 | `A5_cross_modal_verification` | `ladder_negatives_are_test_only` | PASS | 450,205 Level 2-5 rows live in ['test']; §12.9 item 4 puts them in TEST only, so no model is retrained to produce the §6.7 curve |
+| 113 | `A5_cross_modal_verification` | `ladder_negatives_present` | PASS | ladder rows per type: HARD_NEGATIVE_L2 149,549 · HARD_NEGATIVE_L3 149,036 · HARD_NEGATIVE_L4 138,581 · HARD_NEGATIVE_L5 13,039; expected all of ['HARD_NEGATIVE_L2', 'HARD_NEGATIVE_L3', 'HARD_NEGATIVE_L4', 'HARD_NEGATIVE_L5'] |
+| 114 | `A5_cross_modal_verification` | `head_metric_computable[y_match]` | PASS | at least two label values present in every split |
+| 115 | `A5_cross_modal_verification` | `head_metric_computable[hr_label]` | PASS | at least two label values present in every split |
+| 116 | `A5_cross_modal_verification` | `mask_implies_label[hr_label]` | PASS | `masked_attr_valid` is True on 0 row(s) whose `hr_label` is null |
+| 117 | `A5_cross_modal_verification` | `label_vocabulary[hr_label]` | PASS | every value is one of ['bradycardia', 'normal', 'tachycardia'] |
+| 118 | `A5_cross_modal_verification` | `head_metric_computable[qrs_label]` | PASS | at least two label values present in every split |
+| 119 | `A5_cross_modal_verification` | `mask_implies_label[qrs_label]` | PASS | `masked_attr_valid` is True on 0 row(s) whose `qrs_label` is null |
+| 120 | `A5_cross_modal_verification` | `label_vocabulary[qrs_label]` | PASS | every value is one of ['normal', 'borderline', 'wide'] |
+| 121 | `A5_cross_modal_verification` | `head_metric_computable[qtc_label]` | PASS | at least two label values present in every split |
+| 122 | `A5_cross_modal_verification` | `mask_implies_label[qtc_label]` | PASS | `masked_attr_valid` is True on 0 row(s) whose `qtc_label` is null |
+| 123 | `A5_cross_modal_verification` | `label_vocabulary[qtc_label]` | PASS | every value is one of ['short', 'normal', 'prolonged'] |
+| 124 | `A6_risk_stratification` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
+| 125 | `A6_risk_stratification` | `cohort_non_empty` | PASS | 500,471 rows over 124,602 subjects |
+| 126 | `A6_risk_stratification` | `row_key_unique` | PASS | key ['study_id']: 0 duplicate row(s) across the three splits |
+| 127 | `A6_risk_stratification` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
+| 128 | `A6_risk_stratification` | `primary_cohort_link_tier` | PASS | primary rows carry link_tier ['L3'], §4.A.6.2 allows ['L3'] |
+| 129 | `A6_risk_stratification` | `head_metric_computable[mortality_30d]` | PASS | at least two label values present in every split |
+| 130 | `A6_risk_stratification` | `mask_implies_label[mortality_30d]` | PASS | `mortality_observable` is True on 0 row(s) whose `mortality_30d` is null |
+| 131 | `A6_risk_stratification` | `head_metric_computable[mortality_90d]` | PASS | at least two label values present in every split |
+| 132 | `A6_risk_stratification` | `mask_implies_label[mortality_90d]` | PASS | `mortality_observable` is True on 0 row(s) whose `mortality_90d` is null |
+| 133 | `A6_risk_stratification` | `head_metric_computable[readmission_30d]` | PASS | at least two label values present in every split |
+| 134 | `A6_risk_stratification` | `mask_implies_label[readmission_30d]` | PASS | `readmission_eligible` is True on 0 row(s) whose `readmission_30d` is null |
+| 135 | `A6_risk_stratification` | `head_metric_computable[readmission_90d]` | PASS | at least two label values present in every split |
+| 136 | `A6_risk_stratification` | `mask_implies_label[readmission_90d]` | PASS | `readmission_eligible_90d` is True on 0 row(s) whose `readmission_90d` is null |
+| 137 | `B1_measurement_blind` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
+| 138 | `B1_measurement_blind` | `cohort_non_empty` | PASS | 748,454 rows over 154,079 subjects |
+| 139 | `B1_measurement_blind` | `row_key_unique` | PASS | key ['study_id']: 0 duplicate row(s) across the three splits |
+| 140 | `B1_measurement_blind` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
+| 141 | `B1_measurement_blind` | `whole_cohort_is_primary` | PASS | 748,454 of 748,454 rows flagged primary |
+| 142 | `B1_measurement_blind` | `head_metric_computable[hr_label]` | PASS | at least two label values present in every split |
+| 143 | `B1_measurement_blind` | `label_vocabulary[hr_label]` | PASS | every value is one of ['bradycardia', 'normal', 'tachycardia'] |
+| 144 | `B1_measurement_blind` | `head_metric_computable[qrs_label]` | PASS | at least two label values present in every split |
+| 145 | `B1_measurement_blind` | `label_vocabulary[qrs_label]` | PASS | every value is one of ['normal', 'borderline', 'wide'] |
+| 146 | `B1_measurement_blind` | `head_metric_computable[qtc_label]` | PASS | at least two label values present in every split |
+| 147 | `B1_measurement_blind` | `label_vocabulary[qtc_label]` | PASS | every value is one of ['short', 'normal', 'prolonged'] |
+| 148 | `B2_noise_robustness` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
+| 149 | `B2_noise_robustness` | `cohort_non_empty` | PASS | 900,005 rows over 154,079 subjects |
+| 150 | `B2_noise_robustness` | `row_key_unique` | PASS | key ['study_id', 'regime', 'row_role', 'corruption_type', 'snr_db']: 0 duplicate row(s) across the three splits |
+| 151 | `B2_noise_robustness` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
+| 152 | `B2_noise_robustness` | `head_metric_computable[hr_label]` | PASS | at least two label values present in every split |
+| 153 | `B2_noise_robustness` | `label_vocabulary[hr_label]` | PASS | every value is one of ['bradycardia', 'normal', 'tachycardia'] |
+| 154 | `B2_noise_robustness` | `head_metric_computable[qrs_label]` | PASS | at least two label values present in every split |
+| 155 | `B2_noise_robustness` | `label_vocabulary[qrs_label]` | PASS | every value is one of ['normal', 'borderline', 'wide'] |
+| 156 | `B2_noise_robustness` | `head_metric_computable[qtc_label]` | PASS | at least two label values present in every split |
+| 157 | `B2_noise_robustness` | `label_vocabulary[qtc_label]` | PASS | every value is one of ['short', 'normal', 'prolonged'] |
+| 158 | `B3_temporal_grounding` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
+| 159 | `B3_temporal_grounding` | `cohort_non_empty` | PASS | 2,996,448 rows over 154,092 subjects |
+| 160 | `B3_temporal_grounding` | `row_key_unique` | PASS | key ['study_id', 'query']: 0 duplicate row(s) across the three splits |
+| 161 | `B3_temporal_grounding` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
+| 162 | `B3_temporal_grounding` | `rows_per_study` | PASS | 749,112 studies x 4 = 2,996,448, measured 2,996,448 |
+| 163 | `B4_cross_modal_verification` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
+| 164 | `B4_cross_modal_verification` | `cohort_non_empty` | PASS | 5,693,989 rows over 154,092 subjects |
+| 165 | `B4_cross_modal_verification` | `row_key_unique` | PASS | key ['anchor_study_id', 'neg_type', 'image_type']: 0 duplicate row(s) across the three splits |
+| 166 | `B4_cross_modal_verification` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
+| 167 | `B4_cross_modal_verification` | `rows_per_anchor[train]` | PASS | 523,945 anchors x 7 = 3,667,615, measured 3,667,615 base rows |
+| 168 | `B4_cross_modal_verification` | `rows_per_anchor[val]` | PASS | 75,525 anchors x 7 = 528,675, measured 528,675 base rows |
+| 169 | `B4_cross_modal_verification` | `rows_per_anchor[test]` | PASS | 149,642 anchors x 7 = 1,047,494, measured 1,047,494 base rows |
+| 170 | `B4_cross_modal_verification` | `ladder_negatives_are_test_only` | PASS | 450,205 Level 2-5 rows live in ['test']; §12.9 item 4 puts them in TEST only, so no model is retrained to produce the §6.7 curve |
+| 171 | `B4_cross_modal_verification` | `ladder_negatives_present` | PASS | ladder rows per type: HARD_NEGATIVE_L2 149,549 · HARD_NEGATIVE_L3 149,036 · HARD_NEGATIVE_L4 138,581 · HARD_NEGATIVE_L5 13,039; expected all of ['HARD_NEGATIVE_L2', 'HARD_NEGATIVE_L3', 'HARD_NEGATIVE_L4', 'HARD_NEGATIVE_L5'] |
+| 172 | `B4_cross_modal_verification` | `head_metric_computable[y_match]` | PASS | at least two label values present in every split |
+| 173 | `B5_contradiction_detection` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
+| 174 | `B5_contradiction_detection` | `cohort_non_empty` | PASS | 128,653 rows over 38,422 subjects |
+| 175 | `B5_contradiction_detection` | `row_key_unique` | PASS | key ['study_id']: 0 duplicate row(s) across the three splits |
+| 176 | `B5_contradiction_detection` | `subgroup_columns_present` | PASS | every subgroup column `task_spec` declares is on the rows |
+| 177 | `B5_contradiction_detection` | `whole_cohort_is_primary` | PASS | 128,653 of 128,653 rows flagged primary |
+| 178 | `B5_contradiction_detection` | `locked_cohort_size` | PASS | measured 128,653 primary rows against the locked 128,653 |
+| 179 | `B5_contradiction_detection` | `head_metric_computable[is_corrupted]` | PASS | at least two label values present in every split |
+| 180 | `B5_contradiction_detection` | `head_metric_computable[label]` | PASS | at least two label values present in every split |
+| 181 | `B5_contradiction_detection` | `label_vocabulary[label]` | PASS | every value is one of ['clean', 'corrupted_HR', 'corrupted_QRS', 'corrupted_axis', 'corrupted_PR'] |
+| 182 | `B5_contradiction_detection` | `mask_implies_label[span]` | PASS | `is_corrupted` is True on 0 row(s) whose `corrupted_span_start` is null |
+| 183 | `B6_difficulty_stratified` | `all_three_splits_present` | PASS | read ['test', 'train', 'val'] |
+| 184 | `B6_difficulty_stratified` | `pointer_covers_base_task_rows` | PASS | pointer rows per split [3667615, 528675, 1497699] against B4_cross_modal_verification's [3667615, 528675, 1497699] |
+| 185 | `B6_difficulty_stratified` | `difficulty_tier_vocabulary` | PASS | tiers present ['level_0_random', 'level_1_hr', 'level_2_hr_qrs', 'level_3_full_physio', 'level_4_same_patient', 'level_5_near_duplicate', 'positive']; `task_definitions.yaml` declares ['level_0_random', 'level_1_hr', 'level_2_hr_qrs', 'level_3_full_physio', 'level_4_same_patient', 'level_5_near_d... |
+| 186 | `B6_difficulty_stratified` | `tier_neg_types[level_0_random]` | PASS | `level_0_random` holds ['IMAGE_SWAP', 'PARTIAL_MISMATCH', 'SIGNAL_SWAP', 'TEXT_SWAP']; the config declares ['IMAGE_SWAP', 'PARTIAL_MISMATCH', 'SIGNAL_SWAP', 'TEXT_SWAP'] |
+| 187 | `B6_difficulty_stratified` | `tier_neg_types[level_1_hr]` | PASS | `level_1_hr` holds ['HARD_NEGATIVE_TEXT']; the config declares ['HARD_NEGATIVE_TEXT'] |
+| 188 | `B6_difficulty_stratified` | `tier_neg_types[level_2_hr_qrs]` | PASS | `level_2_hr_qrs` holds ['HARD_NEGATIVE_L2']; the config declares ['HARD_NEGATIVE_L2'] |
+| 189 | `B6_difficulty_stratified` | `tier_neg_types[level_3_full_physio]` | PASS | `level_3_full_physio` holds ['HARD_NEGATIVE_L3']; the config declares ['HARD_NEGATIVE_L3'] |
+| 190 | `B6_difficulty_stratified` | `tier_neg_types[level_4_same_patient]` | PASS | `level_4_same_patient` holds ['HARD_NEGATIVE_L4']; the config declares ['HARD_NEGATIVE_L4'] |
+| 191 | `B6_difficulty_stratified` | `tier_neg_types[level_5_near_duplicate]` | PASS | `level_5_near_duplicate` holds ['HARD_NEGATIVE_L5']; the config declares ['HARD_NEGATIVE_L5'] |
+| 192 | `B6_difficulty_stratified` | `rows_per_anchor[train]` | PASS | 523,945 anchors x 7 = 3,667,615, measured 3,667,615 base rows |
+| 193 | `B6_difficulty_stratified` | `rows_per_anchor[val]` | PASS | 75,525 anchors x 7 = 528,675, measured 528,675 base rows |
+| 194 | `B6_difficulty_stratified` | `rows_per_anchor[test]` | PASS | 149,642 anchors x 7 = 1,047,494, measured 1,047,494 base rows |
+| 195 | `B6_difficulty_stratified` | `ladder_negatives_are_test_only` | PASS | 450,205 Level 2-5 rows live in ['test']; §12.9 item 4 puts them in TEST only, so no model is retrained to produce the §6.7 curve |
+| 196 | `B6_difficulty_stratified` | `ladder_negatives_present` | PASS | ladder rows per type: HARD_NEGATIVE_L2 149,549 · HARD_NEGATIVE_L3 149,036 · HARD_NEGATIVE_L4 138,581 · HARD_NEGATIVE_L5 13,039; expected all of ['HARD_NEGATIVE_L2', 'HARD_NEGATIVE_L3', 'HARD_NEGATIVE_L4', 'HARD_NEGATIVE_L5'] |
+| 197 | `B2_noise_robustness` | `corruption_grid_complete` | PASS | 40 of 40 (family, SNR) cells present, smallest holds 3,742 rows |
+| 198 | `B2_noise_robustness` | `frozen_anchor_count` | PASS | 1871 frozen Phase 1 anchors carry usable B1 labels (§5 question 10: 1,871 of the 1,998 that exist) |
+| 199 | `B4_cross_modal_verification` | `a5_b4_row_counts_equal` | PASS | A5 and B4 carry identical per-split row counts (§4.B.4.8 compares the two, which is only meaningful on the same rows) |
 
 ## Reproduce
 

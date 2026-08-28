@@ -2,25 +2,29 @@
   "stage": "P2.1",
   "script": "05_build_A5_cross_modal_verification",
   "done": true,
-  "started_at": "2026-08-26T19:11:40Z",
-  "updated_at": "2026-08-26T19:13:44Z",
-  "finished_at": "2026-08-26T19:13:44Z",
-  "n_verification_rows": 5243784,
+  "started_at": "2026-08-28T17:11:58Z",
+  "updated_at": "2026-08-28T17:12:52Z",
+  "finished_at": "2026-08-28T17:12:52Z",
+  "n_verification_rows": 5693989,
   "verification": {
-    "n_rows": 5243784,
+    "n_rows": 5693989,
     "n_anchors": 749112,
     "n_subjects": 154092,
-    "positive_rate_pct": 28.571,
+    "positive_rate_pct": 26.312,
     "rows_per_neg_type": {
       "positive": 1498224,
       "HARD_NEGATIVE_TEXT": 749112,
       "IMAGE_SWAP": 749112,
       "PARTIAL_MISMATCH": 749112,
       "SIGNAL_SWAP": 749112,
-      "TEXT_SWAP": 749112
+      "TEXT_SWAP": 749112,
+      "HARD_NEGATIVE_L2": 149549,
+      "HARD_NEGATIVE_L3": 149036,
+      "HARD_NEGATIVE_L4": 138581,
+      "HARD_NEGATIVE_L5": 13039
     },
     "image_type_counts": {
-      "clean": 4494672,
+      "clean": 4944877,
       "scanlike": 749112
     },
     "by_split": {
@@ -37,17 +41,17 @@
         "n_negative": 377625
       },
       "test": {
-        "n_rows": 1047494,
+        "n_rows": 1497699,
         "n_anchors": 149642,
         "n_positive": 299284,
-        "n_negative": 748210
+        "n_negative": 1198415
       }
     }
   },
   "verification_splits": {
     "train": 3667615,
     "val": 528675,
-    "test": 1047494
+    "test": 1497699
   },
   "masked_attribute": {
     "n_rows": 748454,
@@ -195,13 +199,13 @@
       }
     ]
   },
-  "n_rows": 5243784,
+  "n_rows": 5693989,
   "n_subjects": 154092,
   "n_rows_train": 3667615,
   "n_subjects_train": 107851,
   "n_rows_val": 528675,
   "n_subjects_val": 15397,
-  "n_rows_test": 1047494,
+  "n_rows_test": 1497699,
   "n_subjects_test": 30844,
   "subject_overlap": 0
 }

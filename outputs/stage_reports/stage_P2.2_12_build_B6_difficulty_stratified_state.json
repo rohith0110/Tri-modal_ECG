@@ -2,29 +2,41 @@
   "stage": "P2.2",
   "script": "12_build_B6_difficulty_stratified",
   "done": true,
-  "started_at": "2026-08-26T19:20:33Z",
-  "updated_at": "2026-08-26T19:20:45Z",
-  "finished_at": "2026-08-26T19:20:45Z",
-  "n_rows": 5243784,
+  "started_at": "2026-08-28T17:15:28Z",
+  "updated_at": "2026-08-28T17:15:33Z",
+  "finished_at": "2026-08-28T17:15:33Z",
+  "n_rows": 5693989,
   "n_studies": 749112,
   "rows_per_tier": {
-    "easy": 2996448,
+    "level_0_random": 2996448,
     "positive": 1498224,
-    "medium": 749112
+    "level_1_hr": 749112,
+    "level_2_hr_qrs": 149549,
+    "level_3_full_physio": 149036,
+    "level_4_same_patient": 138581,
+    "level_5_near_duplicate": 13039
   },
   "test_rows_per_tier": {
-    "easy": 598568,
+    "level_0_random": 598568,
     "positive": 299284,
-    "medium": 149642
+    "level_1_hr": 149642,
+    "level_2_hr_qrs": 149549,
+    "level_3_full_physio": 149036,
+    "level_4_same_patient": 138581,
+    "level_5_near_duplicate": 13039
   },
   "test_rows_per_neg_type": {
     "<NA>": 299284,
     "IMAGE_SWAP": 149642,
     "PARTIAL_MISMATCH": 149642,
     "SIGNAL_SWAP": 149642,
+    "HARD_NEGATIVE_TEXT": 149642,
     "TEXT_SWAP": 149642,
-    "HARD_NEGATIVE_TEXT": 149642
+    "HARD_NEGATIVE_L2": 149549,
+    "HARD_NEGATIVE_L3": 149036,
+    "HARD_NEGATIVE_L4": 138581,
+    "HARD_NEGATIVE_L5": 13039
   },
-  "hard_tier_status": "RESERVED, empty (progress-doc question 13, stated default)",
+  "levels_2_to_5_are_test_only": true,
   "n_subjects": 154092
 }

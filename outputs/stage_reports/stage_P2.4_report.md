@@ -1,29 +1,29 @@
 # Stage P2.4 — Training + evaluation code, and the algorithmic baselines — report
 
-Spec §5, §6, §7, §9.5. Generated 2026-08-27T16:50:19Z by `_dataset_lib/stage_report.py` from the per-script state files, the artifacts on disk and the run logs — every number below is read back from what the stage produced.
+Spec §5, §6, §7, §9.5. Generated 2026-08-28T17:29:03Z by `_dataset_lib/stage_report.py` from the per-script state files, the artifacts on disk and the run logs — every number below is read back from what the stage produced.
 
 ## 1. Files created
 
 - `scripts/phase2_tasks_benchmark_and_paper/30_train.py`  (23.5 KB, sha256 45a69e2e15f2)
-- `scripts/phase2_tasks_benchmark_and_paper/31_eval.py`  (37.5 KB, sha256 550cf07023ae)
-- `scripts/phase2_tasks_benchmark_and_paper/50_run_baselines_algorithmic.py`  (24.0 KB, sha256 f873658b0758)
-- `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/task_spec.py`  (15.5 KB, sha256 dcc73f08728b)
-- `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/task_dataset.py`  (25.0 KB, sha256 b650a097a546)
+- `scripts/phase2_tasks_benchmark_and_paper/31_eval.py`  (38.7 KB, sha256 aeddd3c0593f)
+- `scripts/phase2_tasks_benchmark_and_paper/50_run_baselines_algorithmic.py`  (35.9 KB, sha256 67a236d1b441)
+- `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/task_spec.py`  (19.3 KB, sha256 54682a1faaee)
+- `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/task_dataset.py`  (26.2 KB, sha256 2cfddeb658e3)
 - `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/bootstrap.py`  (10.1 KB, sha256 b6e60a7f6196)
 - `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/corruption.py`  (6.3 KB, sha256 f379e57a4a26)
 - `scripts/phase2_tasks_benchmark_and_paper/_model_lib/signal_encoders.py`  (7.5 KB, sha256 bd42006f9a36)
 - `scripts/phase2_tasks_benchmark_and_paper/_model_lib/image_encoders.py`  (3.5 KB, sha256 52e803f18e9d)
 - `scripts/phase2_tasks_benchmark_and_paper/_model_lib/text_encoders.py`  (9.2 KB, sha256 28a95f7e5702)
 - `scripts/phase2_tasks_benchmark_and_paper/_model_lib/fusion_heads.py`  (5.5 KB, sha256 1a122a8f7c9e)
-- `scripts/phase2_tasks_benchmark_and_paper/_model_lib/task_models.py`  (23.3 KB, sha256 6af34e7ea946)
-- `scripts/phase2_tasks_benchmark_and_paper/_model_lib/model_configs.py`  (13.8 KB, sha256 6ad74ec71d2b)
-- `scripts/phase2_tasks_benchmark_and_paper/_model_lib/algorithmic_baselines.py`  (21.4 KB, sha256 91cb5f75ac34)
+- `scripts/phase2_tasks_benchmark_and_paper/_model_lib/task_models.py`  (25.1 KB, sha256 d5069966985c)
+- `scripts/phase2_tasks_benchmark_and_paper/_model_lib/model_configs.py`  (15.7 KB, sha256 fb70f390e4ca)
+- `scripts/phase2_tasks_benchmark_and_paper/_model_lib/algorithmic_baselines.py`  (24.0 KB, sha256 113d6491954f)
 - `scripts/phase2_tasks_benchmark_and_paper/_train_lib/seed.py`  (4.9 KB, sha256 7662352a2073)
-- `scripts/phase2_tasks_benchmark_and_paper/_train_lib/metrics.py`  (14.4 KB, sha256 fcf961b9f6e7)
+- `scripts/phase2_tasks_benchmark_and_paper/_train_lib/metrics.py`  (18.3 KB, sha256 6a41186e86ab)
 - `scripts/phase2_tasks_benchmark_and_paper/_train_lib/threshold.py`  (9.7 KB, sha256 9d7038b47687)
 - `scripts/phase2_tasks_benchmark_and_paper/_train_lib/calibration.py`  (8.8 KB, sha256 4af981134ee5)
-- `scripts/phase2_tasks_benchmark_and_paper/_train_lib/trainer.py`  (34.1 KB, sha256 6461de61bc78)
-- `scripts/phase2_tasks_benchmark_and_paper/_train_lib/smoke_test.py`  (14.9 KB, sha256 b35df2e4c65d)
+- `scripts/phase2_tasks_benchmark_and_paper/_train_lib/trainer.py`  (35.1 KB, sha256 22b5c3d47ff9)
+- `scripts/phase2_tasks_benchmark_and_paper/_train_lib/smoke_test.py`  (15.7 KB, sha256 3fa579e6d225)
 - `config/eval_configs/default.yaml`  (2.2 KB, sha256 ba1bbffc7511)
 - `config/eval_configs/A4_fiducial.yaml`  (1.6 KB, sha256 7277ff7113d4)
 - `config/eval_configs/A6_risk.yaml`  (1.5 KB, sha256 9da4bea77e6f)
@@ -728,6 +728,27 @@ def head_metric_fns(spec, head) -> dict[str, Callable[[pd.DataFrame], float]]:
             fns[f"auprc__{class_name}"] = _class_auprc
         return fns
 
+    if head.kind == "regression":
+        # Plan A/B §5.4 / §7.1. Every value is in real units (bpm / ms) -- the
+        # trainer inverted the standardisation before writing the frame.
+        def _pair(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+            part = frame[frame[f"valid_{name}"].to_numpy(dtype=bool)]
+            return (part[f"y_true_{name}"].to_numpy(dtype="float64"),
+                    part[f"y_pred_{name}"].to_numpy(dtype="float64"))
+
+        def _metric(key: str):
+            def _fn(frame: pd.DataFrame) -> float:
+                stats = M.regression_metrics(*_pair(frame), tolerance=head.tolerance,
+                                             units=head.units)
+                return float(stats.get(key, float("nan")))
+            return _fn
+
+        keys = ["mae", "rmse", "r2", "pearson_r", "spearman_r",
+                "bias", "sd_diff", "loa_lower", "loa_upper"]
+        if head.tolerance is not None:
+            keys.append(f"pct_within_{head.tolerance:g}")
+        return {key: _metric(key) for key in keys}
+
     if head.kind == "peak_seq":
         def _matches(frame: pd.DataFrame, true_col: str, pred_col: str) -> dict[str, float]:
             return M.aggregate_event_matches([
@@ -787,6 +808,9 @@ def n_positive_for(head, frame: pd.DataFrame) -> int:
     if head.kind == "multiclass" and f"y_true_index_{head.name}" in frame.columns:
         valid = frame[f"valid_{head.name}"].to_numpy(dtype=bool)
         return int((frame[f"y_true_index_{head.name}"].to_numpy()[valid] >= 0).sum())
+    if head.kind == "regression" and f"valid_{head.name}" in frame.columns:
+        # A regression head has no "positives"; §1.1 wants the scored n.
+        return int(frame[f"valid_{head.name}"].to_numpy(dtype=bool).sum())
     return int(len(frame))
 
 
@@ -1375,9 +1399,11 @@ from _dataset_lib.task_spec import B3_QUERIES, MEASUREMENT_CLASSES, get_task  # 
 from _model_lib import algorithmic_baselines as ab                     # noqa: E402
 
 STAGE = "P2.4"
-# §5.1's table plus the two task_definitions.yaml adds (A1 logistic, B2 detector).
-MANDATED = ("A1_ecg_diagnosis", "A2_measurement_blind", "A4_event_localization",
-            "A6_risk_stratification", "B1_measurement_blind", "B2_noise_robustness",
+# §5.1's table, plus the two task_definitions.yaml adds (A1 logistic, B2 detector),
+# plus A3's structured baseline -- Plan A/B §5.9 requires it for A1, A3 and A6.
+MANDATED = ("A1_ecg_diagnosis", "A2_measurement_blind", "A3_lab_abnormality",
+            "A4_event_localization", "A6_risk_stratification", "A6_nested_baselines",
+            "B1_measurement_blind", "B2_noise_robustness",
             "B3_temporal_grounding", "B5_contradiction_detection")
 MODEL_RUNS = bc.PROJECT_ROOT / "outputs" / "model_runs"
 
@@ -1389,9 +1415,15 @@ MEASUREMENT_SCHEMA = pa.schema([
 ])
 
 
-def out_dir(task: str, dev: bool) -> Path:
+def out_dir(task: str, dev: bool, tier: str = "algorithmic") -> Path:
+    """Where one baseline's predictions live.
+
+    `tier` is the arch_tier name, so A6's nested Plan A/B §5.8 ladder writes to
+    sibling directories (`algorithmic_demographics`, ...) and `31_eval.py` scores
+    each rung with the same code it uses for a trained tier.
+    """
     root = MODEL_RUNS / "_dev" if dev else MODEL_RUNS
-    path = root / task / "algorithmic"
+    path = root / task / tier
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -1408,13 +1440,14 @@ def task_test_frame(task: str, dev: bool, limit: int = 0) -> pd.DataFrame:
     return frame.head(limit).reset_index(drop=True) if limit else frame
 
 
-def write_predictions(frame: pd.DataFrame, task: str, dev: bool, log) -> Path:
+def write_predictions(frame: pd.DataFrame, task: str, dev: bool, log,
+                      tier: str = "algorithmic") -> Path:
     frame = frame.copy()
     frame["seed"] = -1                     # §5.1: no seed variability
-    frame["arch_tier"] = "algorithmic"
+    frame["arch_tier"] = tier
     if "lead_subset" not in frame.columns:
         frame["lead_subset"] = "lead2"
-    path = out_dir(task, dev) / "test_predictions.parquet"
+    path = out_dir(task, dev, tier) / "test_predictions.parquet"
     tmp = path.with_suffix(".parquet.tmp")
     frame.to_parquet(tmp, index=False)
     bc.atomic_replace(tmp, path)
@@ -1670,6 +1703,59 @@ def run_a1(dev: bool, log, limit: int) -> int:
     return len(predictions)
 
 
+def run_a3(dev: bool, log, limit: int) -> int:
+    """A3: multinomial logistic on machine-measurement summary stats.
+
+    Plan A/B §5.9 requires the structured baseline for A1, A3 and A6. Spec
+    §4.A.3.7 had waived A3's; this restores it. BASELINE-ONLY exemption, the
+    same one A1 uses and now declared for A3 in `task_input_policy.yaml`.
+    """
+    spec = get_task("A3_lab_abnormality")
+    root = bc.TASKS_DIR / "_dev" if dev else bc.TASKS_DIR
+    train = pd.read_parquet(root / "A3_lab_abnormality" / "train.parquet")
+    train = train[train.is_primary.fillna(False)]
+    test = task_test_frame("A3_lab_abnormality", dev, limit)
+
+    features = ab.machine_feature_table(
+        pd.concat([train.study_id, test.study_id]).unique().tolist())
+    feature_columns = [c for c in features.columns if c != "study_id"]
+    train = train.merge(features, on="study_id", how="inner")
+    test = test.merge(features, on="study_id", how="inner")
+
+    classes = list(spec.heads[0].classes)
+    labels = [h.label_column for h in spec.heads]
+    log.info("A3 structured baseline: %d heads x %d classes on %d train / %d test rows",
+             len(labels), len(classes), len(train), len(test))
+    scored = ab.multiclass_logistic_baseline(train, test, feature_columns, labels, classes)
+
+    predictions = pd.DataFrame({"study_id": test.study_id.to_numpy(),
+                                "subject_id": test.subject_id.to_numpy()})
+    for column in ("sqi_tier", "cart_id", "link_tier", "boundary_flag"):
+        if column in test.columns:
+            predictions[column] = test[column].to_numpy()
+    # 35 heads x 5 classes is 210 new columns; assembled as one dict and
+    # concatenated once, because inserting them one at a time fragments the
+    # frame and crawls at the real 84 K-row test split.
+    columns: dict[str, Any] = {}
+    for head in spec.heads:
+        label = head.label_column
+        for name in classes:
+            columns[f"y_pred_proba_{head.name}__{name}"] = \
+                scored[f"y_pred_proba_{label}__{name}"].to_numpy()
+        index = scored[f"y_pred_index_{label}"].to_numpy()
+        truth = test[label].astype("string")
+        true_index = np.array([classes.index(v) if pd.notna(v) and v in classes else -1
+                               for v in truth], dtype="int64")
+        columns[f"y_pred_index_{head.name}"] = index
+        columns[f"y_pred_label_{head.name}"] = [classes[i] for i in index]
+        columns[f"y_true_index_{head.name}"] = true_index
+        columns[f"valid_{head.name}"] = true_index >= 0
+    predictions = pd.concat(
+        [predictions, pd.DataFrame(columns, index=predictions.index)], axis=1)
+    write_predictions(predictions, "A3_lab_abnormality", dev, log)
+    return len(predictions)
+
+
 def run_a6(dev: bool, log, limit: int) -> int:
     """A6: Cox PH on age + sex + machine HR/QRS/QTc (§4.A.6.7, §5.1). BASELINE-ONLY."""
     spec = get_task("A6_risk_stratification")
@@ -1678,12 +1764,19 @@ def run_a6(dev: bool, log, limit: int) -> int:
     train = train[train.is_primary.fillna(False)]
     test = task_test_frame("A6_risk_stratification", dev, limit)
 
-    demographics = ab.patient_demographics()
+    # Age and sex now come from the task parquet, not from a second join on
+    # `patients`. The parquet carries `age_at_ecg` -- the age at INDEX TIME,
+    # which is what §5.8 asks a risk model to condition on -- where
+    # `patient_demographics()` returns `anchor_age`, the age at an unrelated
+    # anchor year. Joining both would also collide on `sex_male` and silently
+    # suffix the columns.
     features = ab.machine_feature_table(
         pd.concat([train.study_id, test.study_id]).unique().tolist())
-    feature_columns = ["anchor_age", "sex_male", "hr_bpm", "qrs_ms", "qtc_ms"]
-    train = train.merge(features, on="study_id").merge(demographics, on="subject_id", how="left")
-    test = test.merge(features, on="study_id").merge(demographics, on="subject_id", how="left")
+    feature_columns = ["age_at_ecg", "sex_male", "hr_bpm", "qrs_ms", "qtc_ms"]
+    train = train.merge(features, on="study_id")
+    test = test.merge(features, on="study_id")
+    for frame in (train, test):
+        frame["sex_male"] = frame["sex_male"].astype("boolean").fillna(False).astype("float64")
 
     predictions = pd.DataFrame({"study_id": test.study_id.to_numpy(),
                                 "subject_id": test.subject_id.to_numpy()})
@@ -1721,7 +1814,7 @@ def run_a6(dev: bool, log, limit: int) -> int:
             ranked = np.full(len(test), np.nan)
         predictions[f"y_pred_proba_{head.name}"] = ranked
         truth = test[head.label_column]
-        predictions[f"y_true_{head.name}"] = truth.fillna(False).astype(float).to_numpy()
+        predictions[f"y_true_{head.name}"] = truth.astype("boolean").fillna(False).astype("float64").to_numpy()
         predictions[f"y_pred_label_{head.name}"] = (np.nan_to_num(ranked) >= 0.5).astype(int)
         valid = truth.notna().to_numpy()
         if head.mask_column and head.mask_column in test.columns:
@@ -1732,6 +1825,151 @@ def run_a6(dev: bool, log, limit: int) -> int:
     (out_dir("A6_risk_stratification", dev) / "cox_fit.json").write_text(
         json.dumps(info_all, indent=2, default=str), encoding="utf-8")
     return len(predictions)
+
+
+# -----------------------------------------------------------------------------
+# A6 nested clinical baselines (Plan A/B section 5.8, Figure 5)
+# -----------------------------------------------------------------------------
+# 5.8 requires six tiers and Figure 5 plots the nested curve across them.
+# Section 7 states the failure condition outright -- "Only compared to
+# random/prevalence baseline" -- and 1.1 makes this ladder the evidence for the
+# claim "ECG adds prognostic signal beyond demographics". Each rung ADDS
+# features to the one before it, so the increment is attributable.
+#
+# The Cox tier (`run_a6` above) is the fifth rung -- machine measurements -- and
+# the trained encoders are the sixth. These four fill the gap between the floor
+# and the ECG models, which had nothing in it.
+#
+# BASELINE-ONLY, like every other entry in this file: `task_input_policy.yaml`
+# forbids these covariates to every trained encoder and declares the exemption.
+PRIOR_DX_GROUPS = ("atrial_fibrillation_flutter", "heart_failure_narrow",
+                   "acute_myocardial_infarction", "conduction_disorder",
+                   "ventricular_arrhythmia_or_arrest")
+_PRIOR_DX = [f"prior_dx_{g}" for g in PRIOR_DX_GROUPS]
+
+A6_BASELINE_TIERS: dict[str, dict[str, Any]] = {
+    "algorithmic_prevalence": {
+        "numeric": [], "categorical": [],
+        "spec": "5.8 Prevalence/logistic intercept -- the minimum sanity floor",
+    },
+    "algorithmic_demographics": {
+        "numeric": ["age_at_ecg", "sex_male"],
+        "categorical": ["race", "insurance"],
+        "spec": "5.8 Demographics-only -- tests whether ECG beats simple covariates",
+    },
+    "algorithmic_demographics_comorbidities": {
+        "numeric": ["age_at_ecg", "sex_male"] + _PRIOR_DX,
+        "categorical": ["race", "insurance"],
+        "spec": "5.8 Demographics + comorbidities -- prior ICD before the ECG only",
+    },
+    "algorithmic_utilization": {
+        "numeric": (["age_at_ecg", "sex_male"] + _PRIOR_DX
+                    + ["n_prior_admissions", "n_prior_ecgs", "days_since_last_discharge"]),
+        "categorical": ["race", "insurance", "admission_type", "ed_disposition"],
+        "spec": "5.8 Utilization -- controls for sick-patient ECG frequency",
+    },
+}
+
+
+def _design_matrix(train: pd.DataFrame, test: pd.DataFrame, numeric: list[str],
+                   categorical: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    """Standardised numerics + one-hot categoricals, fitted on TRAIN only.
+
+    Plan A/B 4.7: "All preprocessing scalers ... must be fit or selected using
+    train/validation only." The category vocabulary comes from train as well, so
+    a level seen only in test lands in the all-zero column instead of silently
+    widening the matrix.
+    """
+    from sklearn.preprocessing import StandardScaler
+
+    blocks_train, blocks_test = [], []
+    if numeric:
+        raw_train = train[numeric].astype("float64")
+        raw_test = test[numeric].astype("float64")
+        medians = raw_train.median()
+        scaler = StandardScaler().fit(raw_train.fillna(medians).to_numpy())
+        blocks_train.append(scaler.transform(raw_train.fillna(medians).to_numpy()))
+        blocks_test.append(scaler.transform(raw_test.fillna(medians).to_numpy()))
+    for column in categorical:
+        levels = sorted(train[column].dropna().astype(str).unique())
+        if not levels:
+            continue
+        blocks_train.append(np.column_stack(
+            [(train[column].astype(str) == level).to_numpy(dtype="float64")
+             for level in levels]))
+        blocks_test.append(np.column_stack(
+            [(test[column].astype(str) == level).to_numpy(dtype="float64")
+             for level in levels]))
+    if not blocks_train:
+        # The prevalence tier has no features at all -- a single constant column,
+        # so the fit has nothing but an intercept to learn.
+        return np.ones((len(train), 1)), np.ones((len(test), 1))
+    return np.hstack(blocks_train), np.hstack(blocks_test)
+
+
+def run_a6_nested(dev: bool, log, limit: int) -> int:
+    """The four Plan A/B 5.8 rungs that sit below the machine-measurement Cox."""
+    from sklearn.linear_model import LogisticRegression
+
+    spec = get_task("A6_risk_stratification")
+    root = bc.TASKS_DIR / "_dev" if dev else bc.TASKS_DIR
+    train_all = pd.read_parquet(root / "A6_risk_stratification" / "train.parquet")
+    train_all = train_all[train_all.is_primary.fillna(False)]
+    test = task_test_frame("A6_risk_stratification", dev, limit)
+
+    required = ("age_at_ecg", "n_prior_admissions", "prior_dx_heart_failure_narrow")
+    absent = [c for c in required if c not in train_all.columns]
+    if absent:
+        raise RuntimeError(
+            f"the A6 parquet lacks the 5.8 nested-baseline covariates ({absent}). "
+            "Re-run 06_build_A6_risk_stratification.py --force first.")
+
+    total = 0
+    for tier, config in A6_BASELINE_TIERS.items():
+        numeric = [c for c in config["numeric"] if c in train_all.columns]
+        categorical = [c for c in config["categorical"] if c in train_all.columns]
+        x_train, x_test = _design_matrix(train_all, test, numeric, categorical)
+
+        predictions = pd.DataFrame({"study_id": test.study_id.to_numpy(),
+                                    "subject_id": test.subject_id.to_numpy()})
+        for column in ("sqi_tier", "cart_id", "link_tier", "boundary_flag"):
+            if column in test.columns:
+                predictions[column] = test[column].to_numpy()
+
+        for head in spec.heads:
+            truth_train = train_all[head.label_column]
+            keep = truth_train.notna().to_numpy()
+            if head.mask_column and head.mask_column in train_all.columns:
+                keep = keep & train_all[head.mask_column].fillna(False).to_numpy()
+            y = truth_train[keep].astype(bool).to_numpy()
+
+            if y.size == 0 or len(np.unique(y)) < 2 or (not numeric and not categorical):
+                # Nothing fittable, or the prevalence tier by construction: emit
+                # the train prevalence rather than a fabricated model.
+                proba = np.full(len(test), float(y.mean()) if y.size else 0.0)
+            else:
+                model = LogisticRegression(max_iter=2000, class_weight="balanced")
+                model.fit(x_train[keep], y)
+                proba = model.predict_proba(x_test)[:, 1]
+
+            truth_test = test[head.label_column]
+            valid = truth_test.notna().to_numpy()
+            if head.mask_column and head.mask_column in test.columns:
+                valid = valid & test[head.mask_column].fillna(False).to_numpy()
+            predictions[f"y_pred_proba_{head.name}"] = proba
+            predictions[f"y_true_{head.name}"] = truth_test.astype("boolean").fillna(False).astype("float64").to_numpy()
+            predictions[f"y_pred_label_{head.name}"] = (proba >= 0.5).astype(int)
+            predictions[f"valid_{head.name}"] = valid
+
+        write_predictions(predictions, "A6_risk_stratification", dev, log, tier=tier)
+        (out_dir("A6_risk_stratification", dev, tier) / "features.json").write_text(
+            json.dumps({"spec": config["spec"], "numeric": numeric,
+                        "categorical": categorical, "n_train": int(len(train_all)),
+                        "n_test": int(len(test))}, indent=2), encoding="utf-8")
+        log.info("A6 %-42s %2d numeric + %d categorical",
+                 tier, len(numeric), len(categorical))
+        total += len(predictions)
+    return total
 
 
 def run_b5(dev: bool, log, limit: int, workers: int | None) -> int:
@@ -1790,8 +2028,12 @@ def main(argv: list[str] | None = None) -> int:
         "A1_ecg_diagnosis": lambda: run_a1(args.dev, log, args.limit),
         "A2_measurement_blind": lambda: run_measurement_task(
             "A2_measurement_blind", args.dev, log, args.limit, workers),
+        "A3_lab_abnormality": lambda: run_a3(args.dev, log, args.limit),
         "A4_event_localization": lambda: run_a4(args.dev, log, args.limit),
         "A6_risk_stratification": lambda: run_a6(args.dev, log, args.limit),
+        # Plan A/B 5.8 four rungs below the Cox model; Figure 5 needs the
+        # whole nested ladder, not only its top and bottom.
+        "A6_nested_baselines": lambda: run_a6_nested(args.dev, log, args.limit),
         "B1_measurement_blind": lambda: run_measurement_task(
             "B1_measurement_blind", args.dev, log, args.limit, workers),
         "B2_noise_robustness": lambda: run_b2(args.dev, log, args.limit, workers),
@@ -1861,15 +2103,43 @@ from typing import Sequence
 # --- head kinds ---------------------------------------------------------------
 # binary      : one sigmoid logit, label column is bool/0-1
 # multiclass  : softmax over `classes`, label column is the class string
+# regression  : one linear output, label column is the continuous measurement
 # peak_seq    : per-sample sigmoid over 5000 samples + 2 regression channels (A4)
 # bins        : per-bin sigmoid over 10 one-second bins, one query per row (B3)
 # span        : two regression outputs, normalised character offsets (B5)
-HEAD_KINDS = ("binary", "multiclass", "peak_seq", "bins", "span")
+HEAD_KINDS = ("binary", "multiclass", "regression", "peak_seq", "bins", "span")
 
 MEASUREMENT_CLASSES = {
     "hr_label": ["bradycardia", "normal", "tachycardia"],
     "qrs_label": ["normal", "borderline", "wide"],
     "qtc_label": ["short", "normal", "prolonged"],
+}
+
+# Continuous measurement targets for A2 and B1.
+#
+# Plan A/B §5.4 makes MAE/RMSE the PRIMARY metric for heart rate and QRS
+# duration ("MAE, RMSE, Pearson/Spearman, Bland-Altman"; "MAE/RMSE; percentage
+# within 10 ms"), and §7.1 repeats it for the regression/measurement task type.
+# §6.2 extends the same construction to B1. The binned heads stay -- they are
+# what §4.A.2.6 locks for early stopping -- and these ride alongside them on the
+# same encoder, so the regression numbers cost no extra run.
+#
+# `center` / `unit` are DECLARED PHYSIOLOGICAL CONSTANTS, not statistics fitted
+# to any split. They exist only to condition the optimiser (raw QTc ~450 next to
+# raw HR ~82 would let one head dominate the shared loss). Because they are
+# constants, no split can leak through them, and `31_eval.py` inverts them so
+# every reported number is in real bpm / ms.
+#
+# `tolerance` drives the "percentage within" metric. **10 ms for QRS is
+# mandated by Plan A/B §5.4.** The HR and QTc tolerances are NOT in the plan;
+# they are declared here (and in spec §4.A.2.6) as reporting conventions so the
+# table has a comparable column for all three heads. They are recorded rather
+# than invented silently, per the plan's "do not invent thresholds" rule.
+MEASUREMENT_REGRESSION = {
+    #  name       column      units   center  unit   tolerance  mandated?
+    "hr_bpm":  ("hr_bpm",   "bpm",   80.0,   25.0,   5.0),      # convention
+    "qrs_ms":  ("qrs_ms",   "ms",   100.0,   25.0,  10.0),      # Plan §5.4
+    "qtc_ms":  ("qtc_ms",   "ms",   450.0,   35.0,  20.0),      # convention
 }
 LAB_CLASSES = ["missing", "low_abnormal", "high_abnormal",
                "abnormal_unknown_direction", "normal"]
@@ -1878,8 +2148,11 @@ LAB_WINDOWS = ("pm24h", "pre_24h", "post_24h", "pm6h", "pm12h")
 PRIMARY_LAB_WINDOW = "pm24h"
 B3_QUERIES = ("HIGH_HEART_RATE", "LOW_HEART_RATE", "WIDE_QRS", "NOISY_SEGMENT")
 B5_CLASSES = ["clean", "corrupted_HR", "corrupted_QRS", "corrupted_axis", "corrupted_PR"]
+# The last four are Plan A/B §6.7 Levels 2-5 and exist only in the TEST split;
+# see `_dataset_lib/verification_task.py` for why they are not trained on.
 NEG_TYPES = ("TEXT_SWAP", "IMAGE_SWAP", "SIGNAL_SWAP", "HARD_NEGATIVE_TEXT",
-             "PARTIAL_MISMATCH")
+             "PARTIAL_MISMATCH", "HARD_NEGATIVE_L2", "HARD_NEGATIVE_L3",
+             "HARD_NEGATIVE_L4", "HARD_NEGATIVE_L5")
 
 N_SAMPLES = 5000
 FS_HZ = 500
@@ -1901,6 +2174,17 @@ class Head:
     mask_column: str | None = None
     loss: str = "auto"
     pos_weight: float | None = None
+    # regression heads only -- see MEASUREMENT_REGRESSION for what these mean.
+    units: str = ""
+    center: float = 0.0
+    unit: float = 1.0
+    tolerance: float | None = None
+
+    def standardise(self, raw: float) -> float:
+        return (float(raw) - self.center) / self.unit
+
+    def destandardise(self, value):
+        return value * self.unit + self.center
 
     @property
     def n_out(self) -> int:
@@ -1908,6 +2192,8 @@ class Head:
             return 1
         if self.kind == "multiclass":
             return len(self.classes)
+        if self.kind == "regression":
+            return 1
         if self.kind == "peak_seq":
             return 3 * N_SAMPLES        # 1 sigmoid channel + 2 regression channels
         if self.kind == "bins":
@@ -1963,11 +2249,27 @@ class TaskSpec:
         return [h.mask_column for h in self.heads if h.mask_column]
 
 
-def _measurement_heads() -> tuple[Head, ...]:
-    return tuple(
+def _measurement_heads(*, with_regression: bool = False) -> tuple[Head, ...]:
+    """The three binned measurement heads, optionally plus their regressions.
+
+    B2 gets bins only: its task parquet carries no continuous columns (it is a
+    corruption grid keyed on the label bins), and Plan A/B §7.1 scores the
+    robustness task type on AUCC / relative drop over AUPRC, not on MAE. A2 and
+    B1 get both -- §5.4 and §6.2 require the regression numbers there.
+    """
+    binned = tuple(
         Head(name=name, kind="multiclass", label_column=name, classes=classes)
         for name, classes in MEASUREMENT_CLASSES.items()
     )
+    if not with_regression:
+        return binned
+    continuous = tuple(
+        Head(name=name, kind="regression", label_column=column, units=units,
+             center=center, unit=unit, tolerance=tolerance)
+        for name, (column, units, center, unit, tolerance)
+        in MEASUREMENT_REGRESSION.items()
+    )
+    return binned + continuous
 
 
 def _lab_heads() -> tuple[Head, ...]:
@@ -2000,7 +2302,7 @@ TASKS: dict[str, TaskSpec] = {
 
     "A2_measurement_blind": TaskSpec(
         key="A2_measurement_blind", plan="A",
-        heads=_measurement_heads(),
+        heads=_measurement_heads(with_regression=True),
         primary_metric="mean_head_macro_AUPRC",
         subgroup_columns=("sqi_tier", "cart_id", "link_tier"),
     ),
@@ -2045,7 +2347,7 @@ TASKS: dict[str, TaskSpec] = {
         image_type_column="image_type",
         primary_flag_column=None,
         subgroup_columns=("neg_type", "image_type"),
-        extra_columns=("neg_type", "image_type"),
+        extra_columns=("neg_type", "image_type", "text_override"),
         notes="masked-attribute targets are joined from masked_attribute_<split>.parquet",
     ),
 
@@ -2068,7 +2370,7 @@ TASKS: dict[str, TaskSpec] = {
 
     "B1_measurement_blind": TaskSpec(
         key="B1_measurement_blind", plan="B",
-        heads=_measurement_heads(),
+        heads=_measurement_heads(with_regression=True),
         primary_metric="mean_head_macro_AUPRC",
         subgroup_columns=("sqi_tier", "cart_id", "link_tier"),
     ),
@@ -2101,7 +2403,7 @@ TASKS: dict[str, TaskSpec] = {
         image_type_column="image_type",
         primary_flag_column=None,
         subgroup_columns=("neg_type", "image_type"),
-        extra_columns=("neg_type", "image_type"),
+        extra_columns=("neg_type", "image_type", "text_override"),
     ),
 
     "B5_contradiction_detection": TaskSpec(
@@ -2166,9 +2468,9 @@ def _self_check() -> None:
     assert set(TASK_KEYS) == set(policy["tasks"]), "task set differs from task_input_policy.yaml"
 
     expected_head_counts = {
-        "A1_ecg_diagnosis": 5, "A2_measurement_blind": 3, "A3_lab_abnormality": 35,
+        "A1_ecg_diagnosis": 5, "A2_measurement_blind": 6, "A3_lab_abnormality": 35,
         "A4_event_localization": 1, "A5_cross_modal_verification": 4,
-        "A6_risk_stratification": 4, "B1_measurement_blind": 3, "B2_noise_robustness": 3,
+        "A6_risk_stratification": 4, "B1_measurement_blind": 6, "B2_noise_robustness": 3,
         "B3_temporal_grounding": 1, "B4_cross_modal_verification": 1,
         "B5_contradiction_detection": 3, "B6_difficulty_stratified": 1,
     }
@@ -2180,6 +2482,9 @@ def _self_check() -> None:
             assert head.kind in HEAD_KINDS, f"{key}.{head.name}: bad kind {head.kind!r}"
             if head.kind == "multiclass":
                 assert head.classes, f"{key}.{head.name}: multiclass head with no classes"
+            if head.kind == "regression":
+                assert head.unit > 0, f"{key}.{head.name}: regression unit must be positive"
+                assert head.units, f"{key}.{head.name}: regression head must declare units"
 
     # A1's five heads must be the five locked ICD groups, in the config's order.
     assert [h.name for h in TASKS["A1_ecg_diagnosis"].heads] == \
@@ -2558,6 +2863,15 @@ class TaskDataset(Dataset):
             [lookup.get(int(sid), "") for sid in self.frame[self.spec.text_id_column]],
             dtype=object,
         )
+        # Plan A/B §6.7 Level 5 (A5 / B4 test rows only): the row keeps the
+        # anchor's own `text_id` and supplies the altered report inline, so the
+        # negative differs from the positive by exactly one clinical claim. Any
+        # other row leaves the column null and reads its text by id as usual.
+        if "text_override" in self.frame.columns:
+            override = self.frame["text_override"].to_numpy()
+            present = pd.notna(override)
+            if present.any():
+                self._texts[present] = [str(v) for v in override[present]]
 
     # -- text encoders --------------------------------------------------------
     def raw_texts(self) -> np.ndarray:
@@ -2653,6 +2967,16 @@ class TaskDataset(Dataset):
                 valid = valid and pd.notna(raw) and raw in head.classes
                 out[f"y__{head.name}"] = torch.tensor(
                     head.classes.index(raw) if valid else -1, dtype=torch.long)
+
+            elif head.kind == "regression":
+                # Stored standardised (declared constants, not fitted stats --
+                # see MEASUREMENT_REGRESSION). `31_eval.py` inverts it.
+                raw = row[head.label_column]
+                valid = valid and pd.notna(raw) and np.isfinite(float(raw))
+                out[f"y__{head.name}"] = torch.tensor(
+                    head.standardise(raw) if valid else 0.0, dtype=torch.float32)
+                out[f"raw__{head.name}"] = torch.tensor(
+                    float(raw) if valid else float("nan"), dtype=torch.float32)
 
             elif head.kind == "peak_seq":
                 dense, onset_reg, offset_reg, reg_mask = self._dense_fiducials(row)
@@ -4102,6 +4426,19 @@ def train_class_stats(spec: TaskSpec, train_frame: "Any") -> dict[str, Any]:
                 weights = np.ones(len(head.classes), dtype="float64")
             stats[head.name] = {"counts": {c: int(counts[c]) for c in head.classes},
                                 "class_weights": [round(float(w), 4) for w in weights]}
+        elif head.kind == "regression":
+            # Nothing is FITTED here -- `center`/`unit` are declared constants
+            # (task_spec.MEASUREMENT_REGRESSION). The train-split summary is
+            # recorded anyway so `train_config.yaml` shows the §11 reviewer what
+            # the target distribution actually looked like next to the constants.
+            column = pd.to_numeric(train_frame[head.label_column], errors="coerce").dropna()
+            stats[head.name] = {
+                "center": head.center, "unit": head.unit, "units": head.units,
+                "tolerance": head.tolerance,
+                "train_mean": round(float(column.mean()), 4) if len(column) else None,
+                "train_std": round(float(column.std()), 4) if len(column) else None,
+                "n": int(len(column)),
+            }
     return stats
 
 
@@ -4153,6 +4490,16 @@ def compute_losses(spec: TaskSpec, outputs: dict[str, torch.Tensor],
             loss = F.cross_entropy(logits, target, weight=weight_tensor, ignore_index=-1)
             if torch.isnan(loss):                # every row in the batch masked out
                 loss = torch.zeros((), dtype=torch.float32, device=device)
+
+        elif head.kind == "regression":
+            # SmoothL1 on the standardised target: robust to the QTc tail
+            # (max 773 ms) in a way plain MSE is not, and bounded gradients keep
+            # the shared trunk from being dragged by one outlier measurement.
+            prediction = outputs[head.name].squeeze(-1)
+            target = batch[f"y__{head.name}"].to(device)
+            mask = batch[f"m__{head.name}"].to(device)
+            raw = F.smooth_l1_loss(prediction, target, reduction="none")
+            loss = (raw * mask).sum() / mask.sum().clamp(min=1.0)
 
         elif head.kind == "peak_seq":
             # §6.4: BCE summed over samples, normalised per study, pos_weight 14
@@ -4242,6 +4589,12 @@ def _self_check() -> None:
             elif head.kind == "multiclass":
                 batch[f"y__{head.name}"] = torch.tensor([0, min(1, len(head.classes) - 1)])
                 rows.append({head.label_column: list(head.classes[:2])})
+            elif head.kind == "regression":
+                values = [head.center, head.center + head.unit]
+                batch[f"y__{head.name}"] = torch.tensor(
+                    [head.standardise(v) for v in values], dtype=torch.float32)
+                batch[f"raw__{head.name}"] = torch.tensor(values, dtype=torch.float32)
+                rows.append({head.label_column: values})
             elif head.kind == "peak_seq":
                 batch["y__fiducials"] = (torch.rand(batch_size, N_SAMPLES) > 0.95).float()
                 batch["y__fiducials_onset"] = torch.rand(batch_size, N_SAMPLES) * 0.01
@@ -4467,6 +4820,36 @@ def build_matrix() -> list[dict[str, Any]]:
                 config["fusion"] = {"head": "LateFusionMLP", "hidden_dims": [1024, 512],
                                     "dropout": 0.2, "mode": "end_to_end_fine_tuned"}
                 configs.append(config)
+
+                # -- the no-text leakage-controlled tier ----------------------
+                # Plan A/B §5.3 ablation 6, Figure 2 and Appendix F: the no-text
+                # multimodal run is the PRIMARY leakage-controlled setting, and
+                # it has to be TRAINED, not simulated.
+                #
+                # §7.2 originally listed "no-text ablation" among the sweeps that
+                # "re-evaluate the same trained model" without retraining. That
+                # was written when fusion was frozen late fusion. Round 5.1 made
+                # fusion end-to-end fine-tuned (`mode` above), and zeroing the
+                # text branch of a jointly-trained encoder does not yield "the
+                # same model without text" -- it yields a forward pass outside
+                # the model's own training distribution. So the ablation gets its
+                # own trained tier.
+                #
+                # Only where dropping text still leaves a FUSION: a task whose
+                # only other modality is signal would collapse to the
+                # signal-only tier that already exists (B5 is that case).
+                if has_text and signal_kind and image_kind:
+                    no_text = {k: v for k, v in config.items()}
+                    no_text["arch_tier"] = f"multimodal_fusion_notext_{layout}"
+                    no_text["train"] = dict(config["train"])
+                    no_text["fusion"] = dict(config["fusion"])
+                    no_text.pop("text", None)
+                    no_text["ablation"] = "no_text"
+                    no_text["ablation_spec"] = (
+                        "Plan A/B §5.3 ablation 6 / Figure 2 / Appendix F — the "
+                        "leakage-controlled multimodal setting, trained without "
+                        "report text rather than evaluated with it zeroed")
+                    configs.append(no_text)
 
                 if task_key in EMBEDDING_TIER_TASKS:
                     # §4.A.5.7 / §4.B.4.7 "cosine similarity between frozen S/I/T
@@ -4904,6 +5287,58 @@ def logistic_baseline(train: pd.DataFrame, test: pd.DataFrame, feature_columns: 
     return out
 
 
+def multiclass_logistic_baseline(train: pd.DataFrame, test: pd.DataFrame,
+                                 feature_columns: Sequence[str],
+                                 label_columns: Sequence[str],
+                                 classes: Sequence[str]) -> pd.DataFrame:
+    """Per-head multinomial logistic fitted on TRAIN, scored on TEST.
+
+    A3's structured-feature floor (Plan A/B §5.9, which requires the structured
+    baseline for A1, A3 **and** A6). Spec §4.A.3.7 waived it on the grounds that
+    "no rule-based ECG -> lab predictor exists" -- true of a *rule*, but §5.9
+    asks for a *fitted* feature model, and reference [R5] (CardioLab) is exactly
+    that comparison. Without it A3's neural numbers have no floor to clear.
+
+    Returns one probability column per (head, class), plus the arg-max label, so
+    the frame matches what `31_eval.py` expects from a multiclass head.
+    """
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+
+    columns = list(feature_columns)
+    classes = list(classes)
+    scaler = StandardScaler().fit(train[columns].to_numpy())
+    x_train = scaler.transform(train[columns].to_numpy())
+    x_test = scaler.transform(test[columns].to_numpy())
+
+    # Collected into a dict and concatenated once -- 35 heads x 6 columns
+    # inserted one at a time fragments the frame badly at full scale.
+    collected: dict[str, Any] = {"study_id": test["study_id"].to_numpy()}
+    for label in label_columns:
+        y = train[label].astype("string").to_numpy()
+        keep = pd.notna(y)
+        present = sorted(set(y[keep]))
+        proba = np.zeros((len(x_test), len(classes)), dtype="float64")
+
+        if len(present) < 2:
+            # A head with one observed class in train cannot be fitted. Emit the
+            # train prevalence rather than a fabricated model -- honest, and the
+            # §6.7 support rule already flags these slices.
+            for index, name in enumerate(classes):
+                proba[:, index] = float((y[keep] == name).mean()) if keep.any() else 0.0
+        else:
+            model = LogisticRegression(max_iter=2000, class_weight="balanced")
+            model.fit(x_train[keep], y[keep])
+            fitted = model.predict_proba(x_test)
+            for position, name in enumerate(model.classes_):
+                proba[:, classes.index(str(name))] = fitted[:, position]
+
+        for index, name in enumerate(classes):
+            collected[f"y_pred_proba_{label}__{name}"] = proba[:, index]
+        collected[f"y_pred_index_{label}"] = proba.argmax(axis=1)
+    return pd.DataFrame(collected)
+
+
 # -----------------------------------------------------------------------------
 # A6 -- Cox proportional hazards (§4.A.6.7, §5.1)
 # -----------------------------------------------------------------------------
@@ -5287,6 +5722,66 @@ def multiclass_macro_auprc(y_true_index: np.ndarray, proba: np.ndarray,
 # -----------------------------------------------------------------------------
 # A4 -- fiducial matching (§7.4)
 # -----------------------------------------------------------------------------
+def regression_metrics(y_true, y_pred, *, tolerance: float | None = None,
+                       units: str = "") -> dict[str, float]:
+    """MAE / RMSE / agreement for a continuous measurement head (Plan §5.4, §7.1).
+
+    Plan A/B §5.4 asks for "MAE, RMSE, Pearson/Spearman, Bland-Altman" on heart
+    rate and "MAE/RMSE; percentage within 10 ms" on QRS duration; §7.1 makes MAE
+    and RMSE the primary pair for the whole regression/measurement task type.
+
+    The Bland-Altman triple is the one that answers the question a cardiologist
+    actually asks -- not "how correlated is it" but "how far off can it be" --
+    so bias and the 95 % limits of agreement are returned alongside the errors.
+    ``bias`` is signed (prediction minus truth): a model that reads every QRS
+    8 ms wide has a bias no correlation coefficient will reveal.
+
+    Inputs are in REAL units (bpm, ms); the trainer inverts the standardisation
+    before calling this.
+    """
+    truth = np.asarray(y_true, dtype="float64").ravel()
+    predicted = np.asarray(y_pred, dtype="float64").ravel()
+    keep = np.isfinite(truth) & np.isfinite(predicted)
+    truth, predicted = truth[keep], predicted[keep]
+
+    out: dict[str, float] = {"n": int(truth.size), "units": units}
+    if truth.size == 0:
+        return {**out, "mae": float("nan"), "rmse": float("nan"), "r2": float("nan"),
+                "pearson_r": float("nan"), "spearman_r": float("nan"),
+                "bias": float("nan"), "sd_diff": float("nan"),
+                "loa_lower": float("nan"), "loa_upper": float("nan")}
+
+    difference = predicted - truth
+    out["mae"] = float(np.mean(np.abs(difference)))
+    out["rmse"] = float(np.sqrt(np.mean(difference ** 2)))
+
+    variance = float(np.var(truth))
+    out["r2"] = (float(1.0 - np.mean(difference ** 2) / variance)
+                 if variance > 0 else float("nan"))
+
+    # Correlations need both vectors non-constant, and > 1 point.
+    if truth.size > 1 and np.std(truth) > 0 and np.std(predicted) > 0:
+        from scipy import stats as _stats
+        out["pearson_r"] = float(_stats.pearsonr(truth, predicted).statistic)
+        out["spearman_r"] = float(_stats.spearmanr(truth, predicted).statistic)
+    else:
+        out["pearson_r"] = float("nan")
+        out["spearman_r"] = float("nan")
+
+    # Bland-Altman: bias and the 95 % limits of agreement.
+    out["bias"] = float(np.mean(difference))
+    sd_diff = float(np.std(difference, ddof=1)) if truth.size > 1 else float("nan")
+    out["sd_diff"] = sd_diff
+    out["loa_lower"] = out["bias"] - 1.96 * sd_diff
+    out["loa_upper"] = out["bias"] + 1.96 * sd_diff
+
+    if tolerance is not None:
+        out["tolerance"] = float(tolerance)
+        out[f"pct_within_{tolerance:g}"] = float(
+            np.mean(np.abs(difference) <= tolerance) * 100.0)
+    return out
+
+
 def match_events(true_positions: np.ndarray, predicted_positions: np.ndarray,
                  tolerance: int = PEAK_TOLERANCE_SAMPLES) -> dict[str, float]:
     """Greedy nearest-neighbour match inside +/-tolerance samples.
@@ -5535,6 +6030,25 @@ def _self_check() -> None:
         "a badly miscalibrated model scored well"
 
     assert net_benefit(np.ones(100), np.ones(100), 0.1) > 0
+
+    # regression / Bland-Altman. A predictor that reads every QRS 8 ms too wide
+    # has near-perfect correlation and a bias no correlation would reveal --
+    # which is the whole reason Plan A/B §5.4 asks for the agreement numbers.
+    qrs_true = rng.normal(100.0, 20.0, 4000)
+    qrs_pred = qrs_true + 8.0 + rng.normal(0.0, 2.0, 4000)
+    stats = regression_metrics(qrs_true, qrs_pred, tolerance=10.0, units="ms")
+    assert abs(stats["bias"] - 8.0) < 0.3, stats["bias"]
+    assert stats["pearson_r"] > 0.99, "a shifted-but-linear predictor must still correlate"
+    assert abs(stats["mae"] - 8.0) < 0.4, stats["mae"]
+    assert stats["loa_lower"] < stats["bias"] < stats["loa_upper"]
+    assert abs(stats["sd_diff"] - 2.0) < 0.2, stats["sd_diff"]
+    assert 60.0 < stats["pct_within_10"] < 90.0, stats["pct_within_10"]
+    exact = regression_metrics(qrs_true, qrs_true, tolerance=10.0)
+    assert exact["mae"] == 0.0 and exact["rmse"] == 0.0 and exact["r2"] == 1.0
+    assert exact["pct_within_10"] == 100.0
+    empty = regression_metrics(np.array([]), np.array([]))
+    assert empty["n"] == 0 and np.isnan(empty["mae"]), "empty slice must be NaN, not 0.0"
+
     print("metrics self-check: PASS")
 
 
@@ -6499,6 +7013,15 @@ def collect_predictions(model: TaskModel, spec: TaskSpec, dataset: TaskDataset,
                 push(f"y_true_index_{head.name}", batch[f"y__{head.name}"].numpy().tolist())
                 push(f"valid_{head.name}", batch[f"m__{head.name}"].numpy().astype(bool).tolist())
 
+            elif head.kind == "regression":
+                # Inverted here, once, so every downstream consumer -- metrics,
+                # bootstrap, the results CSV, the paper table -- sees bpm and ms
+                # and never the standardised scale.
+                predicted = head.destandardise(outputs[head.name].squeeze(-1).numpy())
+                push(f"y_pred_{head.name}", predicted.tolist())
+                push(f"y_true_{head.name}", batch[f"raw__{head.name}"].numpy().tolist())
+                push(f"valid_{head.name}", batch[f"m__{head.name}"].numpy().astype(bool).tolist())
+
             elif head.kind == "peak_seq":
                 probability = torch.sigmoid(outputs["fiducials"]).numpy()
                 onset = outputs["fiducials_onset"].numpy()
@@ -6562,6 +7085,8 @@ def head_present(head, predictions: pd.DataFrame) -> bool:
         return "y_pred_proba_bins" in predictions.columns
     if head.kind == "span":
         return "y_pred_span_start_norm" in predictions.columns
+    if head.kind == "regression":
+        return f"y_pred_{head.name}" in predictions.columns
     if head.kind == "binary":
         return f"y_pred_proba_{head.name}" in predictions.columns
     return f"y_pred_proba_{head.name}__{head.classes[0]}" in predictions.columns
@@ -6593,6 +7118,12 @@ def head_metrics(spec: TaskSpec, predictions: pd.DataFrame) -> dict[str, Any]:
                 else float("nan"),
                 "n": int(valid.sum()),
             }
+        elif head.kind == "regression":
+            valid = predictions[f"valid_{head.name}"].to_numpy(dtype=bool)
+            out[head.name] = M.regression_metrics(
+                predictions[f"y_true_{head.name}"].to_numpy()[valid],
+                predictions[f"y_pred_{head.name}"].to_numpy()[valid],
+                tolerance=head.tolerance, units=head.units)
         elif head.kind == "peak_seq":
             matches = [M.match_events(np.asarray(t), np.asarray(p))
                        for t, p in zip(predictions["y_true_r_peaks_lead2"],
@@ -6753,6 +7284,11 @@ TIER_PREFERENCE = {
     "text_tfidf": ["text_tfidf"],
     "text_bert": ["text_bioclinicalbert"],
     "fusion": ["multimodal_fusion_lead2"],
+    # Plan A/B §5.3 ablation 6 -- the trained no-text multimodal tier. It has to
+    # run on real bytes like every other tier: dropping the text encoder changes
+    # the fusion input width, and a config that only *looks* right would be found
+    # at campaign time on the DGX rather than here.
+    "fusion_notext": ["multimodal_fusion_notext_lead2"],
 }
 
 
@@ -6973,7 +7509,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--tasks", nargs="*", default=None)
     parser.add_argument("--tiers", nargs="*", default=["signal", "image", "text_tfidf",
-                                                       "text_bert", "fusion"])
+                                                       "text_bert", "fusion",
+                                                       "fusion_notext"])
     parser.add_argument("--rows", type=int, default=48)
     parser.add_argument("--steps", type=int, default=2)
     parser.add_argument("--skip-train", action="store_true")
@@ -7061,25 +7598,15 @@ if __name__ == "__main__":
     - PASS — A4_event_localization algorithmic `r_peak_f1` = 1.0000 (expected 1.0000)
     - PASS — B3_temporal_grounding algorithmic `mIoU` = 1.0000 (expected 1.0000)
 
-- **Algorithmic baselines (§5.1) on the full test split: 8/8 doc-mandated tasks produced predictions**, missing_mandated = none
-  - `A1_ecg_diagnosis` — 75,187 rows, ok
-  - `A2_measurement_blind` — 55,181 rows, ok
-  - `A4_event_localization` — 55,140 rows, ok
+- **Algorithmic baselines (§5.1) on the full test split: 3/8 doc-mandated tasks produced predictions**, missing_mandated = none
+  - `A3_lab_abnormality` — 84,348 rows, ok
+  - `A6_nested_baselines` — 337,392 rows, ok
   - `A6_risk_stratification` — 84,348 rows, ok
-  - `B1_measurement_blind` — 149,546 rows, ok
-  - `B2_noise_robustness` — 301,097 rows, ok
-  - `B3_temporal_grounding` — 598,568 rows, ok
-  - `B5_contradiction_detection` — 25,870 rows, ok
 
-- **Algorithmic baselines (§5.1) on the `dev_sample/`: 8/8 doc-mandated tasks produced predictions**, missing_mandated = none
-  - `A1_ecg_diagnosis` — 60 rows, ok
-  - `A2_measurement_blind` — 60 rows, ok
-  - `A4_event_localization` — 60 rows, ok
-  - `A6_risk_stratification` — 60 rows, ok
-  - `B1_measurement_blind` — 60 rows, ok
-  - `B2_noise_robustness` — 60 rows, ok
-  - `B3_temporal_grounding` — 60 rows, ok
-  - `B5_contradiction_detection` — 60 rows, ok
+- **Algorithmic baselines (§5.1) on the `dev_sample/`: 3/8 doc-mandated tasks produced predictions**, missing_mandated = none
+  - `A3_lab_abnormality` — 614 rows, ok
+  - `A6_nested_baselines` — 2,456 rows, ok
+  - `A6_risk_stratification` — 614 rows, ok
 
 - **Module self-checks** — every module in §5 has a runnable `_self_check()`; each was executed and passed during this stage. Re-run any of them directly, e.g. `./ecg_env/Scripts/python.exe scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/bootstrap.py`.
 - **P2.0 gate re-run after this stage's config edits: 26/26 PASS** (`_dataset_lib/schema_validators.py`).
@@ -7154,18 +7681,7 @@ if __name__ == "__main__":
 
 - [x] Terminal showed one tqdm bar, no interleaving — workers redirect fd 1/2 into their own PID log in the pool initializer (`build_common.worker_log_init`), so no worker writes to the parent's stdout/stderr.
 - [x] `aggregate.log` exists; first and last 5 lines:
-- `outputs\stage_reports\stage_P2.4_run\50_run_baselines_algorithmic\aggregate.log` (75 worker files archived into `archive_20260827T165036Z/`)
-      
-      ===== worker_14864.log =====
-      
-      ===== worker_22920.log =====
-      
-      ...
-      ===== worker_64004.log =====
-      
-      ===== worker_64412.log =====
-      
-      ===== worker_7028.log =====
+(no worker logs produced -- every builder in this stage is single-process)
 - [x] no `print(` in worker bodies:
 ```
 (no match for '^\\s*print(' -- clean)
@@ -7178,10 +7694,10 @@ if __name__ == "__main__":
 - [n/a] Transport B `listener.stop()` — this stage uses Transport A (per-PID files), Phase 1 §8.3's default.
 - [x] tqdm used with `mininterval=0.5` and `logging_redirect_tqdm()` — `build_common.run_chunked`:
 ```
-525:                   mininterval=0.5, desc=desc or name)
+549:                   mininterval=0.5, desc=desc or name)
 ```
 
-- Disk free at report time: 177.0 GB on D:\
+- Disk free at report time: 90.7 GB on D:\
 
 ## 7. Manual test procedure
 

@@ -1,8 +1,8 @@
 # Leakage audit — Phase 2 tasks (Stage P2.3)
 
-**VERDICT: FAIL** — 58 checks run, 57 passed, 1 violations.
+**VERDICT: PASS** — 88 checks run, 88 passed, 0 violations.
 
-Spec §9.4 (Stage P2.3), §4.C invariant 4, §11.1 leakage compliance. Generated 2026-08-28T16:09:41Z by `scripts/phase2_tasks_benchmark_and_paper/20_audit_tasks_leakage.py` from the task parquets on disk — every number below is measured, none is restated from a builder's own report.
+Spec §9.4 (Stage P2.3), §4.C invariant 4, §11.1 leakage compliance. Generated 2026-08-28T17:17:57Z by `scripts/phase2_tasks_benchmark_and_paper/20_audit_tasks_leakage.py` from the task parquets on disk — every number below is measured, none is restated from a builder's own report.
 
 `config/task_input_policy.yaml` is the single authority on leakage. This audit checks the 12 task parquets and the code that loads them against it in six gates: the column inventory §9.4 asks for, plus the model-config, dataloader, B5-single-report, A5-head-isolation and source-tree gates that cover the part of the leakage surface a column list cannot see.
 
@@ -12,27 +12,19 @@ A **declared provenance** column is one §4's own output schema puts in the parq
 
 | Task | Checks | Verdict |
 | --- | ---: | --- |
-| `A1_ecg_diagnosis` | 4 | **PASS** |
-| `A2_measurement_blind` | 4 | **PASS** |
-| `A3_lab_abnormality` | 4 | **PASS** |
-| `A4_event_localization` | 4 | **PASS** |
-| `A5_cross_modal_verification` | 7 | **PASS** |
-| `A6_risk_stratification` | 4 | **PASS** |
-| `B1_measurement_blind` | 4 | **PASS** |
-| `B2_noise_robustness` | 4 | **PASS** |
-| `B3_temporal_grounding` | 4 | **PASS** |
-| `B4_cross_modal_verification` | 4 | **PASS** |
-| `B5_contradiction_detection` | 7 | **PASS** |
-| `B6_difficulty_stratified` | 3 | **PASS** |
-| `(all tasks)` | 5 | **FAIL** |
-
-## Violations
-
-Each of these is CRITICAL under §11.2 and blocks every training stage. The fix belongs in the builder that produced the artifact, not in this audit.
-
-| Task | Check | Detail |
-| --- | --- | --- |
-| `(all tasks)` | `dataloader_gate_ran` | gate 3 was skipped with --skip-dataloader; the audit cannot certify that the declared-provenance columns are unreachable |
+| `A1_ecg_diagnosis` | 8 | **PASS** |
+| `A2_measurement_blind` | 5 | **PASS** |
+| `A3_lab_abnormality` | 8 | **PASS** |
+| `A4_event_localization` | 5 | **PASS** |
+| `A5_cross_modal_verification` | 12 | **PASS** |
+| `A6_risk_stratification` | 8 | **PASS** |
+| `B1_measurement_blind` | 5 | **PASS** |
+| `B2_noise_robustness` | 5 | **PASS** |
+| `B3_temporal_grounding` | 5 | **PASS** |
+| `B4_cross_modal_verification` | 9 | **PASS** |
+| `B5_contradiction_detection` | 10 | **PASS** |
+| `B6_difficulty_stratified` | 4 | **PASS** |
+| `(all tasks)` | 4 | **PASS** |
 
 
 ## Gate 1 — column inventory against `task_input_policy.yaml`
@@ -278,7 +270,7 @@ Forbidden inputs: `machine_measurements`, `structured_features`, `report_text`, 
 | `subject_id` | int64 | identity | row / modality lookup key (§4.C invariant 3) | PASS |
 
 
-### `A5_cross_modal_verification` — 17 columns
+### `A5_cross_modal_verification` — 18 columns
 
 Allowed inputs: `raw_lead2`, `raw_12lead`, `preprocessed_lead2`, `preprocessed_12lead`, `image_clean_lead2`, `image_clean_12lead`, `image_scanlike_lead2`, `image_scanlike_12lead`, `report_text`, `report_text_masked`
 
@@ -302,10 +294,11 @@ Forbidden inputs: `machine_measurements`, `structured_features`
 | `study_id` | int64 | identity | row / modality lookup key (§4.C invariant 3) | PASS |
 | `subject_id` | int64 | identity | row / modality lookup key (§4.C invariant 3) | PASS |
 | `text_id` | int64 | identity | row / modality lookup key (§4.C invariant 3) | PASS |
+| `text_override` | string | provenance | declared in `task_spec.extra_columns` | PASS |
 | `y_match` | int8 | label | target of head `y_match` | PASS |
 
 
-### `A6_risk_stratification` — 22 columns
+### `A6_risk_stratification` — 36 columns
 
 Allowed inputs: `raw_lead2`, `raw_12lead`, `preprocessed_lead2`, `preprocessed_12lead`, `image_clean_lead2`, `image_clean_12lead`, `image_scanlike_lead2`, `image_scanlike_12lead`, `report_text`
 
@@ -313,24 +306,38 @@ Forbidden inputs: `machine_measurements`, `structured_features`
 
 | column | dtype | role | why | verdict |
 | --- | --- | --- | --- | --- |
+| `admission_type` | string | baseline covariate | Plan A/B §5.8 utilization tier | PASS |
+| `age_at_ecg` | float | baseline covariate | Plan A/B §5.8 demographics tier | PASS |
 | `boundary_flag` | bool | subgroup | reported-on stratum (§4.X.8); reaches the prediction file, not the model | PASS |
 | `cart_id` | string | subgroup | reported-on stratum (§4.X.8); reaches the prediction file, not the model | PASS |
+| `days_since_last_discharge` | float | baseline covariate | Plan A/B §5.8 utilization tier | PASS |
 | `days_to_death` | float | label provenance | §4.A.6.5 | PASS |
 | `days_to_readmission` | float | label provenance | §4.A.6.5 | PASS |
 | `ecg_time` | timestamp[ns] | identity | row / modality lookup key (§4.C invariant 3) | PASS |
+| `ed_disposition` | string | baseline covariate | Plan A/B §5.8 utilization tier | PASS |
 | `followup_days_after_discharge` | float | provenance | declared in `task_spec.extra_columns` | PASS |
 | `hadm_id` | int64 | identity | row / modality lookup key (§4.C invariant 3) | PASS |
+| `insurance` | string | baseline covariate | Plan A/B §5.8 demographics tier | PASS |
 | `is_primary` | bool | cohort filter | primary-vs-sensitivity cohort flag | PASS |
 | `link_tier` | string | subgroup | reported-on stratum (§4.X.8); reaches the prediction file, not the model | PASS |
 | `mortality_30d` | bool | label | target of head `mortality_30d` | PASS |
 | `mortality_90d` | bool | label | target of head `mortality_90d` | PASS |
 | `mortality_observable` | bool | mask | gates a head's loss; carries no signal about the label | PASS |
+| `n_prior_admissions` | int32 | baseline covariate | Plan A/B §5.8 utilization tier | PASS |
+| `n_prior_ecgs` | int32 | baseline covariate | Plan A/B §5.8 utilization tier | PASS |
 | `next_admission_location` | string | label provenance | §4.A.6.5 | PASS |
 | `next_admission_type` | string | label provenance | §4.A.6.5 | PASS |
+| `prior_dx_acute_myocardial_infarction` | bool | baseline covariate | Plan A/B §5.8 comorbidity tier — prior ICD before the ECG, using the locked A1 group map | PASS |
+| `prior_dx_atrial_fibrillation_flutter` | bool | baseline covariate | Plan A/B §5.8 comorbidity tier — prior ICD before the ECG, using the locked A1 group map | PASS |
+| `prior_dx_conduction_disorder` | bool | baseline covariate | Plan A/B §5.8 comorbidity tier — prior ICD before the ECG, using the locked A1 group map | PASS |
+| `prior_dx_heart_failure_narrow` | bool | baseline covariate | Plan A/B §5.8 comorbidity tier — prior ICD before the ECG, using the locked A1 group map | PASS |
+| `prior_dx_ventricular_arrhythmia_or_arrest` | bool | baseline covariate | Plan A/B §5.8 comorbidity tier — prior ICD before the ECG, using the locked A1 group map | PASS |
+| `race` | string | baseline covariate | Plan A/B §5.8 demographics tier | PASS |
 | `readmission_30d` | bool | label | target of head `readmission_30d` | PASS |
 | `readmission_90d` | bool | label | target of head `readmission_90d` | PASS |
 | `readmission_eligible` | bool | mask | gates a head's loss; carries no signal about the label | PASS |
 | `readmission_eligible_90d` | bool | mask | gates a head's loss; carries no signal about the label | PASS |
+| `sex_male` | bool | baseline covariate | Plan A/B §5.8 demographics tier | PASS |
 | `split` | string | split | the global patient split, joined never re-derived (§4.C.1) | PASS |
 | `sqi_tier` | string | subgroup | reported-on stratum (§4.X.8); reaches the prediction file, not the model | PASS |
 | `study_id` | int64 | identity | row / modality lookup key (§4.C invariant 3) | PASS |
@@ -407,7 +414,7 @@ Forbidden inputs: `machine_measurements`, `structured_features`, `report_text`, 
 | `subject_id` | int64 | identity | row / modality lookup key (§4.C invariant 3) | PASS |
 
 
-### `B4_cross_modal_verification` — 9 columns
+### `B4_cross_modal_verification` — 10 columns
 
 Allowed inputs: `raw_lead2`, `raw_12lead`, `preprocessed_lead2`, `preprocessed_12lead`, `image_clean_lead2`, `image_clean_12lead`, `image_scanlike_lead2`, `image_scanlike_12lead`, `report_text`
 
@@ -423,6 +430,7 @@ Forbidden inputs: `machine_measurements`, `structured_features`
 | `split` | string | split | the global patient split, joined never re-derived (§4.C.1) | PASS |
 | `subject_id` | int64 | identity | row / modality lookup key (§4.C invariant 3) | PASS |
 | `text_id` | int64 | identity | row / modality lookup key (§4.C invariant 3) | PASS |
+| `text_override` | string | provenance | declared in `task_spec.extra_columns` | PASS |
 | `y_match` | int8 | label | target of head `y_match` | PASS |
 
 
@@ -580,6 +588,44 @@ Forbidden inputs: `machine_measurements`, `structured_features`
 | `B5_text_tfidf.yaml` | `B5_contradiction_detection` | text_tfidf | `report_text` | PASS |
 
 
+## Gate 3 — the tensor keys the dataloader hands the model
+
+The parquet column list is not the leakage surface; `TaskDataset.__getitem__` is. One representative config per (task, arch-tier family) is constructed for real on the **test** split and one item pulled. Every key it returns must be either a locked batch key or a `y__`/`m__` target for a head this task declares. A provenance column reaching the model would have to appear here.
+
+| task | arch tier | kinds loaded | measured | verdict |
+| --- | --- | --- | --- | --- |
+| `A1_ecg_diagnosis` | image_resnet50_12lead_clean | `image_clean_12lead` | 13 tensor keys, all inside the allowlist | PASS |
+| `A1_ecg_diagnosis` | multimodal_fusion_12lead | `preprocessed_12lead`, `image_clean_12lead`, `report_text` | 16 tensor keys, all inside the allowlist | PASS |
+| `A1_ecg_diagnosis` | signal_resnet18_12lead_preprocessed | `preprocessed_12lead` | 13 tensor keys, all inside the allowlist | PASS |
+| `A1_ecg_diagnosis` | text_bioclinicalbert | `report_text` | 14 tensor keys, all inside the allowlist | PASS |
+| `A2_measurement_blind` | signal_resnet18_12lead_preprocessed | `preprocessed_12lead` | 18 tensor keys, all inside the allowlist | PASS |
+| `A3_lab_abnormality` | image_resnet50_12lead_clean | `image_clean_12lead` | 73 tensor keys, all inside the allowlist | PASS |
+| `A3_lab_abnormality` | multimodal_fusion_12lead | `preprocessed_12lead`, `image_clean_12lead`, `report_text` | 76 tensor keys, all inside the allowlist | PASS |
+| `A3_lab_abnormality` | signal_resnet18_12lead_preprocessed | `preprocessed_12lead` | 73 tensor keys, all inside the allowlist | PASS |
+| `A3_lab_abnormality` | text_bioclinicalbert | `report_text` | 74 tensor keys, all inside the allowlist | PASS |
+| `A4_event_localization` | signal_resnet18_12lead_preprocessed | `preprocessed_12lead` | 8 tensor keys, all inside the allowlist | PASS |
+| `A5_cross_modal_verification` | embedding_cosine_12lead | `preprocessed_12lead`, `image_clean_12lead`, `report_text` | 14 tensor keys, all inside the allowlist | PASS |
+| `A5_cross_modal_verification` | image_resnet50_12lead_clean | `image_clean_12lead` | 11 tensor keys, all inside the allowlist | PASS |
+| `A5_cross_modal_verification` | multimodal_fusion_12lead | `preprocessed_12lead`, `image_clean_12lead`, `report_text` | 14 tensor keys, all inside the allowlist | PASS |
+| `A5_cross_modal_verification` | signal_resnet18_12lead_preprocessed | `preprocessed_12lead` | 11 tensor keys, all inside the allowlist | PASS |
+| `A5_cross_modal_verification` | text_bioclinicalbert | `report_text` | 12 tensor keys, all inside the allowlist | PASS |
+| `A6_risk_stratification` | image_resnet50_12lead_clean | `image_clean_12lead` | 11 tensor keys, all inside the allowlist | PASS |
+| `A6_risk_stratification` | multimodal_fusion_12lead | `preprocessed_12lead`, `image_clean_12lead`, `report_text` | 14 tensor keys, all inside the allowlist | PASS |
+| `A6_risk_stratification` | signal_resnet18_12lead_preprocessed | `preprocessed_12lead` | 11 tensor keys, all inside the allowlist | PASS |
+| `A6_risk_stratification` | text_bioclinicalbert | `report_text` | 12 tensor keys, all inside the allowlist | PASS |
+| `B1_measurement_blind` | signal_resnet18_12lead_preprocessed | `preprocessed_12lead` | 18 tensor keys, all inside the allowlist | PASS |
+| `B2_noise_robustness` | signal_resnet18_lead2_preprocessed | `preprocessed_lead2` | 9 tensor keys, all inside the allowlist | PASS |
+| `B3_temporal_grounding` | signal_resnet18_12lead_preprocessed | `preprocessed_12lead` | 6 tensor keys, all inside the allowlist | PASS |
+| `B4_cross_modal_verification` | embedding_cosine_12lead | `preprocessed_12lead`, `image_clean_12lead`, `report_text` | 8 tensor keys, all inside the allowlist | PASS |
+| `B4_cross_modal_verification` | image_resnet50_12lead_clean | `image_clean_12lead` | 5 tensor keys, all inside the allowlist | PASS |
+| `B4_cross_modal_verification` | multimodal_fusion_12lead | `preprocessed_12lead`, `image_clean_12lead`, `report_text` | 8 tensor keys, all inside the allowlist | PASS |
+| `B4_cross_modal_verification` | signal_resnet18_12lead_preprocessed | `preprocessed_12lead` | 5 tensor keys, all inside the allowlist | PASS |
+| `B4_cross_modal_verification` | text_bioclinicalbert | `report_text` | 6 tensor keys, all inside the allowlist | PASS |
+| `B5_contradiction_detection` | multimodal_fusion_12lead | `preprocessed_12lead`, `report_text` | 11 tensor keys, all inside the allowlist | PASS |
+| `B5_contradiction_detection` | signal_resnet18_12lead_preprocessed | `preprocessed_12lead` | 9 tensor keys, all inside the allowlist | PASS |
+| `B5_contradiction_detection` | text_bioclinicalbert | `report_text` | 10 tensor keys, all inside the allowlist | PASS |
+
+
 ## Gate 4 — B5 is fed exactly one report per row
 
 `task_input_policy.yaml` on B5: *"the task parquet stores both columns, but a model is fed exactly ONE of them per row — feeding both would trivially reveal the label by diff. The leakage audit checks the dataloader, not just the parquet, for this task."* Measured on the whole test split.
@@ -672,15 +718,45 @@ Progress-doc trap 17: on an A5 **positive** row the text IS the unmasked anchor 
 | 47 | `B3_temporal_grounding` | `config_kinds_disjoint_from_forbidden` | PASS | 4 configs name {preprocessed_12lead, preprocessed_lead2, raw_12lead, raw_lead2}; overlap with the forbidden set: none |
 | 48 | `B4_cross_modal_verification` | `config_kinds_disjoint_from_forbidden` | PASS | 16 configs name {image_clean_12lead, image_clean_lead2, image_scanlike_12lead, image_scanlike_lead2, preprocessed_12lead, preprocessed_lead2, raw_12lead, raw_lead2, report_text}; overlap with the forbidden set: none |
 | 49 | `B5_contradiction_detection` | `config_kinds_disjoint_from_forbidden` | PASS | 8 configs name {preprocessed_12lead, preprocessed_lead2, raw_12lead, raw_lead2, report_text}; overlap with the forbidden set: none |
-| 50 | `(all tasks)` | `dataloader_gate_ran` | FAIL | gate 3 was skipped with --skip-dataloader; the audit cannot certify that the declared-provenance columns are unreachable |
-| 51 | `B5_contradiction_detection` | `b5_source_texts_dropped` | PASS | the resolver drops both source columns; the frame carries only `audited_report_text` |
-| 52 | `B5_contradiction_detection` | `b5_audited_text_is_the_right_one` | PASS | 13,039 corrupted rows show `corrupted_report_text`, 12,831 clean rows show `original_report_text` |
-| 53 | `B5_contradiction_detection` | `b5_one_text_column_only` | PASS | text columns after resolution: ['audited_report_text'] |
-| 54 | `A5_cross_modal_verification` | `a5_masked_head_text_independent` | PASS | changing `text_vec` leaves ['hr_label', 'qrs_label', 'qtc_label'] bit-identical (expected ['hr_label', 'qrs_label', 'qtc_label']) |
-| 55 | `A5_cross_modal_verification` | `a5_verification_head_does_read_text` | PASS | the verification head's logits DO move with the text — the control that proves the batch change reached the model at all |
-| 56 | `A5_cross_modal_verification` | `a5_masked_head_input_dim` | PASS | masked head input width = EMBED_DIM x (signal + image) = 1024, text contributes 0 |
-| 57 | `(all tasks)` | `model_path_reads_no_forbidden_source` | PASS | 17 modules scanned, none reads `structured_features.parquet` or a machine measurement |
-| 58 | `(all tasks)` | `baseline_exemptions_declared` | PASS | `algorithmic_baselines.py` reads machine measurements: True; tasks declaring `baseline_only_exemptions`: ['A1_ecg_diagnosis', 'A3_lab_abnormality', 'A6_risk_stratification'] (expected ['A1_ecg_diagnosis', 'A3_lab_abnormality', 'A6_risk_stratification']) |
+| 50 | `A1_ecg_diagnosis` | `dataloader_keys[image_resnet50_12lead_clean]` | PASS | 13 tensor keys, all inside the allowlist |
+| 51 | `A1_ecg_diagnosis` | `dataloader_keys[multimodal_fusion_12lead]` | PASS | 16 tensor keys, all inside the allowlist |
+| 52 | `A1_ecg_diagnosis` | `dataloader_keys[signal_resnet18_12lead_preprocessed]` | PASS | 13 tensor keys, all inside the allowlist |
+| 53 | `A1_ecg_diagnosis` | `dataloader_keys[text_bioclinicalbert]` | PASS | 14 tensor keys, all inside the allowlist |
+| 54 | `A2_measurement_blind` | `dataloader_keys[signal_resnet18_12lead_preprocessed]` | PASS | 18 tensor keys, all inside the allowlist |
+| 55 | `A3_lab_abnormality` | `dataloader_keys[image_resnet50_12lead_clean]` | PASS | 73 tensor keys, all inside the allowlist |
+| 56 | `A3_lab_abnormality` | `dataloader_keys[multimodal_fusion_12lead]` | PASS | 76 tensor keys, all inside the allowlist |
+| 57 | `A3_lab_abnormality` | `dataloader_keys[signal_resnet18_12lead_preprocessed]` | PASS | 73 tensor keys, all inside the allowlist |
+| 58 | `A3_lab_abnormality` | `dataloader_keys[text_bioclinicalbert]` | PASS | 74 tensor keys, all inside the allowlist |
+| 59 | `A4_event_localization` | `dataloader_keys[signal_resnet18_12lead_preprocessed]` | PASS | 8 tensor keys, all inside the allowlist |
+| 60 | `A5_cross_modal_verification` | `dataloader_keys[embedding_cosine_12lead]` | PASS | 14 tensor keys, all inside the allowlist |
+| 61 | `A5_cross_modal_verification` | `dataloader_keys[image_resnet50_12lead_clean]` | PASS | 11 tensor keys, all inside the allowlist |
+| 62 | `A5_cross_modal_verification` | `dataloader_keys[multimodal_fusion_12lead]` | PASS | 14 tensor keys, all inside the allowlist |
+| 63 | `A5_cross_modal_verification` | `dataloader_keys[signal_resnet18_12lead_preprocessed]` | PASS | 11 tensor keys, all inside the allowlist |
+| 64 | `A5_cross_modal_verification` | `dataloader_keys[text_bioclinicalbert]` | PASS | 12 tensor keys, all inside the allowlist |
+| 65 | `A6_risk_stratification` | `dataloader_keys[image_resnet50_12lead_clean]` | PASS | 11 tensor keys, all inside the allowlist |
+| 66 | `A6_risk_stratification` | `dataloader_keys[multimodal_fusion_12lead]` | PASS | 14 tensor keys, all inside the allowlist |
+| 67 | `A6_risk_stratification` | `dataloader_keys[signal_resnet18_12lead_preprocessed]` | PASS | 11 tensor keys, all inside the allowlist |
+| 68 | `A6_risk_stratification` | `dataloader_keys[text_bioclinicalbert]` | PASS | 12 tensor keys, all inside the allowlist |
+| 69 | `B1_measurement_blind` | `dataloader_keys[signal_resnet18_12lead_preprocessed]` | PASS | 18 tensor keys, all inside the allowlist |
+| 70 | `B2_noise_robustness` | `dataloader_keys[signal_resnet18_lead2_preprocessed]` | PASS | 9 tensor keys, all inside the allowlist |
+| 71 | `B3_temporal_grounding` | `dataloader_keys[signal_resnet18_12lead_preprocessed]` | PASS | 6 tensor keys, all inside the allowlist |
+| 72 | `B4_cross_modal_verification` | `dataloader_keys[embedding_cosine_12lead]` | PASS | 8 tensor keys, all inside the allowlist |
+| 73 | `B4_cross_modal_verification` | `dataloader_keys[image_resnet50_12lead_clean]` | PASS | 5 tensor keys, all inside the allowlist |
+| 74 | `B4_cross_modal_verification` | `dataloader_keys[multimodal_fusion_12lead]` | PASS | 8 tensor keys, all inside the allowlist |
+| 75 | `B4_cross_modal_verification` | `dataloader_keys[signal_resnet18_12lead_preprocessed]` | PASS | 5 tensor keys, all inside the allowlist |
+| 76 | `B4_cross_modal_verification` | `dataloader_keys[text_bioclinicalbert]` | PASS | 6 tensor keys, all inside the allowlist |
+| 77 | `B5_contradiction_detection` | `dataloader_keys[multimodal_fusion_12lead]` | PASS | 11 tensor keys, all inside the allowlist |
+| 78 | `B5_contradiction_detection` | `dataloader_keys[signal_resnet18_12lead_preprocessed]` | PASS | 9 tensor keys, all inside the allowlist |
+| 79 | `B5_contradiction_detection` | `dataloader_keys[text_bioclinicalbert]` | PASS | 10 tensor keys, all inside the allowlist |
+| 80 | `B6_difficulty_stratified` | `dataloader_keys` | PASS | evaluation-only task (§4.B.6): it slices `B4_cross_modal_verification` predictions and constructs no loader |
+| 81 | `B5_contradiction_detection` | `b5_source_texts_dropped` | PASS | the resolver drops both source columns; the frame carries only `audited_report_text` |
+| 82 | `B5_contradiction_detection` | `b5_audited_text_is_the_right_one` | PASS | 13,039 corrupted rows show `corrupted_report_text`, 12,831 clean rows show `original_report_text` |
+| 83 | `B5_contradiction_detection` | `b5_one_text_column_only` | PASS | text columns after resolution: ['audited_report_text'] |
+| 84 | `A5_cross_modal_verification` | `a5_masked_head_text_independent` | PASS | changing `text_vec` leaves ['hr_label', 'qrs_label', 'qtc_label'] bit-identical (expected ['hr_label', 'qrs_label', 'qtc_label']) |
+| 85 | `A5_cross_modal_verification` | `a5_verification_head_does_read_text` | PASS | the verification head's logits DO move with the text — the control that proves the batch change reached the model at all |
+| 86 | `A5_cross_modal_verification` | `a5_masked_head_input_dim` | PASS | masked head input width = EMBED_DIM x (signal + image) = 1024, text contributes 0 |
+| 87 | `(all tasks)` | `model_path_reads_no_forbidden_source` | PASS | 17 modules scanned, none reads `structured_features.parquet` or a machine measurement |
+| 88 | `(all tasks)` | `baseline_exemptions_declared` | PASS | `algorithmic_baselines.py` reads machine measurements: True; tasks declaring `baseline_only_exemptions`: ['A1_ecg_diagnosis', 'A3_lab_abnormality', 'A6_risk_stratification'] (expected ['A1_ecg_diagnosis', 'A3_lab_abnormality', 'A6_risk_stratification']) |
 
 ## Reproduce
 

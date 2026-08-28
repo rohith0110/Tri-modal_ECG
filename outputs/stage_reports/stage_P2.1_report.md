@@ -1,6 +1,6 @@
 # Stage P2.1 — Build Plan A task datasets — report
 
-Spec §9.2. Generated 2026-08-26T22:27:57Z by `_dataset_lib/stage_report.py` from the per-script state files, the artifacts on disk and the run logs — every number below is read back from what the stage produced.
+Spec §9.2. Generated 2026-08-28T17:28:58Z by `_dataset_lib/stage_report.py` from the per-script state files, the artifacts on disk and the run logs — every number below is read back from what the stage produced.
 
 ## 1. Files created
 
@@ -11,10 +11,10 @@ Spec §9.2. Generated 2026-08-26T22:27:57Z by `_dataset_lib/stage_report.py` fro
 - `scripts/phase2_tasks_benchmark_and_paper/03_build_A3_lab_abnormality.py`  (16.8 KB, sha256 5d8b80974f86)
 - `scripts/phase2_tasks_benchmark_and_paper/04_build_A4_event_localization.py`  (9.6 KB, sha256 8110ee59f890)
 - `scripts/phase2_tasks_benchmark_and_paper/05_build_A5_cross_modal_verification.py`  (15.6 KB, sha256 4f5f941bc9de)
-- `scripts/phase2_tasks_benchmark_and_paper/06_build_A6_risk_stratification.py`  (17.6 KB, sha256 a9e726a16d5a)
-- `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/build_common.py`  (25.5 KB, sha256 bb346206b99d)
+- `scripts/phase2_tasks_benchmark_and_paper/06_build_A6_risk_stratification.py`  (27.4 KB, sha256 3f98349ad018)
+- `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/build_common.py`  (26.6 KB, sha256 9d480ef55b66)
 - `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/measurement_task.py`  (3.2 KB, sha256 c924a1931ba7)
-- `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/verification_task.py`  (11.1 KB, sha256 5ab937774c95)
+- `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/verification_task.py`  (21.3 KB, sha256 e638246ded36)
 - `data/processed/fiducials_lead2.parquet`  (79.6 MB, sha256 1418fe7c0335)
 - `data/raw/ehr_cache/labevents_key_labs.parquet`  (225.9 MB, sha256 e2fb447076ad)
 - `data/processed/tasks/A1_ecg_diagnosis/cohort_manifest.parquet`  (7.1 KB, sha256 9717d39abe1b)
@@ -34,17 +34,17 @@ Spec §9.2. Generated 2026-08-26T22:27:57Z by `_dataset_lib/stage_report.py` fro
 - `data/processed/tasks/A4_event_localization/test.parquet`  (11.1 MB, sha256 b8424c00bcd8)
 - `data/processed/tasks/A4_event_localization/train.parquet`  (38.2 MB, sha256 f83edefde072)
 - `data/processed/tasks/A4_event_localization/val.parquet`  (5.7 MB, sha256 c325ddbfda72)
-- `data/processed/tasks/A5_cross_modal_verification/masked_attribute_test.parquet`  (4.3 MB, sha256 145ab496bae4)
-- `data/processed/tasks/A5_cross_modal_verification/masked_attribute_train.parquet`  (14.5 MB, sha256 031f18646e08)
-- `data/processed/tasks/A5_cross_modal_verification/masked_attribute_val.parquet`  (2.1 MB, sha256 a63d784f3913)
-- `data/processed/tasks/A5_cross_modal_verification/README.md`  (8.2 KB, sha256 f7922821510d)
-- `data/processed/tasks/A5_cross_modal_verification/test.parquet`  (13.3 MB, sha256 b0dbe8e16e0a)
-- `data/processed/tasks/A5_cross_modal_verification/train.parquet`  (47.6 MB, sha256 315078621727)
-- `data/processed/tasks/A5_cross_modal_verification/val.parquet`  (5.6 MB, sha256 576c1f679f24)
-- `data/processed/tasks/A6_risk_stratification/README.md`  (4.7 KB, sha256 20e72c85c9d4)
-- `data/processed/tasks/A6_risk_stratification/test.parquet`  (3.3 MB, sha256 95256fc80e45)
-- `data/processed/tasks/A6_risk_stratification/train.parquet`  (10.9 MB, sha256 c84f0fcb852a)
-- `data/processed/tasks/A6_risk_stratification/val.parquet`  (1.7 MB, sha256 5b560ae54cc9)
+- `data/processed/tasks/A5_cross_modal_verification/masked_attribute_test.parquet`  (4.3 MB, sha256 4218b5734435)
+- `data/processed/tasks/A5_cross_modal_verification/masked_attribute_train.parquet`  (14.5 MB, sha256 b5066019e061)
+- `data/processed/tasks/A5_cross_modal_verification/masked_attribute_val.parquet`  (2.1 MB, sha256 ab7b2f540768)
+- `data/processed/tasks/A5_cross_modal_verification/README.md`  (8.3 KB, sha256 8f5aa22d4001)
+- `data/processed/tasks/A5_cross_modal_verification/test.parquet`  (15.0 MB, sha256 db2c55aaac52)
+- `data/processed/tasks/A5_cross_modal_verification/train.parquet`  (47.6 MB, sha256 ab836d2c5690)
+- `data/processed/tasks/A5_cross_modal_verification/val.parquet`  (5.6 MB, sha256 a4e74fdb5916)
+- `data/processed/tasks/A6_risk_stratification/README.md`  (4.7 KB, sha256 8d7d4b7bef5a)
+- `data/processed/tasks/A6_risk_stratification/test.parquet`  (4.1 MB, sha256 904a68413fcd)
+- `data/processed/tasks/A6_risk_stratification/train.parquet`  (13.7 MB, sha256 c8f3dd6486e9)
+- `data/processed/tasks/A6_risk_stratification/val.parquet`  (2.1 MB, sha256 7be0ec980ccd)
 
 ## 2. Files modified
 
@@ -2228,8 +2228,48 @@ SCHEMA = pa.schema([
     ("followup_days_after_discharge", pa.float32()),
     ("next_admission_type", pa.string()),
     ("next_admission_location", pa.string()),
+    # --- Plan A/B §5.8 nested-baseline covariates. ALL strictly pre-ECG. -----
+    # §5.8 requires six baseline tiers for A6 -- prevalence, demographics,
+    # demographics+comorbidities, utilization, machine measurements, ECG -- and
+    # Figure 5 is the nested curve across them. §7 names the failure condition
+    # outright: "Only compared to random/prevalence baseline." None of these
+    # columns existed, so the intermediate rungs could not be built at all.
+    #
+    # Every one of them is knowable at `ecg_time`: Plan §5.8's index-time rule is
+    # "do not use any feature measured after ECG", and App. F lists "using future
+    # covariates for risk" as a named failure mode. The builder enforces it by
+    # construction -- prior counts read admissions DISCHARGED before the ECG,
+    # prior diagnoses come from those admissions only, and the ED disposition is
+    # taken from a stay that had already ended.
+    #
+    # These are BASELINE features, not model inputs: `task_input_policy.yaml`
+    # still forbids them for every trained encoder, exactly as the machine
+    # measurements are forbidden but permitted to the A6 Cox baseline.
+    ("age_at_ecg", pa.float32()),
+    ("sex_male", pa.bool_()),
+    ("race", pa.string()),
+    ("insurance", pa.string()),
+    ("admission_type", pa.string()),          # this admission's, known at admit
+    ("ed_disposition", pa.string()),          # last ED stay ENDING before the ECG
+    ("n_prior_admissions", pa.int32()),
+    ("n_prior_ecgs", pa.int32()),
+    ("days_since_last_discharge", pa.float32()),
+    ("prior_dx_atrial_fibrillation_flutter", pa.bool_()),
+    ("prior_dx_heart_failure_narrow", pa.bool_()),
+    ("prior_dx_acute_myocardial_infarction", pa.bool_()),
+    ("prior_dx_conduction_disorder", pa.bool_()),
+    ("prior_dx_ventricular_arrhythmia_or_arrest", pa.bool_()),
     ("is_primary", pa.bool_()),
 ])
+
+# The comorbidity vocabulary is the LOCKED A1 map, not a new one: five cardiac
+# groups, 175 codes, already validated against `d_icd_diagnoses` at Stage P2.0.
+# Plan A/B §5.8 asks for "prior ICD/comorbidity flags before ECG only" without
+# naming a vocabulary; reusing the locked one keeps A1 and A6 from drifting and
+# means no code list is invented here.
+PRIOR_DX_GROUPS = ("atrial_fibrillation_flutter", "heart_failure_narrow",
+                   "acute_myocardial_infarction", "conduction_disorder",
+                   "ventricular_arrhythmia_or_arrest")
 
 
 def load_admissions() -> pd.DataFrame:
@@ -2242,7 +2282,9 @@ def load_admissions() -> pd.DataFrame:
     adm = pd.read_csv(
         ADMISSIONS_CSV,
         usecols=["subject_id", "hadm_id", "admittime", "dischtime", "deathtime",
-                 "admission_type", "admission_location", "hospital_expire_flag"],
+                 "admission_type", "admission_location", "hospital_expire_flag",
+                 # §5.8 demographics baseline; the cached parquet drops both.
+                 "race", "insurance"],
         parse_dates=["admittime", "dischtime", "deathtime"],
         compression="gzip",
     )
@@ -2287,6 +2329,108 @@ def next_admission_table(adm: pd.DataFrame) -> pd.DataFrame:
                 })
                 break
     return pd.DataFrame(records)
+
+
+def prior_ecg_counts(cohort: pd.DataFrame, all_ecgs: pd.DataFrame) -> pd.Series:
+    """How many of the subject's ECGs precede this one, over the WHOLE index.
+
+    Counted against every clean ECG the subject has, not just the L3/L2 ones in
+    the A6 cohort. Plan A/B §5.8 wants prior ECG count as a utilization proxy --
+    "controls for sick-patient ECG frequency" -- and a patient's unlinked
+    outpatient ECGs are part of that frequency. Restricting the count to the A6
+    cohort would make the covariate a function of linkage rather than of care.
+    """
+    pool = all_ecgs[all_ecgs.subject_id.isin(set(cohort.subject_id))][
+        ["study_id", "subject_id", "ecg_time"]].copy()
+    pool = pool.sort_values(["subject_id", "ecg_time", "study_id"], kind="mergesort")
+    pool["n_prior"] = pool.groupby("subject_id").cumcount().astype("int32")
+    return cohort.study_id.map(pool.set_index("study_id")["n_prior"])
+
+
+def prior_history(cohort: pd.DataFrame, adm: pd.DataFrame) -> pd.DataFrame:
+    """Per-ECG utilisation and comorbidity counts, using only PRE-ECG records.
+
+    Plan A/B §5.8's utilization tier ("prior admissions, prior ECG count,
+    current admission type") and its comorbidity tier ("prior ICD ... before ECG
+    only"). App. F's "using future covariates for risk" is the failure mode this
+    guards against, so the cut is explicit and one-sided everywhere:
+
+    * an admission counts only if its **discharge** precedes the ECG -- an
+      admission still in progress is the ECG's own encounter, not history;
+    * a prior ECG counts only if its ``ecg_time`` is strictly earlier;
+    * a prior diagnosis is read from those already-discharged admissions only,
+      because ICD codes are assigned at discharge and the current admission's
+      codes describe the very episode being predicted from.
+
+    Returns one row per cohort study.
+    """
+    out = pd.DataFrame({"study_id": cohort.study_id.to_numpy(),
+                        "subject_id": cohort.subject_id.to_numpy(),
+                        "ecg_time": cohort.ecg_time.to_numpy()})
+
+    discharged = adm[adm.dischtime.notna()][["subject_id", "hadm_id", "dischtime"]]
+    pairs = out[["study_id", "subject_id", "ecg_time"]].merge(
+        discharged, on="subject_id", how="left")
+    before = pairs[pairs.dischtime < pairs.ecg_time]
+
+    counts = before.groupby("study_id").size()
+    out["n_prior_admissions"] = out.study_id.map(counts).fillna(0).astype("int32")
+    last_discharge = before.groupby("study_id")["dischtime"].max()
+    out["days_since_last_discharge"] = (
+        (out.ecg_time - out.study_id.map(last_discharge)).dt.total_seconds() / 86400.0
+    ).astype("float32")
+
+    # Prior diagnoses, from the already-discharged admissions only. The matcher
+    # is A1's, imported rather than copied: two implementations of "does this
+    # ICD code belong to this group" would eventually disagree, and then A1's
+    # label and A6's comorbidity flag would mean different things.
+    a1 = _import_a1()
+    groups = a1.load_label_map()
+    dx = pd.read_parquet(bc.EHR_CACHE / "diagnoses_icd.parquet",
+                         columns=["subject_id", "hadm_id", "icd_code", "icd_version"])
+    dx = dx[dx.subject_id.isin(set(out.subject_id))].copy()
+    dx["icd_code"] = dx["icd_code"].astype(str).str.strip()
+
+    distinct = dx[["icd_code", "icd_version"]].drop_duplicates()
+    flags = a1.code_group_table(distinct, groups)
+    prior_dx = (before[["study_id", "hadm_id"]]
+                .merge(dx[["hadm_id", "icd_code", "icd_version"]], on="hadm_id", how="inner")
+                .merge(flags, on=["icd_code", "icd_version"], how="left"))
+    for group in PRIOR_DX_GROUPS:
+        hits = set(prior_dx.loc[prior_dx[group].fillna(False), "study_id"])
+        out[f"prior_dx_{group}"] = out.study_id.isin(hits)
+    return out.drop(columns=["subject_id", "ecg_time"])
+
+
+def _import_a1():
+    """Load `01_build_A1_ecg_diagnosis.py` as a module (its name starts with a digit)."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent / "01_build_A1_ecg_diagnosis.py"
+    spec = importlib.util.spec_from_file_location("_a1_builder", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def ed_disposition_before_ecg(cohort: pd.DataFrame) -> pd.Series:
+    """Disposition of the last ED stay that had ENDED before the ECG.
+
+    Plan A/B §5.8: "ED disposition if before ECG". A stay still open at
+    ``ecg_time`` has no disposition yet, and the disposition of the stay the ECG
+    was taken during would be a future covariate -- so both are excluded by the
+    strict ``outtime < ecg_time`` cut.
+    """
+    ed = pd.read_parquet(bc.EHR_CACHE / "edstays.parquet",
+                         columns=["subject_id", "outtime", "disposition"])
+    ed["outtime"] = pd.to_datetime(ed["outtime"], errors="coerce")
+    ed = ed[ed.outtime.notna() & ed.subject_id.isin(set(cohort.subject_id))]
+
+    pairs = cohort[["study_id", "subject_id", "ecg_time"]].merge(
+        ed, on="subject_id", how="left")
+    pairs = pairs[pairs.outtime < pairs.ecg_time]
+    latest = pairs.sort_values("outtime", kind="mergesort").groupby("study_id").last()
+    return cohort.study_id.map(latest["disposition"]).astype("string")
 
 
 def last_observed_by_subject(adm: pd.DataFrame, patients: pd.DataFrame) -> pd.Series:
@@ -2383,6 +2527,42 @@ def main() -> int:
     for horizon in (30, 90):
         positive = (gap_to_next.notna() & (gap_to_next <= pd.Timedelta(days=horizon))).fillna(False)
         df[f"readmission_{horizon}d"] = positive.where(has_admission, other=pd.NA).astype("boolean")
+
+    # --- Plan A/B §5.8 nested-baseline covariates ---------------------------
+    # Age at the ECG, not anchor age: MIMIC-IV shifts each patient's dates into
+    # a private window, but the OFFSET from `anchor_year` is preserved, so
+    # `anchor_age + (ecg year - anchor_year)` is valid within a patient even
+    # though calendar years are not comparable across patients (§2.3 caveat).
+    demo = pd.read_parquet(bc.EHR_CACHE / "patients.parquet",
+                           columns=["subject_id", "gender", "anchor_age", "anchor_year"])
+    df = df.merge(demo, on="subject_id", how="left")
+    df["age_at_ecg"] = (
+        df["anchor_age"] + (df["ecg_time"].dt.year - df["anchor_year"])
+    ).astype("float32")
+    df["sex_male"] = (df["gender"].astype(str).str.upper() == "M")
+
+    df = df.merge(adm[["hadm_id", "admission_type", "race", "insurance"]],
+                  on="hadm_id", how="left")
+    df["ed_disposition"] = ed_disposition_before_ecg(df)
+    df = df.merge(prior_history(df, adm), on="study_id", how="left")
+    df["n_prior_ecgs"] = prior_ecg_counts(df, bc.load_clean_cohort(dev=args.dev))
+    for group in PRIOR_DX_GROUPS:
+        df[f"prior_dx_{group}"] = df[f"prior_dx_{group}"].fillna(False).astype(bool)
+    df["n_prior_admissions"] = df["n_prior_admissions"].fillna(0).astype("int32")
+    df["n_prior_ecgs"] = df["n_prior_ecgs"].fillna(0).astype("int32")
+    for column in ("race", "insurance", "admission_type", "ed_disposition"):
+        df[column] = df[column].astype("string")
+
+    # The one thing that must not slip: every covariate above is knowable at
+    # `ecg_time` (Plan §5.8 index-time rule, App. F "using future covariates").
+    # Assert the two that are computed from timestamps rather than fixed facts.
+    lag = df["days_since_last_discharge"].dropna()
+    if len(lag) and float(lag.min()) < 0:
+        raise RuntimeError(
+            f"{int((lag < 0).sum())} rows have a 'last discharge' AFTER the ECG -- "
+            "the utilization covariates would be future information")
+    if int((df["n_prior_ecgs"] < 0).sum()):
+        raise RuntimeError("negative prior-ECG count")
 
     df["is_primary"] = df.link_tier == "L3"
     df["cart_id"] = df["cart_id"].astype("Int64").astype("string")
@@ -2913,6 +3093,30 @@ def qtc_label(qtc: pd.Series) -> pd.Series:
     return out.where(qtc.notna())
 
 
+def axis_label(axis: pd.Series) -> pd.Series:
+    """QRS axis -> left / borderline / normal / right.
+
+    The cut points are NOT invented here: they are the locked clear zones from
+    `config/claim_dictionary_LOCKED.yaml` (`families.axis`) -- clear LAD below
+    -45 deg, clear RAD above 105 deg, and the injection-free zone -35..95 deg as
+    "normal". The two gap bands between them become `borderline` rather than
+    being forced into a neighbouring class, so a match on this bucket means the
+    two studies really do sit in the same locked zone.
+
+    Used only to construct the §6.7 Level-3 hard negatives. Like `hr_bucket`,
+    this is a COHORT-CONSTRUCTION use of a machine measurement, never a model
+    input -- the input policy forbids `machine_measurements` for every task that
+    reads this bucket.
+    """
+    out = pd.Series(
+        np.select(
+            [axis < -45.0, (axis >= -35.0) & (axis <= 95.0), axis > 105.0],
+            ["left", "normal", "right"], default="borderline"),
+        index=axis.index, dtype=object,
+    )
+    return out.where(axis.notna())
+
+
 def report_text_series(dev: bool = False) -> pd.DataFrame:
     """``study_id -> report_text`` (the ``T_machine`` column, §2.5 policy name)."""
     df = pd.read_parquet(
@@ -3283,9 +3487,25 @@ Two rules the spec does not spell out but that the split contract forces:
 
 ``HARD_NEGATIVE_TEXT`` is emitted only where a same-HR-bucket, different-subject
 alternative exists in the split (§4.A.5.3), so a few anchors yield 6 rows.
+
+**Test rows carry four more negatives** -- Plan A/B §6.7's Levels 2-5, which the
+original build omitted. They exist only in the test split, because they measure
+generalisation to harder negatives rather than being something to train on:
+
+| row | signal | image | text | §6.7 level |
+| --- | --- | --- | --- | --- |
+| `HARD_NEGATIVE_L2` | anchor | anchor | donor matched on HR + QRS bucket | 2 |
+| `HARD_NEGATIVE_L3` | anchor | anchor | donor matched on HR + QRS + axis + QTc | 3 |
+| `HARD_NEGATIVE_L4` | anchor | anchor | **the anchor's own subject**, another study | 4 |
+| `HARD_NEGATIVE_L5` | anchor | anchor | the anchor's own report, one claim swapped | 5 |
+
+Levels 0 and 1 are the five original negative types: the cross-subject swaps are
+Level 0, ``HARD_NEGATIVE_TEXT`` is Level 1.
 """
 
 from __future__ import annotations
+
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -3294,6 +3514,36 @@ import pyarrow as pa
 from . import build_common as bc
 
 NEG_TYPES = ("TEXT_SWAP", "IMAGE_SWAP", "SIGNAL_SWAP", "HARD_NEGATIVE_TEXT", "PARTIAL_MISMATCH")
+
+# ---------------------------------------------------------------------------
+# The Plan A/B §6.7 difficulty ladder, Levels 2-5. TEST SPLIT ONLY.
+# ---------------------------------------------------------------------------
+# §6.7 specifies six levels and §6.8's Figure 4 is the CURVE across them; the
+# original build stopped at two (Level 0 = the cross-subject swaps, Level 1 =
+# HARD_NEGATIVE_TEXT's same-HR-bucket swap) and shipped the third empty. Two
+# points are not a curve, and Level 4 -- same patient, different study -- is the
+# rung that tests the patient/demographic shortcut, which is the shortcut most
+# likely to be real in MIMIC where one subject carries many ECGs.
+#
+# **Why test-split only.** The levels measure GENERALISATION to harder
+# negatives: §6.7's expected behaviour is "most shortcut models plateau". Train
+# on Level 3 negatives and the plateau is trained away, so Figure 4 would
+# measure the training distribution instead of the model's shortcut reliance.
+# Keeping them out of train is the methodologically correct choice, and it also
+# means not one model has to be retrained to get the curve.
+#
+# A5 and B4 both receive them, because §4.B.4.8's A5-vs-B4 comparison is only
+# controlled while the two tasks see identical rows -- the builder asserts it.
+DIFFICULTY_NEG_TYPES = ("HARD_NEGATIVE_L2", "HARD_NEGATIVE_L3",
+                        "HARD_NEGATIVE_L4", "HARD_NEGATIVE_L5")
+# The bucket columns each level matches its text donor on. Level 4 matches on
+# nothing -- it matches on the SUBJECT, which is the opposite constraint.
+DIFFICULTY_MATCH_KEYS = {
+    "HARD_NEGATIVE_L2": ("hr_bucket", "qrs_bucket"),
+    "HARD_NEGATIVE_L3": ("hr_bucket", "qrs_bucket", "axis_bucket", "qtc_bucket"),
+}
+B5_TASK_DIR = "B5_contradiction_detection"
+
 SALTS = {
     "TEXT_SWAP": 0x51ED270B,
     "IMAGE_SWAP": 0x2545F491,
@@ -3301,6 +3551,10 @@ SALTS = {
     "HARD_NEGATIVE_TEXT": 0x7FEB352D,
     "PARTIAL_MISMATCH": 0x846CA68B,
     "PARTIAL_MISMATCH_B": 0xC2B2AE35,
+    "HARD_NEGATIVE_L2": 0x1B873593,
+    "HARD_NEGATIVE_L3": 0xCC9E2D51,
+    "HARD_NEGATIVE_L4": 0x85EBCA6B,
+    "HARD_NEGATIVE_L5": 0xC2B2AE3D,
 }
 
 SCHEMA = pa.schema([
@@ -3313,6 +3567,10 @@ SCHEMA = pa.schema([
     ("y_match", pa.int8()),
     ("neg_type", pa.string()),
     ("split", pa.string()),
+    # Level 5 only, null everywhere else: the anchor's OWN report with a single
+    # clinical claim swapped. The loader uses this string in place of the report
+    # `text_id` points at. See `_level_5_rows`.
+    ("text_override", pa.string()),
 ])
 
 _U64 = np.uint64
@@ -3370,6 +3628,88 @@ def _donor_frame(pool: pd.DataFrame, salt_key: str) -> pd.Series:
     return pd.Series(donors, index=ordered.index).reindex(pool.index)
 
 
+def _grouped_donor(pool: pd.DataFrame, keys: Sequence[str], salt_key: str) -> np.ndarray:
+    """A different-subject donor drawn from inside the row's own bucket.
+
+    Generalises what HARD_NEGATIVE_TEXT does for `hr_bucket` to any tuple of
+    bucket columns, which is how §6.7's Levels 2 and 3 tighten the match. A row
+    whose bucket holds no usable alternative gets -1 and is dropped, so a level
+    never fabricates a donor by relaxing its own matching rule.
+    """
+    donors = np.full(len(pool), -1, dtype="int64")
+    usable = pool[list(keys)].notna().all(axis=1)
+    for _, group in pool[usable].groupby(list(keys), sort=False, dropna=True):
+        ordered = group.sort_values(["subject_id", "study_id"], kind="mergesort")
+        picked = _pick_donors(ordered.study_id.to_numpy(), ordered.subject_id.to_numpy(),
+                              SALTS[salt_key])
+        donors[ordered.index.to_numpy()] = picked
+    return donors
+
+
+def _same_subject_donor(pool: pd.DataFrame, salt_key: str) -> np.ndarray:
+    """Another study of the row's OWN subject -- §6.7 Level 4.
+
+    Every other negative type is required to cross subjects; this one is
+    required NOT to. That inversion is the point: a model that has learnt
+    patient identity (age, sex, lead placement, cart) rather than the report's
+    content scores near-perfectly on Levels 0-3 and collapses here.
+
+    A subject with a single ECG has no alternative and yields -1.
+    """
+    donors = np.full(len(pool), -1, dtype="int64")
+    for _, group in pool.groupby("subject_id", sort=False):
+        if len(group) < 2:
+            continue
+        ordered = group.sort_values("study_id", kind="mergesort")
+        ids = ordered.study_id.to_numpy()
+        offset = (_mix(ids, SALTS[salt_key]) % _U64(len(ids) - 1)).astype("int64") + 1
+        donors[ordered.index.to_numpy()] = ids[(np.arange(len(ids)) + offset) % len(ids)]
+    return donors
+
+
+def _b5_corrupted_reports(dev: bool = False) -> pd.Series:
+    """``study_id -> corrupted_report_text`` for the corrupted TEST rows of B5.
+
+    §6.7 Level 5 is "a near-duplicate hard negative with an altered
+    report/image/signal component". The altered report already exists, locked
+    and deterministic: B5 injects exactly one contradicted clinical claim into a
+    report, only where the underlying measurement sits in a clear zone, and only
+    by swapping surface forms the report actually contains. Reusing it means
+    Level 5 introduces no new text-generation rule of its own, and the two tasks
+    cannot drift apart.
+
+    Returns an empty Series when B5 has not been built -- Level 5 is then simply
+    absent, rather than the build failing.
+    """
+    # `tasks_root()` already resolves _dev from the module-level flag the
+    # builders set with `bc.set_dev()`; `dev` is accepted for symmetry.
+    path = bc.tasks_root() / B5_TASK_DIR / "test.parquet"
+    if not path.exists():
+        return pd.Series(dtype="string")
+    b5 = pd.read_parquet(path, columns=["study_id", "is_corrupted", "corrupted_report_text"])
+    b5 = b5[b5["is_corrupted"].fillna(False).astype(bool)]
+    b5 = b5.dropna(subset=["corrupted_report_text"]).drop_duplicates("study_id")
+    return b5.set_index("study_id")["corrupted_report_text"].astype("string")
+
+
+def _difficulty_buckets(study_ids: np.ndarray) -> pd.DataFrame:
+    """`qrs_bucket` / `qtc_bucket` / `axis_bucket` for the Level 2-3 matching.
+
+    Cohort construction, not model input: the buckets decide which studies may
+    serve as each other's hard negatives and never reach an encoder. Same
+    standing as `hr_bucket`, which the cohort already carries and which Level 1
+    already matches on.
+    """
+    measurements = bc.machine_measurements()
+    measurements = measurements[measurements.study_id.isin(set(int(s) for s in study_ids))]
+    return pd.DataFrame({
+        "study_id": measurements["study_id"].to_numpy(),
+        "qrs_bucket": bc.qrs_label(measurements["qrs_ms"]).to_numpy(),
+        "qtc_bucket": bc.qtc_label(measurements["qtc_ms"]).to_numpy(),
+        "axis_bucket": bc.axis_label(measurements["qrs_axis"]).to_numpy(),
+    })
+
+
 def build_verification(dev: bool = False) -> pd.DataFrame:
     """The 7-rows-per-anchor verification table for the full clean cohort."""
     cohort = bc.load_clean_cohort(dev=dev)
@@ -3379,6 +3719,11 @@ def build_verification(dev: bool = False) -> pd.DataFrame:
     usable = cohort.text_ok.fillna(False) & cohort.image_clean_ok.fillna(False) \
         & cohort.image_scanlike_ok.fillna(False)
     cohort = cohort[usable][["study_id", "subject_id", "split", "hr_bucket"]].copy()
+    # Levels 2-3 match on more than heart rate, so the extra buckets are joined
+    # once here rather than recomputed per split.
+    cohort = cohort.merge(_difficulty_buckets(cohort.study_id.to_numpy()),
+                          on="study_id", how="left")
+    corrupted_reports = _b5_corrupted_reports(dev=dev)
 
     frames: list[pd.DataFrame] = []
     for split in bc.SPLITS:
@@ -3405,7 +3750,7 @@ def build_verification(dev: bool = False) -> pd.DataFrame:
             order = group.sort_values(["subject_id", "study_id"], kind="mergesort").index.to_numpy()
             hard[order] = donors
 
-        def row(signal, image, text, image_type, y, neg):
+        def row(signal, image, text, image_type, y, neg, text_override=None):
             return pd.DataFrame({
                 "anchor_study_id": anchor,
                 "subject_id": subject,
@@ -3416,6 +3761,8 @@ def build_verification(dev: bool = False) -> pd.DataFrame:
                 "y_match": np.int8(y),
                 "neg_type": neg,
                 "split": split,
+                "text_override": (pd.Series([None] * len(anchor), dtype="string")
+                                  if text_override is None else text_override),
             })
 
         frames.append(row(anchor, anchor, anchor, "clean", 1, None))
@@ -3427,11 +3774,31 @@ def build_verification(dev: bool = False) -> pd.DataFrame:
         frames.append(row(anchor, random_donor["PARTIAL_MISMATCH"],
                           random_donor["PARTIAL_MISMATCH_B"], "clean", 0, "PARTIAL_MISMATCH"))
 
+        # -- Plan A/B §6.7 Levels 2-5, TEST SPLIT ONLY (see DIFFICULTY_NEG_TYPES)
+        if split != "test":
+            continue
+
+        for neg_type, keys in DIFFICULTY_MATCH_KEYS.items():
+            frames.append(row(anchor, anchor, _grouped_donor(pool, keys, neg_type),
+                              "clean", 0, neg_type))
+
+        frames.append(row(anchor, anchor, _same_subject_donor(pool, "HARD_NEGATIVE_L4"),
+                          "clean", 0, "HARD_NEGATIVE_L4"))
+
+        # Level 5: the anchor's OWN report, one clinical claim swapped. text_id
+        # stays the anchor so the row is a near-duplicate in every other respect;
+        # only rows for which B5 produced a corrupted report are emitted.
+        override = pd.Series(anchor, dtype="int64").map(corrupted_reports).astype("string")             if len(corrupted_reports) else pd.Series([None] * len(anchor), dtype="string")
+        level5 = row(anchor, anchor, anchor, "clean", 0, "HARD_NEGATIVE_L5",
+                     text_override=override.to_numpy())
+        frames.append(level5[pd.notna(level5["text_override"])])
+
     df = pd.concat(frames, ignore_index=True)
     # A row whose donor could not be found is dropped, not emitted with a -1.
     incomplete = (df.signal_id < 0) | (df.image_id < 0) | (df.text_id < 0)
     df = df[~incomplete]
     df["neg_type"] = df["neg_type"].astype("string")
+    df["text_override"] = df["text_override"].astype("string")
     return df.sort_values(["anchor_study_id", "y_match", "neg_type"],
                           kind="mergesort").reset_index(drop=True)
 
@@ -3486,7 +3853,31 @@ def assert_negatives_are_mismatched(df: pd.DataFrame, cohort: pd.DataFrame) -> N
     swapped = {
         "TEXT_SWAP": "text_id", "IMAGE_SWAP": "image_id", "SIGNAL_SWAP": "signal_id",
         "HARD_NEGATIVE_TEXT": "text_id",
+        "HARD_NEGATIVE_L2": "text_id", "HARD_NEGATIVE_L3": "text_id",
     }
+    # Levels 4 and 5 invert this rule on purpose, so they are checked for the
+    # OPPOSITE property instead of being exempted silently.
+    level4 = negatives[negatives.neg_type == "HARD_NEGATIVE_L4"]
+    if len(level4):
+        cross = int((level4.text_id.map(subject_of).to_numpy()
+                     != level4.subject_id.to_numpy()).sum())
+        if cross:
+            raise RuntimeError(
+                f"{cross} HARD_NEGATIVE_L4 rows swap in a DIFFERENT subject. Level 4 is "
+                "the same-patient rung (§6.7): a cross-subject donor there would make it "
+                "a duplicate of Level 0 and hide the patient-identity shortcut.")
+        same_study = int((level4.text_id.to_numpy() == level4.anchor_study_id.to_numpy()).sum())
+        if same_study:
+            raise RuntimeError(f"{same_study} HARD_NEGATIVE_L4 rows point at the anchor's "
+                               "own study -- that is a positive, not a negative")
+    level5 = negatives[negatives.neg_type == "HARD_NEGATIVE_L5"]
+    if len(level5):
+        # Level 5 keeps every pointer on the anchor; what makes it a negative is
+        # the altered report string, so that is what must be present and changed.
+        if not (level5.text_id.to_numpy() == level5.anchor_study_id.to_numpy()).all():
+            raise RuntimeError("HARD_NEGATIVE_L5 must keep the anchor's own text_id")
+        if level5.text_override.isna().any():
+            raise RuntimeError("HARD_NEGATIVE_L5 rows must all carry a text_override")
     for neg_type, column in swapped.items():
         part = negatives[negatives.neg_type == neg_type]
         same = int((part[column].map(subject_of).to_numpy() == part.subject_id.to_numpy()).sum())
@@ -4055,23 +4446,27 @@ def assert_negatives_are_mismatched(df: pd.DataFrame, cohort: pd.DataFrame) -> N
 ```json
 {
   "done": true,
-  "finished_at": "2026-08-26T19:13:44Z",
-  "n_verification_rows": 5243784,
+  "finished_at": "2026-08-28T17:12:52Z",
+  "n_verification_rows": 5693989,
   "verification": {
-    "n_rows": 5243784,
+    "n_rows": 5693989,
     "n_anchors": 749112,
     "n_subjects": 154092,
-    "positive_rate_pct": 28.571,
+    "positive_rate_pct": 26.312,
     "rows_per_neg_type": {
       "positive": 1498224,
       "HARD_NEGATIVE_TEXT": 749112,
       "IMAGE_SWAP": 749112,
       "PARTIAL_MISMATCH": 749112,
       "SIGNAL_SWAP": 749112,
-      "TEXT_SWAP": 749112
+      "TEXT_SWAP": 749112,
+      "HARD_NEGATIVE_L2": 149549,
+      "HARD_NEGATIVE_L3": 149036,
+      "HARD_NEGATIVE_L4": 138581,
+      "HARD_NEGATIVE_L5": 13039
     },
     "image_type_counts": {
-      "clean": 4494672,
+      "clean": 4944877,
       "scanlike": 749112
     },
     "by_split": {
@@ -4088,17 +4483,17 @@ def assert_negatives_are_mismatched(df: pd.DataFrame, cohort: pd.DataFrame) -> N
         "n_negative": 377625
       },
       "test": {
-        "n_rows": 1047494,
+        "n_rows": 1497699,
         "n_anchors": 149642,
         "n_positive": 299284,
-        "n_negative": 748210
+        "n_negative": 1198415
       }
     }
   },
   "verification_splits": {
     "train": 3667615,
     "val": 528675,
-    "test": 1047494
+    "test": 1497699
   },
   "masked_attribute": {
     "n_rows": 748454,
@@ -4246,13 +4641,13 @@ def assert_negatives_are_mismatched(df: pd.DataFrame, cohort: pd.DataFrame) -> N
       }
     ]
   },
-  "n_rows": 5243784,
+  "n_rows": 5693989,
   "n_subjects": 154092,
   "n_rows_train": 3667615,
   "n_subjects_train": 107851,
   "n_rows_val": 528675,
   "n_subjects_val": 15397,
-  "n_rows_test": 1047494,
+  "n_rows_test": 1497699,
   "n_subjects_test": 30844,
   "subject_overlap": 0
 }
@@ -4263,7 +4658,7 @@ def assert_negatives_are_mismatched(df: pd.DataFrame, cohort: pd.DataFrame) -> N
 ```json
 {
   "done": true,
-  "finished_at": "2026-08-26T18:57:26Z",
+  "finished_at": "2026-08-28T17:16:18Z",
   "n_rows_total": 500471,
   "n_rows_primary_l3": 422147,
   "splits_total": {
@@ -4342,18 +4737,7 @@ def assert_negatives_are_mismatched(df: pd.DataFrame, cohort: pd.DataFrame) -> N
 
 - [x] Terminal showed one tqdm bar, no interleaving — workers redirect fd 1/2 into their own PID log in the pool initializer (`build_common.worker_log_init`), so no worker writes to the parent's stdout/stderr.
 - [x] `aggregate.log` exists; first and last 5 lines:
-- `outputs\stage_reports\stage_P2.1_run\00_extract_fiducials\aggregate.log` (39 worker files archived into `archive_20260826T222757Z/`)
-      
-      ===== worker_13652.log =====
-      
-      ===== worker_14240.log =====
-      D:\Coding\MU\Tri-Modal_ECG\ecg_env\Lib\site-packages\neurokit2\signal\signal_period.py:83: NeuroKitWarning: Too few peaks detected to compute the rate. Returning empty vector.
-      ...
-        warn(
-      D:\Coding\MU\Tri-Modal_ECG\ecg_env\Lib\site-packages\neurokit2\signal\signal_period.py:83: NeuroKitWarning: Too few peaks detected to compute the rate. Returning empty vector.
-        warn(
-      D:\Coding\MU\Tri-Modal_ECG\ecg_env\Lib\site-packages\neurokit2\signal\signal_period.py:83: NeuroKitWarning: Too few peaks detected to compute the rate. Returning empty vector.
-        warn(
+(no worker logs produced -- every builder in this stage is single-process)
 - [x] no `print(` in worker bodies:
 ```
 (no match for '^\\s*print(' -- clean)
@@ -4366,10 +4750,10 @@ def assert_negatives_are_mismatched(df: pd.DataFrame, cohort: pd.DataFrame) -> N
 - [n/a] Transport B `listener.stop()` — this stage uses Transport A (per-PID files), Phase 1 §8.3's default.
 - [x] tqdm used with `mininterval=0.5` and `logging_redirect_tqdm()` — `build_common.run_chunked`:
 ```
-525:                   mininterval=0.5, desc=desc or name)
+549:                   mininterval=0.5, desc=desc or name)
 ```
 
-- Disk free at report time: 212.4 GB on D:\
+- Disk free at report time: 90.7 GB on D:\
 
 ## 7. Manual test procedure
 

@@ -1,16 +1,16 @@
 # Stage P2.3 — The three Phase 2 audits — leakage, cohort, split — report
 
-Spec §9.4. Generated 2026-08-27T12:37:49Z by `_dataset_lib/stage_report.py` from the per-script state files, the artifacts on disk and the run logs — every number below is read back from what the stage produced.
+Spec §9.4. Generated 2026-08-28T17:29:01Z by `_dataset_lib/stage_report.py` from the per-script state files, the artifacts on disk and the run logs — every number below is read back from what the stage produced.
 
 ## 1. Files created
 
-- `scripts/phase2_tasks_benchmark_and_paper/20_audit_tasks_leakage.py`  (31.4 KB, sha256 5bcc9ec353b6)
-- `scripts/phase2_tasks_benchmark_and_paper/21_audit_tasks_cohort.py`  (26.6 KB, sha256 d726493e4c50)
-- `scripts/phase2_tasks_benchmark_and_paper/22_audit_tasks_split.py`  (15.1 KB, sha256 60d1826a4447)
+- `scripts/phase2_tasks_benchmark_and_paper/20_audit_tasks_leakage.py`  (35.2 KB, sha256 3cbe4be297e6)
+- `scripts/phase2_tasks_benchmark_and_paper/21_audit_tasks_cohort.py`  (30.4 KB, sha256 ad0569c81b15)
+- `scripts/phase2_tasks_benchmark_and_paper/22_audit_tasks_split.py`  (18.4 KB, sha256 0111b2367664)
 - `scripts/phase2_tasks_benchmark_and_paper/_dataset_lib/audit_common.py`  (9.9 KB, sha256 c902cabc9416)
-- `outputs/audit_reports/leakage_audit_phase2.md`  (72.1 KB, sha256 554df3de2d4b)
-- `outputs/audit_reports/cohort_audit.md`  (87.8 KB, sha256 fd7bebeb4a6d)
-- `outputs/audit_reports/split_audit_phase2.md`  (18.3 KB, sha256 5942d20a8620)
+- `outputs/audit_reports/leakage_audit_phase2.md`  (75.6 KB, sha256 72beb99e9307)
+- `outputs/audit_reports/cohort_audit.md`  (92.8 KB, sha256 b203f4184588)
+- `outputs/audit_reports/split_audit_phase2.md`  (19.7 KB, sha256 2ea846de7e62)
 
 ## 2. Files modified
 
@@ -153,16 +153,14 @@ PROVENANCE: dict[str, dict[str, tuple[str, str]]] = {
         "n_icd_codes_on_admission": ("label provenance", "§4.A.1.5"),
         "icd_codes_matched": ("label provenance", "§4.A.1.5"),
     },
+    # hr_bpm / qrs_ms / qtc_ms are no longer listed here: since the §5.4
+    # regression heads were added they are TARGETS, and `classify` reaches them
+    # as labels. Declaring a target as provenance would have hidden it from the
+    # head-to-column cross-check.
     "A2_measurement_blind": {
-        "hr_bpm": ("declared provenance", "§4.A.2.5 `# provenance`"),
-        "qrs_ms": ("declared provenance", "§4.A.2.5 `# provenance`"),
-        "qtc_ms": ("declared provenance", "§4.A.2.5 `# provenance`"),
         "qtc_ms_bazett": ("declared provenance", "§4 decision 14 sensitivity row"),
     },
     "B1_measurement_blind": {
-        "hr_bpm": ("declared provenance", "§4.B.1.5 = §4.A.2.5"),
-        "qrs_ms": ("declared provenance", "§4.B.1.5 = §4.A.2.5"),
-        "qtc_ms": ("declared provenance", "§4.B.1.5 = §4.A.2.5"),
         "qtc_ms_bazett": ("declared provenance", "§4 decision 14 sensitivity row"),
     },
     "A3_lab_abnormality": {
@@ -175,6 +173,9 @@ PROVENANCE: dict[str, dict[str, tuple[str, str]]] = {
     },
     "A5_cross_modal_verification": {
         "report_text_masked": ("model text input (masked)", "§4.A.5.4 allowed input"),
+        "text_override": ("model text input (level-5 negative)",
+                          "Plan A/B §6.7 level 5 — the anchor's own report with one claim "
+                          "swapped; replaces the text `text_id` points at, on those rows only"),
         "masked_positions": ("masking provenance", "§4.A.5.3"),
         "n_masked_spans": ("masking provenance", "§4.A.5.3"),
         "masked_families": ("masking provenance", "§4 decision 16"),
@@ -184,6 +185,26 @@ PROVENANCE: dict[str, dict[str, tuple[str, str]]] = {
         "days_to_readmission": ("label provenance", "§4.A.6.5"),
         "next_admission_type": ("label provenance", "§4.A.6.5"),
         "next_admission_location": ("label provenance", "§4.A.6.5"),
+        # Plan A/B §5.8's nested-baseline covariates. Every one is knowable at
+        # `ecg_time` and every one is BASELINE-ONLY -- the policy's
+        # `baseline_only_exemptions` block declares them, and gate 3 proves the
+        # dataloader hands none of them to a model.
+        "age_at_ecg": ("baseline covariate", "Plan A/B §5.8 demographics tier"),
+        "sex_male": ("baseline covariate", "Plan A/B §5.8 demographics tier"),
+        "race": ("baseline covariate", "Plan A/B §5.8 demographics tier"),
+        "insurance": ("baseline covariate", "Plan A/B §5.8 demographics tier"),
+        "admission_type": ("baseline covariate", "Plan A/B §5.8 utilization tier"),
+        "ed_disposition": ("baseline covariate", "Plan A/B §5.8 utilization tier"),
+        "n_prior_admissions": ("baseline covariate", "Plan A/B §5.8 utilization tier"),
+        "n_prior_ecgs": ("baseline covariate", "Plan A/B §5.8 utilization tier"),
+        "days_since_last_discharge": ("baseline covariate", "Plan A/B §5.8 utilization tier"),
+        "re:^prior_dx_.+$": ("baseline covariate",
+                             "Plan A/B §5.8 comorbidity tier — prior ICD before the ECG, "
+                             "using the locked A1 group map"),
+    },
+    "B4_cross_modal_verification": {
+        "text_override": ("model text input (level-5 negative)",
+                          "Plan A/B §6.7 level 5 — same construction as A5's"),
     },
     "B3_temporal_grounding": {
         "link_tier": ("cohort provenance", "§4.B.3.5"),
@@ -286,6 +307,20 @@ def gate_columns(audit: ac.Audit) -> None:
             elif reference and reference in policy[task_key].get("forbidden_inputs", ()):
                 if role.startswith("declared provenance"):
                     verdict = "provenance"
+                elif role == "label":
+                    # A column that IS a head's target is not an input. A2/B1
+                    # regress `hr_bpm`, `qrs_ms` and `qtc_ms` (Plan A/B §5.4
+                    # makes MAE/RMSE the primary metric there), so the machine
+                    # measurement is the ANSWER those heads are scored against,
+                    # exactly as the already-unflagged `hr_label` is. What keeps
+                    # it out of the model is gate 3, which builds the real
+                    # dataloader and checks the tensor keys -- a schema rule
+                    # never could.
+                    verdict = "label (target, not input)"
+                elif role.startswith("baseline covariate"):
+                    # Declared under `baseline_only_exemptions`; gate 6 proves
+                    # only `algorithmic_baselines.py` reads them.
+                    verdict = "baseline-only"
                 else:
                     forbidden_hits.append(f"{name} ({reference})")
                     verdict = "FORBIDDEN"
@@ -399,6 +434,14 @@ def gate_dataloader(audit: ac.Audit, log) -> None:
         allowed_keys = set(STATIC_BATCH_KEYS)
         for head in spec.heads:
             allowed_keys |= {f"y__{head.name}", f"m__{head.name}"}
+            if head.kind == "regression":
+                # `raw__<head>` is the same target as `y__<head>` in real units,
+                # carried so the trainer can report MAE in bpm/ms without
+                # re-deriving the standardisation. It is a TARGET, never an
+                # input: no encoder and no head reads it -- `compute_losses`
+                # reads only `y__`/`m__`, and gate 6 keeps the machine
+                # measurements out of every module on the model path.
+                allowed_keys.add(f"raw__{head.name}")
         allowed_keys |= {"y__fiducials_onset", "y__fiducials_offset", "y__fiducials_regmask"}
 
         seen_families: set[str] = set()
@@ -578,11 +621,14 @@ def gate_source_tree(audit: ac.Audit) -> None:
     baseline_source = _strip_comments(baselines.read_text(encoding="utf-8"))
     reads_machine = any(token in baseline_source for token in SOURCE_FORBIDDEN)
     declared = [key for key in TASK_KEYS if policy[key].get("baseline_only_exemptions")]
+    # A3 joined A1 and A6 when Plan A/B §5.9's structured baseline was restored
+    # (§5.9 requires it for all three; spec §4.A.3.7 had waived A3's).
+    expected_exemptions = ["A1_ecg_diagnosis", "A3_lab_abnormality", "A6_risk_stratification"]
     audit.check("(all tasks)", "baseline_exemptions_declared",
-                (not reads_machine) or sorted(declared) == ["A1_ecg_diagnosis",
-                                                            "A6_risk_stratification"],
+                (not reads_machine) or sorted(declared) == expected_exemptions,
                 f"`algorithmic_baselines.py` reads machine measurements: {reads_machine}; "
-                f"tasks declaring `baseline_only_exemptions`: {declared}")
+                f"tasks declaring `baseline_only_exemptions`: {declared} "
+                f"(expected {expected_exemptions})")
 
 
 def _strip_comments(source: str) -> str:
@@ -737,6 +783,9 @@ COHORT_RULES: dict[str, dict[str, Any]] = {
     "A5_cross_modal_verification": {
         "spec": "§4.A.5.2 — every clean-cohort ECG, 2 positives + 5 negatives",
         "rows_per_anchor": 7, "row_key": ["anchor_study_id", "neg_type", "image_type"],
+        # Round 10 / §12.9 item 4: the §6.7 Levels 2-5 negatives, TEST only.
+        "ladder_neg_types": ("HARD_NEGATIVE_L2", "HARD_NEGATIVE_L3",
+                             "HARD_NEGATIVE_L4", "HARD_NEGATIVE_L5"),
     },
     "A6_risk_stratification": {
         "spec": "§4.A.6.2", "primary_link_tier": {"L3"}, "row_key": ["study_id"],
@@ -756,6 +805,9 @@ COHORT_RULES: dict[str, dict[str, Any]] = {
     "B4_cross_modal_verification": {
         "spec": "§4.B.4.2 — identical rows to A5 (§4.B.4.8)",
         "rows_per_anchor": 7, "row_key": ["anchor_study_id", "neg_type", "image_type"],
+        # Round 10 / §12.9 item 4: the §6.7 Levels 2-5 negatives, TEST only.
+        "ladder_neg_types": ("HARD_NEGATIVE_L2", "HARD_NEGATIVE_L3",
+                             "HARD_NEGATIVE_L4", "HARD_NEGATIVE_L5"),
     },
     "B5_contradiction_detection": {
         "spec": "§4.B.5.2 as amended by §4 decisions 11 and 17",
@@ -768,6 +820,9 @@ COHORT_RULES: dict[str, dict[str, Any]] = {
         # (clean and scan-like image) and the pointer table does not carry
         # `image_type`. Coverage against B4 is the check that means something.
         "rows_per_anchor": 7,
+        # Round 10 / §12.9 item 4: the §6.7 Levels 2-5 negatives, TEST only.
+        "ladder_neg_types": ("HARD_NEGATIVE_L2", "HARD_NEGATIVE_L3",
+                             "HARD_NEGATIVE_L4", "HARD_NEGATIVE_L5"),
     },
 }
 
@@ -780,6 +835,56 @@ def split_files(spec: TaskSpec) -> dict[str, Path]:
     return {"train": directory / spec.train_file,
             "val": directory / spec.val_file,
             "test": directory / spec.test_file}
+
+
+def check_rows_per_anchor(audit, task_key: str, rows: pd.DataFrame, id_column: str,
+                          rules: dict) -> None:
+    """Every anchor carries the same base row count, PER SPLIT.
+
+    Round 10 (§12.9 item 4) added the §6.7 Levels 2-5 negatives to the TEST
+    split only, so a single ``len(rows) == anchors * 7`` over all three splits
+    is no longer the right assertion -- it was measuring a uniformity the ladder
+    deliberately breaks. Split it in two, which is strictly stronger than what it
+    replaced:
+
+    * the BASE rows (everything outside the ladder) are exactly
+      ``rows_per_anchor`` per anchor **in every split**, so a dropped or
+      duplicated base row still fails; and
+    * the ladder rows appear in **test only**, which is the §12.9 requirement
+      that keeping them out of train is what lets the curve be produced without
+      retraining anything.
+    """
+    per_anchor = rules["rows_per_anchor"]
+    ladder = set(rules.get("ladder_neg_types", ()))
+    has_neg_type = "neg_type" in rows.columns
+
+    base = rows
+    if ladder and has_neg_type:
+        base = rows[~rows["neg_type"].isin(ladder)]
+
+    for split_name in ("train", "val", "test"):
+        part = base[base["split"] == split_name] if "split" in base.columns else base
+        if part.empty:
+            continue
+        anchors = part[id_column].nunique()
+        expected = anchors * per_anchor
+        audit.check(task_key, f"rows_per_anchor[{split_name}]", len(part) == expected,
+                    f"{anchors:,} anchors x {per_anchor} = {expected:,}, "
+                    f"measured {len(part):,} base rows")
+
+    if ladder and has_neg_type:
+        extra = rows[rows["neg_type"].isin(ladder)]
+        splits_seen = set(extra["split"].dropna().unique()) if "split" in extra.columns else set()
+        audit.check(task_key, "ladder_negatives_are_test_only",
+                    splits_seen <= {"test"},
+                    f"{len(extra):,} Level 2-5 rows live in {sorted(splits_seen) or 'no split'}; "
+                    "§12.9 item 4 puts them in TEST only, so no model is retrained "
+                    "to produce the §6.7 curve")
+        counts = extra["neg_type"].value_counts().to_dict()
+        audit.check(task_key, "ladder_negatives_present",
+                    set(counts) == ladder,
+                    f"ladder rows per type: {ac.fmt_counts(counts)}; "
+                    f"expected all of {sorted(ladder)}")
 
 
 def read_split(spec: TaskSpec, path: Path, split: str) -> pd.DataFrame:
@@ -826,6 +931,18 @@ def label_counts(values: pd.Series, head) -> dict[str, int]:
         counts = {cls: int((values == cls).sum()) for cls in head.classes}
         counts["null"] = int(values.isna().sum())
         return counts
+    if head.kind == "regression":
+        # A continuous head has no classes to count; what the §1.1 table needs
+        # instead is the distribution, so a shifted or truncated target shows up.
+        numeric = pd.to_numeric(values, errors="coerce").dropna()
+        if numeric.empty:
+            return {"rows": int(len(values)), "null": int(values.isna().sum())}
+        return {"rows": int(len(values)), "null": int(values.isna().sum()),
+                "mean": round(float(numeric.mean()), 2),
+                "sd": round(float(numeric.std()), 2),
+                "min": round(float(numeric.min()), 2),
+                "p50": round(float(numeric.median()), 2),
+                "max": round(float(numeric.max()), 2)}
     return {"rows": int(len(values)), "null": int(values.isna().sum())}
 
 
@@ -924,11 +1041,7 @@ def audit_task(audit: ac.Audit, task_key: str, log) -> None:
                     f"measured {len(primary_all):,} primary rows against the locked "
                     f"{rules['locked_rows']:,}")
     if "rows_per_anchor" in rules:
-        anchors = all_rows[id_column].nunique()
-        expected = anchors * rules["rows_per_anchor"]
-        audit.check(task_key, "rows_per_anchor", len(all_rows) == expected,
-                    f"{anchors:,} anchors x {rules['rows_per_anchor']} = {expected:,}, "
-                    f"measured {len(all_rows):,}")
+        check_rows_per_anchor(audit, task_key, all_rows, id_column, rules)
     if "rows_per_study" in rules:
         studies = all_rows[id_column].nunique()
         expected = studies * rules["rows_per_study"]
@@ -1065,11 +1178,7 @@ def audit_pointer_table(audit: ac.Audit, spec: TaskSpec,
                     f"`{tier}` holds {sorted(present) or 'no rows'}; the config declares "
                     f"{sorted(declared) or 'none (RESERVED, ships empty)'}")
 
-    anchors = pointer[spec.id_column].nunique()
-    audit.check(task_key, "rows_per_anchor",
-                len(pointer) == anchors * rules["rows_per_anchor"],
-                f"{anchors:,} anchors x {rules['rows_per_anchor']} = "
-                f"{anchors * rules['rows_per_anchor']:,}, measured {len(pointer):,}")
+    check_rows_per_anchor(audit, task_key, pointer, spec.id_column, rules)
 
     audit.add("", f"Subjects: {pointer.subject_id.nunique():,}. "
                   f"Splits: {ac.fmt_counts(pointer.split.value_counts().to_dict())}.", "")
@@ -1231,6 +1340,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1242,6 +1352,10 @@ STAGE = "P2.3"
 SCRIPT = "22_audit_tasks_split"
 
 DONOR_COLUMNS = ("signal_id", "image_id", "text_id")
+# The one §6.7 rung that is same-subject BY DESIGN (Round 10, §12.9 item 4):
+# level 4 swaps in a different STUDY from the SAME patient. Every other
+# negative must come from a different subject.
+SAME_SUBJECT_NEG_TYPES = ("HARD_NEGATIVE_L4",)
 
 
 def global_split() -> pd.Series:
@@ -1352,16 +1466,65 @@ def audit_task(audit: ac.Audit, task_key: str, splits: pd.Series,
             negative = all_rows["y_match"].to_numpy() == 0
             swapped = all_rows[column].to_numpy() != all_rows[spec.id_column].to_numpy()
             same_subject = (donor_subject.to_numpy() == all_rows.subject_id.to_numpy())
-            leaked = int((negative & swapped & same_subject).sum())
+
+            # Round 10 (§12.9 item 4) makes ONE rung same-subject on purpose:
+            # level 4 is "a different STUDY from the SAME subject", the hardest
+            # negative short of altering the anchor's own text. Excluding it
+            # from this check is not a weakening -- the two assertions below
+            # replace it with a stricter pair, because a same-subject row is
+            # only legitimate when it is level 4 AND still a different study.
+            ladder_same_subject = np.zeros(len(all_rows), dtype=bool)
+            if "neg_type" in all_rows.columns:
+                ladder_same_subject = all_rows["neg_type"].isin(
+                    SAME_SUBJECT_NEG_TYPES).to_numpy()
+
+            leaked = int((negative & swapped & same_subject & ~ladder_same_subject).sum())
             audit.check(task_key, f"negative_donor_is_another_subject[{column}]", leaked == 0,
-                        f"{leaked} negative row(s) take `{column}` from the anchor's own "
-                        f"subject — that row would be a near-positive labelled negative")
+                        f"{leaked} negative row(s) outside the §6.7 level-4 rung take "
+                        f"`{column}` from the anchor's own subject — that row would be a "
+                        f"near-positive labelled negative")
+
+            # The level-4 rung, held to its own contract. Scoped to the rows
+            # where THIS column is actually swapped: level 4 substitutes the
+            # text and keeps the anchor's own signal and image, so signal_id
+            # and image_id equalling the anchor is the design, not a defect.
+            l4_swapped = negative & ladder_same_subject & swapped
+            n_l4_swapped = int(l4_swapped.sum())
+            if n_l4_swapped:
+                l4_other_subject = int((l4_swapped & ~same_subject).sum())
+                audit.check(task_key, f"level4_donor_is_the_same_subject[{column}]",
+                            l4_other_subject == 0,
+                            f"{l4_other_subject} of {n_l4_swapped:,} swapped level-4 "
+                            f"`{column}` value(s) come from a different subject; that is a "
+                            "level-0 negative wearing a level-4 label and would flatten "
+                            "the §6.7 curve")
             donor_rows.append([f"`{column}`", f"{int(swapped.sum()):,}",
                                f"{unresolved}", f"{crossing}", f"{leaked}"])
+        # A level-4 negative must actually swap SOMETHING. Checked once per row
+        # rather than per column: level 4 keeps the anchor's signal and image and
+        # substitutes only the text, so no single column can carry this
+        # assertion, and a row that swapped nothing would be a positive wearing
+        # a negative label -- the failure the whole ladder exists to avoid.
+        if "neg_type" in all_rows.columns:
+            is_l4 = all_rows["neg_type"].isin(SAME_SUBJECT_NEG_TYPES).to_numpy()
+            if is_l4.any():
+                any_swapped = np.zeros(len(all_rows), dtype=bool)
+                for column in donors:
+                    any_swapped |= (all_rows[column].to_numpy()
+                                    != all_rows[spec.id_column].to_numpy())
+                unswapped = int((is_l4 & ~any_swapped).sum())
+                audit.check(task_key, "level4_swaps_at_least_one_modality",
+                            unswapped == 0,
+                            f"{unswapped} of {int(is_l4.sum()):,} level-4 row(s) point every "
+                            "modality at the anchor itself — that row is a positive "
+                            "labelled negative")
+
         audit.add("", "**Donor containment.** Each verification row points at up to three "
                       "studies; every one of them must belong to a subject in the row's "
                       "own split, and a swapped modality on a negative must come from a "
-                      "different subject.", "")
+                      "different subject — except the §6.7 level-4 rung, which swaps in a "
+                      "different STUDY from the SAME subject by design and is held to that "
+                      "contract instead.", "")
         audit.table(["pointer column", "rows where it is not the anchor",
                      "unresolved", "crossing a split", "same-subject on a negative"],
                     donor_rows)
@@ -1744,16 +1907,16 @@ if __name__ == "__main__":
 
 ## 6. Validation results
 
-- **`leakage_audit_phase2.md`** — **VERDICT: PASS** — 88 checks run, 88 passed, 0 violations.  (72.1 KB, written by `20_audit_tasks_leakage.py`)
-- **`cohort_audit.md`** — **VERDICT: PASS** — 184 checks run, 184 passed, 0 violations.  (87.8 KB, written by `21_audit_tasks_cohort.py`)
-- **`split_audit_phase2.md`** — **VERDICT: PASS** — 75 checks run, 75 passed, 0 violations.  (18.3 KB, written by `22_audit_tasks_split.py`)
+- **`leakage_audit_phase2.md`** — **VERDICT: PASS** — 88 checks run, 88 passed, 0 violations.  (75.6 KB, written by `20_audit_tasks_leakage.py`)
+- **`cohort_audit.md`** — **VERDICT: PASS** — 199 checks run, 199 passed, 0 violations.  (92.8 KB, written by `21_audit_tasks_cohort.py`)
+- **`split_audit_phase2.md`** — **VERDICT: PASS** — 79 checks run, 79 passed, 0 violations.  (19.7 KB, written by `22_audit_tasks_split.py`)
 
 - **§4.C invariant 4 audit gate: OPEN.** `30_train.py::check_audit_gate` reads exactly these three files and parses their `**VERDICT:**` line; measured now, it returns {'leakage_audit_phase2.md': 'PASS', 'cohort_audit.md': 'PASS', 'split_audit_phase2.md': 'PASS'}.
 
 - Per-script check counts, read from the state files:
-  - `20_audit_tasks_leakage` — PASS, 88 checks, 0 violations, 69.8 s
-  - `21_audit_tasks_cohort` — PASS, 184 checks, 0 violations, 55.5 s
-  - `22_audit_tasks_split` — PASS, 75 checks, 0 violations, 27.7 s
+  - `20_audit_tasks_leakage` — PASS, 88 checks, 0 violations, 72.9 s
+  - `21_audit_tasks_cohort` — PASS, 199 checks, 0 violations, 38.3 s
+  - `22_audit_tasks_split` — PASS, 79 checks, 0 violations, 20.6 s
 
 - **`threshold_audit.md` is deliberately still absent.** §9.4 lists it as a pre-flight artifact with empty threshold values; `_train_lib/threshold.py` appends to it, and only a full-scale `30_train.py` run has thresholds to append. Nothing in Stage P2.3 selects a threshold.
 
@@ -1766,12 +1929,12 @@ if __name__ == "__main__":
 ```json
 {
   "done": true,
-  "finished_at": "2026-08-27T12:11:01Z",
+  "finished_at": "2026-08-28T17:17:57Z",
   "verdict": "PASS",
   "n_checks": 88,
   "n_violations": 0,
   "report": "outputs\\audit_reports\\leakage_audit_phase2.md",
-  "elapsed_s": 69.8
+  "elapsed_s": 72.9
 }
 ```
 
@@ -1780,12 +1943,12 @@ if __name__ == "__main__":
 ```json
 {
   "done": true,
-  "finished_at": "2026-08-27T12:18:20Z",
+  "finished_at": "2026-08-28T17:22:08Z",
   "verdict": "PASS",
-  "n_checks": 184,
+  "n_checks": 199,
   "n_violations": 0,
   "report": "outputs\\audit_reports\\cohort_audit.md",
-  "elapsed_s": 55.5
+  "elapsed_s": 38.3
 }
 ```
 
@@ -1794,12 +1957,12 @@ if __name__ == "__main__":
 ```json
 {
   "done": true,
-  "finished_at": "2026-08-27T12:21:20Z",
+  "finished_at": "2026-08-28T17:25:34Z",
   "verdict": "PASS",
-  "n_checks": 75,
+  "n_checks": 79,
   "n_violations": 0,
   "report": "outputs\\audit_reports\\split_audit_phase2.md",
-  "elapsed_s": 27.7
+  "elapsed_s": 20.6
 }
 ```
 
@@ -1820,10 +1983,10 @@ if __name__ == "__main__":
 - [n/a] Transport B `listener.stop()` — this stage uses Transport A (per-PID files), Phase 1 §8.3's default.
 - [x] tqdm used with `mininterval=0.5` and `logging_redirect_tqdm()` — `build_common.run_chunked`:
 ```
-525:                   mininterval=0.5, desc=desc or name)
+549:                   mininterval=0.5, desc=desc or name)
 ```
 
-- Disk free at report time: 177.0 GB on D:\
+- Disk free at report time: 90.7 GB on D:\
 
 ## 7. Manual test procedure
 

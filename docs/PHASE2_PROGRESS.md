@@ -12,19 +12,17 @@ starting cold reads this first, works, then updates it before the session ends.
   spec (spec §12.9, `docs/PLAN_DOCX_COMPLIANCE_AUDIT.md`). Five cost no GPU
   time; one costs +30 runs. **Nothing had been trained**, which is why they were
   cheap — and why they had to be done before Step 6's first upload.
-- **⛔ THE AUDIT GATE IS DELIBERATELY RED. Do not start any training run.**
-  `leakage_audit_phase2.md` currently reads **FAIL**, and that is correct: four
-  task tables (A5, B4, B6, A6) are mid-rebuild for Round 10, so any PASS on disk
-  right now would describe data that no longer exists. A stale PASS is worse
-  than no PASS. The gate re-opens when **Step 10R** below has run.
-- **Next action — Step 10R, then Step 5/6.** Once Step 5's int16 conversion
-  finishes (leave it alone until it does — it is running in another session),
-  re-run at full scale, in this order: `05_build_A5…`, `10_build_B4…`,
-  `12_build_B6…`, `06_build_A6…` (all `--force`), then the three P2.3 audits,
-  then `50_run_baselines_algorithmic.py` for `A3_lab_abnormality`,
-  `A6_nested_baselines` and `A6_risk_stratification`. See "Step 10R" in §6.
-- **Next action:** Step 4 (chunk-cutter + campaign launchers) and Step 5 (int16
-  conversion + equivalence proof), then Step 6's first upload.
+- **✅ THE AUDIT GATE IS GREEN — Step 10R is DONE (2026-08-28).** All four
+  Round 10 tables were rebuilt at full scale and all three audits re-run:
+  leakage **PASS 88/88**, cohort **PASS 199/199**, split **PASS 79/79** —
+  **366 checks, zero violations**. `30_train.py` will now start.
+- **Next action — Step 6, the staged uploads to R2.** Steps 4, 5, 10R, 11 and
+  12 are all DONE; nothing is gated. Step 6 is four jobs, in order: build the
+  three derived datasets nothing produces yet (`signals_12lead_L3`,
+  `images_clean_12lead_L3`, `images_scanlike_test`), cut the chunks for real
+  (`data/processed/chunks/` currently holds only plans — no piece files, no
+  checksums), write the uploader (none exists; `stage_data.sh` only pulls), then
+  upload in campaign order.
 - **Step 12 — SIGNED OFF 2026-08-28 by the project owner. The first upload is
   released.** `cohort_audit.md` PASS, 184 checks, 0 violations; four disclosure
   items accepted for the paper's limitations (A3's structurally-absent rare
@@ -702,7 +700,66 @@ now happen inside Steps 2 and 3 rather than after Step 8.
       Resumability was exercised for real: the run was killed one minute into
       B2 and the identical command replayed B5/A2/B1 from their part parquets in
       six seconds before continuing. Wall clock ≈ 2 h 45 m at 15 workers.
-- [ ] **Step 10R — Round 10 rebuild + re-audit (THE CURRENT BLOCKER).**
+- [x] **Step 10R — Round 10 rebuild + re-audit. DONE 2026-08-28.**
+      All four tables rebuilt at full scale and all three audits PASS:
+      **leakage 88/88, cohort 199/199, split 79/79 — 366 checks, 0 violations.**
+      Reports regenerated: `stage_P2.1/P2.2/P2.3/P2.4_report.md`.
+      Far faster than budgeted — A5 53.6 s, B4 29.7 s, B6 5.7 s, A6 31.2 s, not
+      the estimated few hours, because the verification rows are built from
+      cached part files rather than re-derived.
+      **What the rebuild produced, measured not assumed:**
+      - **A5/B4 row equality PASS at 5,693,989 rows** (up from 5,243,784); the
+        B4 builder asserts it and refuses to finish otherwise.
+      - **Levels 2–5 are strictly test-only.** Train and val carry only the
+        original five negative types; test adds `HARD_NEGATIVE_L2` 149,549,
+        `L3` 149,036, `L4` 138,581, `L5` 13,039. Train/val row counts are
+        unchanged, so no model needs retraining to produce the §6.7 curve.
+      - **All six B6 levels have test rows** — 598,568 / 149,642 / 149,549 /
+        149,036 / 138,581 / 13,039 — and the builder reports
+        `levels_2_to_5_are_test_only: true`. The old empty "hard" tier is closed.
+      - **A6 carries the fifteen pre-ECG covariates**, including `age_at_ecg`,
+        which replaced `anchor_age` in the Cox feature list.
+      **Three stale expectations had to be fixed — Round 10 changed the data but
+      left two files behind. None was a data defect:**
+      1. `task_definitions.yaml` still declared B6's tiers as `easy/medium/hard`
+         with `hard` RESERVED and empty. Replaced with the six Level 0–5 tiers,
+         each carrying its `neg_types` and the splits it may appear in.
+      2. `21_audit_tasks_cohort.py`'s `rows_per_anchor` hard-coded
+         `anchors x 7` across all three splits — a uniformity the ladder
+         deliberately breaks. Replaced with a **stricter** split-aware pair: the
+         base rows are exactly 7 per anchor *in every split*, and the ladder rows
+         are asserted to be test-only. Check count rose 184 → 199.
+      3. `22_audit_tasks_split.py` failed 138,581 rows on
+         `negative_donor_is_another_subject[text_id]` — exactly the L4 count.
+         Level 4 is *defined* as a different study from the **same** subject, so
+         the rule was right for every rung but the new one. It now exempts L4 and
+         replaces the exemption with three tighter assertions: a swapped L4 donor
+         must be the same subject, L4 must swap at least one modality (else it is
+         a positive wearing a negative label), and every other negative still
+         must come from a different subject. L4 keeps the anchor's own signal and
+         image and substitutes only the text, so the check is scoped to the
+         column actually swapped.
+      **Baselines (§5.1) re-run: A3 structured 84,348 rows / 35 heads, the four
+      A6 nested rungs 337,392 rows, A6 Cox 84,348 rows, all `status = ok`.**
+      - **The nested ladder is monotone on all four heads and prevalence sits at
+        exactly AUROC 0.5000**, as §5.8 requires by construction:
+        mortality_30d 0.5000 → 0.6716 → 0.6758 → **0.7302**; mortality_90d
+        0.5000 → 0.6618 → 0.6699 → **0.7217**; readmission_30d 0.5000 → 0.5568
+        → 0.5792 → **0.6321**; readmission_90d 0.5000 → 0.5681 → 0.6034 →
+        **0.6574**.
+      - **⚠ FINDING FOR THE PAPER — the §5.1 Cox does NOT beat rung 4.** The Cox
+        on `age + sex + machine HR/QRS/QTc` scores 0.7156 / 0.7061 / 0.5340 /
+        0.5291, *below* the +utilization rung on every head and dramatically so
+        for readmission (−0.098, −0.128). It is not a fifth rung — it is a
+        different, smaller feature set that omits comorbidities and utilisation,
+        so the ladder is rungs 1–4 and the Cox is a sibling. **Consequence:**
+        §1.1's "ECG adds prognostic signal beyond demographics" claim cannot be
+        carried by machine measurements; it must be carried by the trained
+        neural models, benchmarked against rung 4 at 0.730 — a materially harder
+        bar than the 0.5 prevalence baseline. Plan §7 names "only compared to
+        random/prevalence baseline" as a failure condition, and this ladder is
+        exactly what avoids it.
+- [ ] ~~**Step 10R — Round 10 rebuild + re-audit (THE CURRENT BLOCKER).**~~
       Closing the six Plan A/B compliance gaps changed four task schemas, so the
       affected tables and every audit that reads them must be regenerated at
       full scale. Laptop only, no GPU. Run **after** Step 5's int16 job

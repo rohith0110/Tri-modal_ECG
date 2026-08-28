@@ -46,6 +46,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -57,6 +58,10 @@ STAGE = "P2.3"
 SCRIPT = "22_audit_tasks_split"
 
 DONOR_COLUMNS = ("signal_id", "image_id", "text_id")
+# The one §6.7 rung that is same-subject BY DESIGN (Round 10, §12.9 item 4):
+# level 4 swaps in a different STUDY from the SAME patient. Every other
+# negative must come from a different subject.
+SAME_SUBJECT_NEG_TYPES = ("HARD_NEGATIVE_L4",)
 
 
 def global_split() -> pd.Series:
@@ -167,16 +172,65 @@ def audit_task(audit: ac.Audit, task_key: str, splits: pd.Series,
             negative = all_rows["y_match"].to_numpy() == 0
             swapped = all_rows[column].to_numpy() != all_rows[spec.id_column].to_numpy()
             same_subject = (donor_subject.to_numpy() == all_rows.subject_id.to_numpy())
-            leaked = int((negative & swapped & same_subject).sum())
+
+            # Round 10 (§12.9 item 4) makes ONE rung same-subject on purpose:
+            # level 4 is "a different STUDY from the SAME subject", the hardest
+            # negative short of altering the anchor's own text. Excluding it
+            # from this check is not a weakening -- the two assertions below
+            # replace it with a stricter pair, because a same-subject row is
+            # only legitimate when it is level 4 AND still a different study.
+            ladder_same_subject = np.zeros(len(all_rows), dtype=bool)
+            if "neg_type" in all_rows.columns:
+                ladder_same_subject = all_rows["neg_type"].isin(
+                    SAME_SUBJECT_NEG_TYPES).to_numpy()
+
+            leaked = int((negative & swapped & same_subject & ~ladder_same_subject).sum())
             audit.check(task_key, f"negative_donor_is_another_subject[{column}]", leaked == 0,
-                        f"{leaked} negative row(s) take `{column}` from the anchor's own "
-                        f"subject — that row would be a near-positive labelled negative")
+                        f"{leaked} negative row(s) outside the §6.7 level-4 rung take "
+                        f"`{column}` from the anchor's own subject — that row would be a "
+                        f"near-positive labelled negative")
+
+            # The level-4 rung, held to its own contract. Scoped to the rows
+            # where THIS column is actually swapped: level 4 substitutes the
+            # text and keeps the anchor's own signal and image, so signal_id
+            # and image_id equalling the anchor is the design, not a defect.
+            l4_swapped = negative & ladder_same_subject & swapped
+            n_l4_swapped = int(l4_swapped.sum())
+            if n_l4_swapped:
+                l4_other_subject = int((l4_swapped & ~same_subject).sum())
+                audit.check(task_key, f"level4_donor_is_the_same_subject[{column}]",
+                            l4_other_subject == 0,
+                            f"{l4_other_subject} of {n_l4_swapped:,} swapped level-4 "
+                            f"`{column}` value(s) come from a different subject; that is a "
+                            "level-0 negative wearing a level-4 label and would flatten "
+                            "the §6.7 curve")
             donor_rows.append([f"`{column}`", f"{int(swapped.sum()):,}",
                                f"{unresolved}", f"{crossing}", f"{leaked}"])
+        # A level-4 negative must actually swap SOMETHING. Checked once per row
+        # rather than per column: level 4 keeps the anchor's signal and image and
+        # substitutes only the text, so no single column can carry this
+        # assertion, and a row that swapped nothing would be a positive wearing
+        # a negative label -- the failure the whole ladder exists to avoid.
+        if "neg_type" in all_rows.columns:
+            is_l4 = all_rows["neg_type"].isin(SAME_SUBJECT_NEG_TYPES).to_numpy()
+            if is_l4.any():
+                any_swapped = np.zeros(len(all_rows), dtype=bool)
+                for column in donors:
+                    any_swapped |= (all_rows[column].to_numpy()
+                                    != all_rows[spec.id_column].to_numpy())
+                unswapped = int((is_l4 & ~any_swapped).sum())
+                audit.check(task_key, "level4_swaps_at_least_one_modality",
+                            unswapped == 0,
+                            f"{unswapped} of {int(is_l4.sum()):,} level-4 row(s) point every "
+                            "modality at the anchor itself — that row is a positive "
+                            "labelled negative")
+
         audit.add("", "**Donor containment.** Each verification row points at up to three "
                       "studies; every one of them must belong to a subject in the row's "
                       "own split, and a swapped modality on a negative must come from a "
-                      "different subject.", "")
+                      "different subject — except the §6.7 level-4 rung, which swaps in a "
+                      "different STUDY from the SAME subject by design and is held to that "
+                      "contract instead.", "")
         audit.table(["pointer column", "rows where it is not the anchor",
                      "unresolved", "crossing a split", "same-subject on a negative"],
                     donor_rows)

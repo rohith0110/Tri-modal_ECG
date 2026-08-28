@@ -743,11 +743,38 @@ tasks:
       primary_filter: "identical to B4; the actual rows live in the B4 parquet"
       pointer_table: "data/processed/tasks/B6_difficulty_stratified/eval_keys.parquet"
       pointer_schema: [study_id, subject_id, neg_type, difficulty_tier, split]
+    # Round 10 (spec §12.9 item 4) replaced the easy/medium/hard trio with the
+    # Plan §6.7 Levels 0-5 ladder. Round 3's RESERVED "hard" tier is closed by
+    # this: its same-subject idea is level_4_same_patient.
+    # Levels 2-5 exist in the TEST split ONLY -- they measure generalisation to
+    # harder negatives, so training on them would train away the plateau §6.7
+    # predicts, and keeping them out of train means no model is retrained to
+    # produce the curve.
     difficulty_tiers:
-      easy:   {neg_types: [TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH], description: "cross-subject swaps"}
-      medium: {neg_types: [HARD_NEGATIVE_TEXT], description: "same-HR-bucket swap"}
-      hard:   {neg_types: [], status: RESERVED,
-               description: "Round 3 open item: add a same-cohort, same-HR-bucket, SAME-SUBJECT swap? Not yet decided; the tier ships empty until it is."}
+      level_0_random:
+        neg_types: [TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH]
+        splits: [train, val, test]
+        description: "cross-subject swaps -- any other patient"
+      level_1_hr:
+        neg_types: [HARD_NEGATIVE_TEXT]
+        splits: [train, val, test]
+        description: "same-HR-bucket swap"
+      level_2_hr_qrs:
+        neg_types: [HARD_NEGATIVE_L2]
+        splits: [test]
+        description: "same HR bucket AND same QRS bucket"
+      level_3_full_physio:
+        neg_types: [HARD_NEGATIVE_L3]
+        splits: [test]
+        description: "same HR, QRS and QTc buckets -- full physiological match"
+      level_4_same_patient:
+        neg_types: [HARD_NEGATIVE_L4]
+        splits: [test]
+        description: "a DIFFERENT study from the SAME subject (closes Round 3's reserved tier)"
+      level_5_near_duplicate:
+        neg_types: [HARD_NEGATIVE_L5]
+        splits: [test]
+        description: "the anchor's own report with B5's locked contradiction injection applied"
     targets:
       type: binary
       output: "sigmoid x 1 (the B4 head, unchanged)"

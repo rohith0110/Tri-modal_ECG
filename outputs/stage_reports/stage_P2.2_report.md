@@ -1,6 +1,6 @@
 # Stage P2.2 — Build Plan B task datasets — report
 
-Spec §9.3. Generated 2026-08-26T22:28:01Z by `_dataset_lib/stage_report.py` from the per-script state files, the artifacts on disk and the run logs — every number below is read back from what the stage produced.
+Spec §9.3. Generated 2026-08-28T17:29:00Z by `_dataset_lib/stage_report.py` from the per-script state files, the artifacts on disk and the run logs — every number below is read back from what the stage produced.
 
 ## 1. Files created
 
@@ -9,7 +9,7 @@ Spec §9.3. Generated 2026-08-26T22:28:01Z by `_dataset_lib/stage_report.py` fro
 - `scripts/phase2_tasks_benchmark_and_paper/09_build_B3_temporal_grounding.py`  (12.4 KB, sha256 9ef5a1a7be09)
 - `scripts/phase2_tasks_benchmark_and_paper/10_build_B4_cross_modal_verification.py`  (5.7 KB, sha256 47bd83b560c0)
 - `scripts/phase2_tasks_benchmark_and_paper/11_build_B5_contradiction_detection.py`  (16.9 KB, sha256 d36935d42692)
-- `scripts/phase2_tasks_benchmark_and_paper/12_build_B6_difficulty_stratified.py`  (6.6 KB, sha256 567437bd9690)
+- `scripts/phase2_tasks_benchmark_and_paper/12_build_B6_difficulty_stratified.py`  (9.2 KB, sha256 9a62b01d90ec)
 - `data/processed/tasks/B1_measurement_blind/README.md`  (3.9 KB, sha256 bd777bb2627d)
 - `data/processed/tasks/B1_measurement_blind/test.parquet`  (2.9 MB, sha256 4db8d1de1376)
 - `data/processed/tasks/B1_measurement_blind/train.parquet`  (9.2 MB, sha256 5772732198f0)
@@ -22,16 +22,16 @@ Spec §9.3. Generated 2026-08-26T22:28:01Z by `_dataset_lib/stage_report.py` fro
 - `data/processed/tasks/B3_temporal_grounding/test.parquet`  (4.2 MB, sha256 44a9d670d519)
 - `data/processed/tasks/B3_temporal_grounding/train.parquet`  (14.0 MB, sha256 412333d9ee25)
 - `data/processed/tasks/B3_temporal_grounding/val.parquet`  (2.1 MB, sha256 e3ae6645eece)
-- `data/processed/tasks/B4_cross_modal_verification/README.md`  (2.5 KB, sha256 e651795afe37)
-- `data/processed/tasks/B4_cross_modal_verification/test.parquet`  (13.3 MB, sha256 b0625eaa3134)
-- `data/processed/tasks/B4_cross_modal_verification/train.parquet`  (47.6 MB, sha256 9ef2fa020b22)
-- `data/processed/tasks/B4_cross_modal_verification/val.parquet`  (5.6 MB, sha256 f56cdb3b1288)
+- `data/processed/tasks/B4_cross_modal_verification/README.md`  (2.6 KB, sha256 b6eb534c7c64)
+- `data/processed/tasks/B4_cross_modal_verification/test.parquet`  (15.0 MB, sha256 30b19189fd99)
+- `data/processed/tasks/B4_cross_modal_verification/train.parquet`  (47.6 MB, sha256 bc61be0dd254)
+- `data/processed/tasks/B4_cross_modal_verification/val.parquet`  (5.6 MB, sha256 b8dc8b4187db)
 - `data/processed/tasks/B5_contradiction_detection/README.md`  (7.0 KB, sha256 0fac484b1b1f)
 - `data/processed/tasks/B5_contradiction_detection/test.parquet`  (1.3 MB, sha256 edea2f02572d)
 - `data/processed/tasks/B5_contradiction_detection/train.parquet`  (4.7 MB, sha256 c05cbaf24793)
 - `data/processed/tasks/B5_contradiction_detection/val.parquet`  (660.3 KB, sha256 493eb48b3142)
-- `data/processed/tasks/B6_difficulty_stratified/eval_keys.parquet`  (25.9 MB, sha256 e6c865c51de6)
-- `data/processed/tasks/B6_difficulty_stratified/README.md`  (1.9 KB, sha256 a76dec5ae5d0)
+- `data/processed/tasks/B6_difficulty_stratified/eval_keys.parquet`  (28.5 MB, sha256 cefc0452d800)
+- `data/processed/tasks/B6_difficulty_stratified/README.md`  (2.3 KB, sha256 a0382f72f5b2)
 
 ## 2. Files modified
 
@@ -1358,17 +1358,25 @@ B4 parquet.
 
 Tiers (§4.B.6.2):
 
-| tier | ``neg_type`` |
-| --- | --- |
-| easy | TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH -- cross-subject swaps |
-| medium | HARD_NEGATIVE_TEXT -- same-HR-bucket swap |
-| hard | RESERVED, ships empty |
+Tiers are Plan A/B §6.7's six levels (§4.B.6.2 originally named three, of which
+the third shipped empty -- see below):
 
-**Open question 13, proceeding under the stated default.** The hard tier would
-be a same-HR-bucket, SAME-SUBJECT swap; Round 3 left it RESERVED and the
-progress-doc default is "ship the hard tier empty". It ships empty. The tier is
-declared in the output's tier vocabulary so adding it later is a rebuild of this
-one small table, not of B4.
+| tier | ``neg_type`` | §6.7 level |
+| --- | --- | --- |
+| level_0_random | TEXT_SWAP, IMAGE_SWAP, SIGNAL_SWAP, PARTIAL_MISMATCH | 0 |
+| level_1_hr | HARD_NEGATIVE_TEXT -- same-HR-bucket swap | 1 |
+| level_2_hr_qrs | HARD_NEGATIVE_L2 -- HR + QRS matched | 2 |
+| level_3_full_physio | HARD_NEGATIVE_L3 -- HR + QRS + axis + QTc matched | 3 |
+| level_4_same_patient | HARD_NEGATIVE_L4 -- same patient, different study | 4 |
+| level_5_near_duplicate | HARD_NEGATIVE_L5 -- own report, one claim swapped | 5 |
+
+**Open question 13 is now closed, and closed differently.** The old "hard" tier
+was to be a same-HR-bucket SAME-SUBJECT swap and shipped empty, leaving a
+two-point "curve" where §6.8's Figure 4 needs six. Levels 2-5 replace it and
+subsume the same-subject idea as Level 4. They live only in the TEST split, so
+the curve measures generalisation to harder negatives -- §6.7's predicted
+plateau -- rather than something the model was trained on, and no model needs
+retraining to produce it.
 
 Positives carry no ``neg_type`` and so belong to no difficulty tier, but they
 are still needed to compute AUPRC and Recall@1 within a tier. They are emitted
@@ -1395,11 +1403,31 @@ SCRIPT = "12_build_B6_difficulty_stratified"
 TASK = "B6_difficulty_stratified"
 B4_TASK = "B4_cross_modal_verification"
 
+# Plan A/B §6.7's six levels, in the order Figure 4 plots them. The tier NAME is
+# the level, so the curve reads off `difficulty_tier` directly.
 TIERS = {
-    "easy": ["TEXT_SWAP", "IMAGE_SWAP", "SIGNAL_SWAP", "PARTIAL_MISMATCH"],
-    "medium": ["HARD_NEGATIVE_TEXT"],
-    "hard": [],          # RESERVED -- progress-doc question 13, default: empty
+    # Level 0 -- a random different-subject study. "All competent models
+    # should be high" (§6.7).
+    "level_0_random": ["TEXT_SWAP", "IMAGE_SWAP", "SIGNAL_SWAP", "PARTIAL_MISMATCH"],
+    # Level 1 -- matched on HR bin. "Performance drops if model used only HR."
+    "level_1_hr": ["HARD_NEGATIVE_TEXT"],
+    # Level 2 -- matched on HR + QRS bin.
+    "level_2_hr_qrs": ["HARD_NEGATIVE_L2"],
+    # Level 3 -- matched on HR + QRS + axis + QTc. "Most shortcut models plateau."
+    "level_3_full_physio": ["HARD_NEGATIVE_L3"],
+    # Level 4 -- same patient, different study. Prevents the patient/demographic
+    # shortcut; the rung that matters most in MIMIC, where one subject carries
+    # many ECGs.
+    "level_4_same_patient": ["HARD_NEGATIVE_L4"],
+    # Level 5 -- the anchor's own report with one clinical claim swapped
+    # (B5's locked injection). "Only robust multimodal models should remain high."
+    "level_5_near_duplicate": ["HARD_NEGATIVE_L5"],
 }
+# Levels 2-5 exist only in the TEST split by design -- see
+# `_dataset_lib/verification_task.py`. Their tier rows therefore cover test only,
+# and no model is retrained to obtain the curve.
+TEST_ONLY_TIERS = ("level_2_hr_qrs", "level_3_full_physio",
+                   "level_4_same_patient", "level_5_near_duplicate")
 
 SCHEMA = pa.schema([
     ("study_id", pa.int64()),
@@ -1469,13 +1497,27 @@ def main() -> int:
         "test_rows_per_neg_type": {
             str(k): int(v) for k, v in test.neg_type.value_counts(dropna=False).items()
         },
-        "hard_tier_status": "RESERVED, empty (progress-doc question 13, stated default)",
+        "levels_2_to_5_are_test_only": True,
         "n_subjects": int(df.subject_id.nunique()),
     }
     log.info("validation:\n%s", json.dumps(stats, indent=2, default=str))
 
-    if stats["rows_per_tier"].get("medium", 0) == 0:
-        raise RuntimeError("the medium tier is empty -- B4 emitted no HARD_NEGATIVE_TEXT rows")
+    # Every one of Plan A/B §6.7's six levels must have rows in TEST, or Figure 4
+    # has a gap. This is the check that would have caught the empty "hard" tier
+    # the first time round.
+    empty = [tier for tier in TIERS if int(stats["test_rows_per_tier"].get(tier, 0)) == 0]
+    if empty:
+        raise RuntimeError(
+            f"§6.7 requires all six difficulty levels; these have no TEST rows: {empty}. "
+            "Rebuild A5/B4 first -- levels 2-5 come from "
+            "`_dataset_lib/verification_task.py`.")
+    # Levels 2-5 are test-only by design; a train row for one means the ladder
+    # leaked into training and Figure 4 would measure the training distribution.
+    leaked = df[(df.split != "test") & df.difficulty_tier.isin(TEST_ONLY_TIERS)]
+    if len(leaked):
+        raise RuntimeError(
+            f"{len(leaked)} level-2..5 rows sit outside the test split. Those levels "
+            "must never be trained on -- see verification_task.DIFFICULTY_NEG_TYPES.")
 
     bc.write_task_readme(TASK, README.format(
         stats=json.dumps(stats, indent=2, default=str), built_at=bc.utc_now_iso()
@@ -1912,21 +1954,25 @@ if __name__ == "__main__":
 ```json
 {
   "done": true,
-  "finished_at": "2026-08-26T19:20:28Z",
-  "n_rows": 5243784,
+  "finished_at": "2026-08-28T17:15:13Z",
+  "n_rows": 5693989,
   "n_anchors": 749112,
   "n_subjects": 154092,
-  "positive_rate_pct": 28.571,
+  "positive_rate_pct": 26.312,
   "rows_per_neg_type": {
     "positive": 1498224,
     "HARD_NEGATIVE_TEXT": 749112,
     "IMAGE_SWAP": 749112,
     "PARTIAL_MISMATCH": 749112,
     "SIGNAL_SWAP": 749112,
-    "TEXT_SWAP": 749112
+    "TEXT_SWAP": 749112,
+    "HARD_NEGATIVE_L2": 149549,
+    "HARD_NEGATIVE_L3": 149036,
+    "HARD_NEGATIVE_L4": 138581,
+    "HARD_NEGATIVE_L5": 13039
   },
   "image_type_counts": {
-    "clean": 4494672,
+    "clean": 4944877,
     "scanlike": 749112
   },
   "by_split": {
@@ -1943,23 +1989,23 @@ if __name__ == "__main__":
       "n_negative": 377625
     },
     "test": {
-      "n_rows": 1047494,
+      "n_rows": 1497699,
       "n_anchors": 149642,
       "n_positive": 299284,
-      "n_negative": 748210
+      "n_negative": 1198415
     }
   },
   "splits": {
     "train": 3667615,
     "val": 528675,
-    "test": 1047494
+    "test": 1497699
   },
   "identical_to_A5_verification": true,
   "n_rows_train": 3667615,
   "n_subjects_train": 107851,
   "n_rows_val": 528675,
   "n_subjects_val": 15397,
-  "n_rows_test": 1047494,
+  "n_rows_test": 1497699,
   "n_subjects_test": 30844,
   "subject_overlap": 0
 }
@@ -2114,28 +2160,40 @@ if __name__ == "__main__":
 ```json
 {
   "done": true,
-  "finished_at": "2026-08-26T19:20:45Z",
-  "n_rows": 5243784,
+  "finished_at": "2026-08-28T17:15:33Z",
+  "n_rows": 5693989,
   "n_studies": 749112,
   "rows_per_tier": {
-    "easy": 2996448,
+    "level_0_random": 2996448,
     "positive": 1498224,
-    "medium": 749112
+    "level_1_hr": 749112,
+    "level_2_hr_qrs": 149549,
+    "level_3_full_physio": 149036,
+    "level_4_same_patient": 138581,
+    "level_5_near_duplicate": 13039
   },
   "test_rows_per_tier": {
-    "easy": 598568,
+    "level_0_random": 598568,
     "positive": 299284,
-    "medium": 149642
+    "level_1_hr": 149642,
+    "level_2_hr_qrs": 149549,
+    "level_3_full_physio": 149036,
+    "level_4_same_patient": 138581,
+    "level_5_near_duplicate": 13039
   },
   "test_rows_per_neg_type": {
     "<NA>": 299284,
     "IMAGE_SWAP": 149642,
     "PARTIAL_MISMATCH": 149642,
     "SIGNAL_SWAP": 149642,
+    "HARD_NEGATIVE_TEXT": 149642,
     "TEXT_SWAP": 149642,
-    "HARD_NEGATIVE_TEXT": 149642
+    "HARD_NEGATIVE_L2": 149549,
+    "HARD_NEGATIVE_L3": 149036,
+    "HARD_NEGATIVE_L4": 138581,
+    "HARD_NEGATIVE_L5": 13039
   },
-  "hard_tier_status": "RESERVED, empty (progress-doc question 13, stated default)",
+  "levels_2_to_5_are_test_only": true,
   "n_subjects": 154092
 }
 ```
@@ -2157,10 +2215,10 @@ if __name__ == "__main__":
 - [n/a] Transport B `listener.stop()` — this stage uses Transport A (per-PID files), Phase 1 §8.3's default.
 - [x] tqdm used with `mininterval=0.5` and `logging_redirect_tqdm()` — `build_common.run_chunked`:
 ```
-525:                   mininterval=0.5, desc=desc or name)
+549:                   mininterval=0.5, desc=desc or name)
 ```
 
-- Disk free at report time: 212.4 GB on D:\
+- Disk free at report time: 90.7 GB on D:\
 
 ## 7. Manual test procedure
 

@@ -573,9 +573,8 @@ plan; this is the index of record.
       not the estimated 21); and Lead-II raw signals stay in campaign 4 rather
       than the campaign-9 sweep, because a campaign is defined by the data it
       reads and both Lead-II encodings are already resident there at 5.7 GB.
-- [~] **Step 5 — Make int16 copies + prove equivalence.** **The equivalence
-      proof is DONE and PASSES (2026-08-28);** the bulk 12-lead conversion is
-      still running. Tools: `make_int16.py` (convert / verify, one shard at a
+- [x] **Step 5 — Make int16 copies + prove equivalence. DONE 2026-08-28.**
+      All six files converted and verified (sha256 + 64 spot rows each). Tools: `make_int16.py` (convert / verify, one shard at a
       time, atomic rename only after the checksum is in
       `signals_int16/int16_manifest.json`, so a power cut costs the shard in
       flight and re-running resumes) and `prove_int16_equivalence.py`.
@@ -621,15 +620,22 @@ plan; this is the index of record.
       encodings. A provenance banner at the top of the file says so. Delete the
       banner and supersede those rows once the campaigns append their own —
       otherwise a 10,000-row smoke threshold could reach a results table.
-      **SIZE FINDING — §8.2's "56.7 GB" is wrong.** The 12-lead preprocessed set
-      converts at ~62.5 % of source, not ~40 %, because the float32 source is
-      *already* gzip-4 compressed and int16 does not compress as much further as
-      the estimate assumed. Measured on shard 00: 30.55 GB -> ~19.1 GB, so the
-      full set lands near **~88 GB, not 56.7 GB**, and the total upload budget
-      rises from ~142 GB to roughly **~173 GB**. **This does not break the
-      campaign model:** 88 GB over 8 pieces is ~11 GB each and two resident is
-      ~22 GB, well under the 45 GB ceiling. §8.2 and the execution plan's upload
-      table need amending to the measured number.
+      **SIZE FINDING — §8.2's "56.7 GB" is wrong, MEASURED.** All five 12-lead
+      shards convert at a consistent **54.7 %** of source, not the ~40 % the
+      estimate assumed, because the float32 source is *already* gzip-4
+      compressed and int16 does not compress as much further. Measured:
+      12-lead **152.25 GB -> 83.24 GB** (141.8 GiB -> **77.5 GiB**), lead2
+      **12.73 -> 7.42 GB**, whole conversion **164.98 GB -> 90.66 GB (55.0 %,
+      74.32 GB saved)**. So the figure to use is **77.5 GiB, not 56.7**, and the
+      upload budget rises from ~142 GB to **~163 GB**. **This does not break the
+      campaign model:** 77.5 GiB over 8 pieces is ~10 GiB each and two resident
+      is ~20 GiB, well under the 45 GB ceiling. **§8.2 amended in place** with a
+      dated Round-10-style note; the execution plan's upload table still says
+      56.7 and should be corrected when it is next touched.
+      Two of §8.2's other numbers were also wrong and are corrected in the same
+      note: the "max abs error 1.1e-3 against amplitude 70" does not describe
+      this data (the preprocessed signals are z-scored per lead and reach
+      **1923**), and the validation belongs to Stage P2.5, not P2.0.
 - [ ] **Step 6 — Staged uploads to R2** (~173 GB total, in campaign order —
       revised up from ~145 GB by Step 5's measured int16 ratio)
 

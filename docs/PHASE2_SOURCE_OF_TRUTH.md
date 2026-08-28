@@ -2349,6 +2349,40 @@ precision compromise. Stage P2.0 validates it empirically by training one
 task on both encodings and confirming the metrics agree; that comparison
 ships in the supplementary.
 
+> **AMENDED 2026-08-28 (Step 5, measured).** The three numbers above were
+> estimates and two of them are wrong. The conversion has now been run for
+> real; use these instead.
+>
+> **Size: 77.5 GiB, not 56.7.** The 12-lead preprocessed set converts to
+> **83.24 GB / 77.5 GiB from 152.25 GB / 141.8 GiB — 54.7 %, not ~40 %.**
+> The estimate assumed int16 would roughly halve the file, but the float32
+> source is *already* gzip-4 compressed, and int16 does not compress as much
+> further as that assumed. Adding `lead2_preprocessed` (12.73 → 7.42 GB,
+> 58.3 %) the whole conversion is **164.98 GB → 90.66 GB (55.0 %)**.
+> **Consequence:** the §6 upload budget rises from ~142 GB to **~163 GB**.
+> The campaign model is unaffected — 77.5 GiB over 8 pieces is ~10 GiB each,
+> two resident ~20 GiB, well under the 45 GB ceiling.
+>
+> **Error: bounded by half a quantisation step, exactly.** The "1.1e-3
+> against amplitude 70" figure does not describe this data — the preprocessed
+> signals are z-scored per lead and their amplitude reaches **1923**, so the
+> absolute error scales with it. The correct statement is the relative one:
+> the error is **≤ half a quantisation step by construction, measured at
+> 1.000000 of one on every file**, i.e. a round-trip relative error of
+> **1.53e-05**. Worst absolute error over all six files is 3.34e-02, on a
+> record whose own amplitude is ~1900.
+>
+> **The empirical validation is Stage P2.5, not P2.0**, and it needed four
+> arms rather than two: float32, an identical float32 repeat, int16, and
+> float32 at a different seed. The repeat comes back bit-identical, which
+> proves determinism but makes its floor exactly zero — a bar nothing
+> perturbed can clear — so the *seed* arm is the yardstick. Result:
+> **int16 moves the reported metrics 0.42x as much as changing the seed
+> does** (2.90e-03 vs 6.90e-03, and int16 is the smaller effect on every one
+> of the six metrics). Report:
+> `outputs/stage_reports/int16_equivalence.md`. Tools:
+> `scripts/dgx_portability/make_int16.py` and `prove_int16_equivalence.py`.
+
 ### 8.2.1 Laptop role (development only)
 
 The laptop authors and smoke-tests every script against a fixed

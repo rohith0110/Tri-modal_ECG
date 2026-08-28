@@ -1,6 +1,6 @@
 # int16 storage equivalence (Stage P2.5, spec §8.2)
 
-Generated 2026-08-28T11:58:07Z by `scripts/dgx_portability/prove_int16_equivalence.py`.
+Generated 2026-08-28T17:10:44Z by `scripts/dgx_portability/prove_int16_equivalence.py`.
 
 §8.2 stages signals as **int16 with a per-record scale factor** instead of float32. This is the empirical check that the change is a storage change and not a precision compromise.
 
@@ -58,6 +58,11 @@ From `data/processed/signals_int16/int16_manifest.json`:
 | file | float32 | int16 | ratio | max quantisation error |
 | --- | ---: | ---: | ---: | ---: |
 | `lead2_preprocessed.h5` | 12.73 GB | 7.42 GB | 58.3 % | 2.934e-02 |
-| **total** | **12.73 GB** | **7.42 GB** | **58.3 %** | |
+| `twelve_lead_preprocessed_shard_00.h5` | 30.55 GB | 16.70 GB | 54.6 % | 3.090e-02 |
+| `twelve_lead_preprocessed_shard_01.h5` | 30.47 GB | 16.66 GB | 54.7 % | 4.667e-03 |
+| `twelve_lead_preprocessed_shard_02.h5` | 30.56 GB | 16.70 GB | 54.7 % | 2.758e-03 |
+| `twelve_lead_preprocessed_shard_03.h5` | 30.37 GB | 16.61 GB | 54.7 % | 3.336e-02 |
+| `twelve_lead_preprocessed_shard_04.h5` | 30.30 GB | 16.57 GB | 54.7 % | 3.199e-02 |
+| **total** | **164.98 GB** | **90.66 GB** | **55.0 %** | |
 
 The error column is the exact quantisation error, measured in float64 against the stored float32 scale; it is bounded by half a quantisation step by construction and measured at 1.000000 of one.

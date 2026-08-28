@@ -161,14 +161,33 @@ def _index_for(kind: str) -> dict:
 # -----------------------------------------------------------------------------
 # handles -- keyed by PID so forked workers never share one
 # -----------------------------------------------------------------------------
+# §8.2 stages signals as int16 + a per-record scale. Set TRIMODAL_SIGNAL_INT16=1
+# to read those copies instead of the float32 originals; `read_modality` then
+# rescales on the way out, so every caller -- trainer, evaluator, baselines --
+# sees float32 arrays either way and needs no change. This is the switch the
+# Step 5 equivalence proof flips, and the same one the DGX runs under once the
+# staged data is int16.
+def use_int16() -> bool:
+    return os.environ.get("TRIMODAL_SIGNAL_INT16", "") not in ("", "0", "false", "False")
+
+
+def _resolve_h5(path: str) -> Path:
+    """Where this container actually lives, honouring the int16 switch."""
+    if use_int16():
+        candidate = DATA_PROCESSED / "signals_int16" / Path(path).name
+        if candidate.exists():
+            return candidate
+    return DATA_PROCESSED / path
+
+
 def _h5(path: str):
     import h5py
 
-    key = (os.getpid(), path)
+    key = (os.getpid(), path, use_int16())
     handle = _HANDLES.get(key)
     if handle is None:
         # swmr=False: we are a plain reader, not a SWMR writer (spec §8.5).
-        handle = h5py.File(str(DATA_PROCESSED / path), "r", swmr=False)
+        handle = h5py.File(str(_resolve_h5(path)), "r", swmr=False)
         _HANDLES[key] = handle
     return handle
 
@@ -281,7 +300,10 @@ def _read_signal(study_id: int, kind: str) -> np.ndarray:
     if row is None:
         raise ModalityError(f"no {kind} row for study_id {study_id}")
     path, container_row = row
-    raw = np.asarray(_h5(path)["signal"][container_row], dtype=np.float32)
+    handle = _h5(path)
+    raw = np.asarray(handle["signal"][container_row], dtype=np.float32)
+    if "scale" in handle:                      # int16 copy -> back to physical units
+        raw = raw * np.float32(handle["scale"][container_row])
     if raw.ndim == 2:
         # (5000, 12) as stored -> (12, 5000) as the encoder expects.
         raw = np.ascontiguousarray(raw.T)

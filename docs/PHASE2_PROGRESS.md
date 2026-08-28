@@ -561,9 +561,58 @@ plan; this is the index of record.
       not the estimated 21); and Lead-II raw signals stay in campaign 4 rather
       than the campaign-9 sweep, because a campaign is defined by the data it
       reads and both Lead-II encodings are already resident there at 5.7 GB.
-- [ ] **Step 5 — Make int16 copies + prove equivalence** (float32-vs-int16
-      training comparison for the supplementary)
-- [ ] **Step 6 — Staged uploads to R2** (~145 GB total, in campaign order)
+- [~] **Step 5 — Make int16 copies + prove equivalence.** **The equivalence
+      proof is DONE and PASSES (2026-08-28);** the bulk 12-lead conversion is
+      still running. Tools: `make_int16.py` (convert / verify, one shard at a
+      time, atomic rename only after the checksum is in
+      `signals_int16/int16_manifest.json`, so a power cut costs the shard in
+      flight and re-running resumes) and `prove_int16_equivalence.py`.
+      Report: `outputs/stage_reports/int16_equivalence.md` — supplementary-ready.
+      **The proof needed FOUR arms, not two.** A = float32; B = an identical
+      repeat; C = int16; D = float32 at seed 123. B came back **bit-identical to
+      A on all 9 heads**, which proves training here is deterministic and so
+      pins every difference in C on the encoding with no confound — but it also
+      makes B's floor exactly 0, a bar nothing perturbed can clear. **D is the
+      real yardstick**: it measures how far the metric moves under variation the
+      paper already reports as ±std over three seeds.
+      **Result — int16 moves the metrics 0.42x as much as changing the seed
+      does:** largest int16 metric effect **2.90e-03** against a seed effect of
+      **6.90e-03**, and the int16 effect is ≤ the seed effect on *every one* of
+      the six metrics. Row-level divergence tells the same story (int16 0.441 vs
+      seed 0.893 max delta).
+      **A first, stricter version of this test failed**, and the failure was in
+      the test: it compared raw per-row probabilities between separately trained
+      models. A 1.5e-05 relative input change perturbs the SGD trajectory, the
+      runs settle at different points in weight space, and boundary rows swing
+      hard while the aggregate barely moves. §8.2 asks whether the *metrics*
+      agree, so the verdict is now computed on metrics against the seed
+      yardstick; the row comparison is kept as a labelled diagnostic.
+      **Two real numerical bugs were found and fixed in the converter:** the
+      error was being measured in float32 (at amplitude ~1900 the float32
+      spacing is 1.2e-4 against a half-step of 0.03, so the measurement was
+      noisier than the quantity it bounded — now float64), and the quotient
+      `x / scale` was computed in float32, whose ~6e-8 relative error is ~2e-3
+      of a code at magnitude 32767, enough to tip `rint()` to the wrong
+      neighbour and push the error past half a step (measured 1.000266). With
+      the quotient in float64 the ratio is **0.999983**, so "error ≤ half a
+      step" is exactly true rather than nearly true.
+      `modality.py` gained a `TRIMODAL_SIGNAL_INT16` switch: `_read_signal`
+      resolves to `signals_int16/` and multiplies by the per-record `scale`, so
+      trainer, evaluator and baselines all still receive float32 and need no
+      change. Verified round-trip relative error **1.53e-05**.
+      **`lead2_preprocessed.h5`: 12.73 GB -> 7.42 GB (58.3 %)**, half-step ratio
+      1.000000, `verify` re-checks sha256 + 64 spot rows and passes.
+      **SIZE FINDING — §8.2's "56.7 GB" is wrong.** The 12-lead preprocessed set
+      converts at ~62.5 % of source, not ~40 %, because the float32 source is
+      *already* gzip-4 compressed and int16 does not compress as much further as
+      the estimate assumed. Measured on shard 00: 30.55 GB -> ~19.1 GB, so the
+      full set lands near **~88 GB, not 56.7 GB**, and the total upload budget
+      rises from ~142 GB to roughly **~173 GB**. **This does not break the
+      campaign model:** 88 GB over 8 pieces is ~11 GB each and two resident is
+      ~22 GB, well under the 45 GB ceiling. §8.2 and the execution plan's upload
+      table need amending to the measured number.
+- [ ] **Step 6 — Staged uploads to R2** (~173 GB total, in campaign order —
+      revised up from ~145 GB by Step 5's measured int16 ratio)
 
 ### Part 2 — First DGX session (~1 hour)
 

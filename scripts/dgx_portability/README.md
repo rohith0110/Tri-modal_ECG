@@ -115,3 +115,58 @@ the pieces from TIME cannot be measured directly. The nearest evidence is that
 consecutive study ids scatter across all pieces (asserted in the self-check).
 Add `ecg_time` to the metadata and `STRATA` in `make_chunks.py` covers it with
 no other change.
+
+---
+
+## Written at Step 5 (2026-08-28)
+
+```
+make_int16.py                 # convert / verify the int16 + per-record-scale copies
+prove_int16_equivalence.py    # the three-arm equivalence proof for the supplementary
+```
+
+`make_int16.py` writes one shard at a time to a temp file and renames it only
+once its checksum is in `signals_int16/int16_manifest.json`, so a power cut
+costs exactly the shard in flight. A shard already in the manifest is skipped,
+so re-running the identical command resumes.
+
+### Two numerical bugs found while writing it
+
+Both were in the *conversion*, not the data, and both are fixed:
+
+1. **The error was measured in float32.** At an amplitude of ~1900 the float32
+   spacing is 1.2e-4, against a half-quantisation-step of 0.03 — so the
+   measurement carried ~0.4 % noise on the very quantity it was bounding. The
+   check now runs in float64. The *realised* float32 round-trip error is
+   reported separately, because that is what training actually sees.
+2. **The quotient `x / scale` was computed in float32.** Its ~6e-8 relative
+   error is ~2e-3 of a code at magnitude 32767 — enough to tip `rint()` to the
+   wrong neighbour and push the error just past half a step (measured 1.000266
+   of a half-step on real data). Taking the quotient in float64 against the
+   exact float32 scale brings it to 0.999983, so "error <= half a step" is now
+   exactly true rather than nearly true.
+
+### Reading the int16 copies
+
+`modality.py` gained a `TRIMODAL_SIGNAL_INT16` switch. When set, `_read_signal`
+resolves containers to `data/processed/signals_int16/` and multiplies by the
+per-record `scale` dataset on the way out, so the trainer, the evaluator and the
+baselines all receive float32 arrays exactly as before and need no change. The
+campaign body exports it, because staged DGX signals are int16.
+
+### Reconciled at Step 5: the Step 4 body called the trainer wrongly
+
+`slurm/_campaign_body.sh` originally invoked `30_train.py --task ... --arch-tier
+... --data-root ... --chunked`. None of those exist: the trainer takes
+`--model-config <path>` (required) and `--seed`. Fixed by having
+`campaign_runs.py` emit the config filename as a fourth field, so the shell
+never needs to know the naming scheme, and `campaign_runs.py --table` now
+verifies all **94/94** config files exist on disk and exits non-zero if any is
+missing. Two further corrections fell out of the same read:
+
+* **`31_eval.py` aggregates across seeds**, so it runs once per (task, arch
+  tier) after all three seeds finish — not once per seed. Campaign 5's 12 train
+  runs correctly collapse to 4 eval invocations.
+* **The loader has no data-root flag.** It resolves everything under
+  `$PROJECT_ROOT/data/processed`, so when `DATA_ROOT` is elsewhere (node-local
+  scratch) the body symlinks rather than copying.

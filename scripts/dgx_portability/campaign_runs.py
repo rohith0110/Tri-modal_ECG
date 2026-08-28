@@ -3,8 +3,11 @@
     ./ecg_env/Scripts/python.exe scripts/dgx_portability/campaign_runs.py 4
     ./ecg_env/Scripts/python.exe scripts/dgx_portability/campaign_runs.py --table
 
-One line per run, ordered by the §8.3 training-queue priority, so a campaign's
-sbatch file can simply read stdin. The run list is DERIVED from the 94 generated
+One line per run as `<task> <arch_tier> <seed> <config_filename>`, ordered by
+the §8.3 training-queue priority, so a campaign's sbatch file can simply read
+stdin. The config filename is emitted because `30_train.py` is driven by
+`--model-config <path>`, not by a task/tier pair -- resolving it here keeps the
+shell free of any knowledge of the naming scheme. The run list is DERIVED from the 94 generated
 model configs rather than typed out again -- a config added or removed changes
 the campaigns automatically, and a typo cannot put a run in two campaigns or
 none.
@@ -23,7 +26,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1] / "phase2_tasks_benchmark_and_paper"
 sys.path.insert(0, str(SCRIPTS))
 
-from _model_lib.model_configs import build_matrix                      # noqa: E402
+from _model_lib.model_configs import build_matrix, config_filename     # noqa: E402
 
 # §8.3 locks both the task order and, within a task, the tier order.
 TASK_ORDER = ["A2_measurement_blind", "A1_ecg_diagnosis", "A4_event_localization",
@@ -75,12 +78,13 @@ def sort_key(config: dict) -> tuple:
     return (task_rank, tier_rank, tier)
 
 
-def runs_for(campaign: int) -> list[tuple[str, str, int]]:
+def runs_for(campaign: int) -> list[tuple[str, str, int, str]]:
     configs = [c for c in build_matrix() if campaign_of(c) == campaign]
-    out: list[tuple[str, str, int]] = []
+    out: list[tuple[str, str, int, str]] = []
     for config in sorted(configs, key=sort_key):
         for seed in SEEDS:
-            out.append((config["task"], config["arch_tier"], seed))
+            out.append((config["task"], config["arch_tier"], seed,
+                        config_filename(config)))
     return out
 
 
@@ -103,17 +107,24 @@ def main() -> int:
             total += runs
             print(f"{campaign:>8}  {len(configs):>7}  {runs:>5}  {', '.join(tiers) or '-'}")
         print(f"{'total':>8}  {len(matrix) - len(unscheduled):>7}  {total:>5}")
+        # Every emitted config must exist on disk, or a campaign would die at
+        # submit time with a path error instead of failing loudly here.
+        config_dir = Path(__file__).resolve().parents[2] / "config" / "model_configs"
+        missing = sorted({config_filename(c) for c in matrix
+                          if not (config_dir / config_filename(c)).exists()})
+        print(f"\nconfig files: {len(matrix) - len(missing)}/{len(matrix)} present")
+        for name in missing:
+            print(f"  MISSING {name}")
         if unscheduled:
             print(f"\nUNSCHEDULED ({len(unscheduled)}) -- these would never run:")
             for config in unscheduled:
                 print(f"  {config['task']:32s} {config['arch_tier']}")
-            return 1
-        return 0
+        return 1 if (unscheduled or missing) else 0
 
     if args.campaign is None:
         parser.error("give a campaign number, or --table")
-    for task, tier, seed in runs_for(args.campaign):
-        print(f"{task} {tier} {seed}")
+    for task, tier, seed, config in runs_for(args.campaign):
+        print(f"{task} {tier} {seed} {config}")
     return 0
 
 

@@ -48,6 +48,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from _dataset_lib import chunk_pieces
+from _train_lib.chunk_cycle import RESIDENT_PIECES as CHUNK_RESIDENT, ChunkCycle
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _dataset_lib import build_common as bc                       # noqa: E402
@@ -68,7 +71,8 @@ WARMUP_FRACTION = 0.05                  # §6.3
 # -----------------------------------------------------------------------------
 def build_batch_order(n_rows: int, batch_size: int, *, seed: int, epoch: int,
                       shuffle: bool, hard_negative_index: np.ndarray | None = None,
-                      drop_last: bool = False) -> list[list[int]]:
+                      drop_last: bool = False,
+                      index_pool: np.ndarray | None = None) -> list[list[int]]:
     """The batch index lists for one epoch -- a pure function of (seed, epoch).
 
     Materialising the order (rather than trusting a DataLoader's internal RNG)
@@ -78,11 +82,27 @@ def build_batch_order(n_rows: int, batch_size: int, *, seed: int, epoch: int,
     When ``hard_negative_index`` is given, every batch is seeded with exactly one
     HARD_NEGATIVE_TEXT row before the remaining slots are filled -- §6.4's
     "every batch contains >= 1 HARD_NEGATIVE_TEXT example" for A5/B4/B6.
+
+    ``index_pool`` restricts the epoch to a subset of rows -- the rows whose
+    study is in the currently resident chunk pieces (§8.2 rule 2). The shuffle
+    still happens inside the pool, so a piece window is a shuffle buffer and not
+    an ordering.
     """
     rng = np.random.default_rng(seed * 100_003 + epoch)
     if hard_negative_index is not None and hard_negative_index.size:
         hard = hard_negative_index.copy()
         others = np.setdiff1d(np.arange(n_rows), hard, assume_unique=False)
+        if index_pool is not None:
+            # A piece window is a subset of rows, so both halves of the §6.4
+            # guarantee have to be taken from inside it -- a hard negative from
+            # an unstaged piece would fault on read.
+            pool = np.asarray(index_pool)
+            hard = np.intersect1d(hard, pool)
+            others = np.intersect1d(others, pool)
+            if hard.size == 0:
+                order = rng.permutation(others)
+                return [[int(i) for i in order[j:j + batch_size]]
+                        for j in range(0, len(order), batch_size)]
         if shuffle:
             rng.shuffle(hard)
             rng.shuffle(others)
@@ -100,8 +120,9 @@ def build_batch_order(n_rows: int, batch_size: int, *, seed: int, epoch: int,
             batches.append(batch)
         return batches
 
-    order = rng.permutation(n_rows) if shuffle else np.arange(n_rows)
-    batches = [order[i:i + batch_size].tolist() for i in range(0, n_rows, batch_size)]
+    pool = np.arange(n_rows) if index_pool is None else np.asarray(index_pool)
+    order = rng.permutation(pool) if shuffle else pool
+    batches = [order[i:i + batch_size].tolist() for i in range(0, len(order), batch_size)]
     if drop_last and batches and len(batches[-1]) < batch_size:
         batches.pop()
     return [[int(i) for i in b] for b in batches]
@@ -177,6 +198,21 @@ class Trainer:
             weight_decay=config.weight_decay, betas=tuple(config.betas))
 
         self.hard_index = hard_negative_rows(train_dataset)
+        # Chunk cycling is off unless the campaign body turned it on, and then
+        # only for the train split -- val and test are staged whole (open
+        # question 15b: they measure 7.3-14.5 GiB and fit alongside two pieces).
+        self.cycle = None
+        if chunk_pieces.enabled() and "study_id" in train_dataset.frame.columns:
+            self.cycle = ChunkCycle(
+                campaign=int(os.environ.get("CAMPAIGN", "0")),
+                study_ids=train_dataset.frame["study_id"].to_numpy(),
+                seed=config.seed, logger=logger)
+            ok, detail = chunk_pieces.check_alignment()
+            self.log.info("chunk cycling ON: %d pieces, %d resident, transport=%s; "
+                          "alignment: %s", self.cycle.total, CHUNK_RESIDENT,
+                          self.cycle.transport, detail)
+            if not ok:
+                raise RuntimeError(f"chunk pieces are not modality-aligned: {detail}")
         self.batches_per_epoch = len(build_batch_order(
             len(train_dataset), config.batch_size, seed=config.seed, epoch=0,
             shuffle=True, hard_negative_index=self.hard_index))
@@ -315,6 +351,51 @@ class Trainer:
         return {k: (v.to(self.device, non_blocking=True) if torch.is_tensor(v) else v)
                 for k, v in batch.items()}
 
+    def _epoch_plan(self, epoch: int) -> list[tuple[list[int], list[list[int]]]]:
+        """One epoch as [(resident piece window, its batches)]."""
+        config = self.config
+        if self.cycle is None:
+            return [([], build_batch_order(
+                len(self.train_dataset), config.batch_size, seed=config.seed,
+                epoch=epoch, shuffle=True, hard_negative_index=self.hard_index))]
+        plan = []
+        for window in self.cycle.windows(epoch):
+            pool = self.cycle.rows_for(window)
+            if pool.size == 0:
+                continue
+            plan.append((window, build_batch_order(
+                len(self.train_dataset), config.batch_size, seed=config.seed,
+                epoch=epoch, shuffle=True, hard_negative_index=self.hard_index,
+                index_pool=pool)))
+        covered = sum(len(b) for _w, bs in plan for b in bs)
+        self.log.info("epoch %d: %d pieces in %d windows, %d rows covered",
+                      epoch, self.cycle.total, len(plan), covered)
+        return plan
+
+    def _run_windows(self, plan: list[tuple[list[int], list[list[int]]]],
+                     skip: int, total: int) -> tuple[float, dict[str, float]]:
+        """Run an epoch window by window, staging each one before it is needed."""
+        done = 0
+        losses: list[float] = []
+        head_totals: dict[str, float] = {}
+        for window, batches in plan:
+            if done + len(batches) <= skip:            # already finished on the
+                done += len(batches)                   # run being resumed
+                continue
+            if self.cycle is not None:
+                self.cycle.ensure(window)              # stage k+1, evict k-1
+            local_skip = max(0, skip - done)
+            loss, heads = self._run_epoch(batches[local_skip:], done + local_skip, total)
+            losses.append(loss)
+            for key, value in heads.items():
+                head_totals[key] = head_totals.get(key, 0.0) + value
+            done += len(batches)
+            if self.stop_requested:
+                break
+        mean_loss = float(np.mean(losses)) if losses else 0.0
+        n = max(1, len(losses))
+        return mean_loss, {k: v / n for k, v in head_totals.items()}
+
     def train(self) -> dict[str, Any]:
         config = self.config
         history: list[dict[str, Any]] = []
@@ -323,19 +404,23 @@ class Trainer:
         for epoch in range(start_epoch, config.epochs):
             self.epoch = epoch
             self.train_dataset.set_epoch(epoch)       # B2 regime_2 noise stream
-            batches = build_batch_order(
-                len(self.train_dataset), config.batch_size, seed=config.seed,
-                epoch=epoch, shuffle=True, hard_negative_index=self.hard_index)
+            # §8.2 rule 2: a chunked campaign cycles its pieces WITHIN the
+            # epoch. `plan` is [(window, batches)] -- every piece appears once,
+            # in an order reshuffled each epoch, and the rows inside a two-piece
+            # window are shuffled together, so the window is a shuffle buffer
+            # and never a curriculum. A non-chunked run has one window holding
+            # every row, which is exactly the previous behaviour.
+            plan = self._epoch_plan(epoch)
+            batches = [b for _window, window_batches in plan for b in window_batches]
             if config.max_steps_per_epoch:
                 batches = batches[:config.max_steps_per_epoch]
             skip = self.batch_in_epoch if epoch == start_epoch else 0
             if skip:
                 self.log.info("resuming mid-epoch: skipping %d of %d batches",
                               skip, len(batches))
-            remaining = batches[skip:]
 
             epoch_start = time.time()
-            train_loss, head_losses = self._run_epoch(remaining, skip, len(batches))
+            train_loss, head_losses = self._run_windows(plan, skip, len(batches))
             if self.stop_requested:
                 self.save_last("interrupted")
                 self.log.warning("stopping after signal at epoch %d batch %d",

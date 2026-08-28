@@ -260,9 +260,21 @@ def cut_signal_piece(frame: pd.DataFrame, kind: str, index: int, target: Path,
             if array.ndim == 1:
                 array = array[None, :]
             if int16:
+                # int16 has no NaN. A non-finite sample makes `peak` NaN, which
+                # makes the quotient NaN, and casting NaN to int16 is undefined
+                # -- it would write a plausible-looking number and no error.
+                # MEASURED 2026-08-29: raw_12lead carries non-finite samples in
+                # ~1.6 % of records (preprocessed carries none, the filtering
+                # interpolates them out), so this is a live path, not a
+                # hypothetical. Refuse rather than corrupt; cut raw as float32.
+                if not np.isfinite(array).all():
+                    raise SystemExit(
+                        f"{kind} study {int(study_id)} has "
+                        f"{int((~np.isfinite(array)).sum())} non-finite samples, which "
+                        f"cannot be represented in int16. Cut this kind WITHOUT --int16.")
                 peak = float(np.abs(array).max())
                 factor = (peak / 32767.0) if peak > 0 else 1.0
-                signal[position] = np.rint(array / factor).astype("int16")
+                signal[position] = np.rint(array.astype("float64") / factor).astype("int16")
                 scale[position] = factor
             else:
                 signal[position] = array

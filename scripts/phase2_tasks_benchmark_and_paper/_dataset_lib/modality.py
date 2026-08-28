@@ -106,8 +106,20 @@ def _manifest_with_overlays(cols: list[str]):
     base = pd.read_parquet(MANIFEST_PATH, columns=cols)
     if not OVERLAY_DIR.is_dir():
         return base
-    overlays = [pd.read_parquet(path, columns=cols)
-                for path in sorted(OVERLAY_DIR.glob("*.parquet"))]
+    # An overlay describes containers, so it carries the container columns and
+    # nothing else -- `signal_corrupted`'s corruption_type/snr_db are absent, and
+    # asking parquet for a column a file does not have is an error, not a null.
+    # Read the intersection and fill the rest with NA, so an overlay can never
+    # match a corrupted-kind key and the base row stands.
+    overlays = []
+    for path in sorted(OVERLAY_DIR.glob("*.parquet")):
+        import pyarrow.parquet as pq
+
+        available = [c for c in cols if c in pq.ParquetFile(path).schema_arrow.names]
+        frame = pd.read_parquet(path, columns=available)
+        for missing in (c for c in cols if c not in available):
+            frame[missing] = pd.NA
+        overlays.append(frame[cols])
     if not overlays:
         return base
     merged = pd.concat([base, *overlays], ignore_index=True)
@@ -264,7 +276,9 @@ def close_handles() -> None:
     pid = os.getpid()
     for key in [k for k in _HANDLES if k[0] == pid]:
         try:
-            _HANDLES.pop(key).close()
+            handle = _HANDLES.pop(key)
+            _CHANNEL_MAJOR.pop(id(handle), None)   # ids get reused; do not cache across closes
+            handle.close()
         except Exception:  # pragma: no cover - teardown must not raise
             pass
     _CORRUPT_READER.pop(pid, None)
@@ -328,6 +342,30 @@ def read_modality(
     return _read_image(int(study_id), kind)
 
 
+_CHANNEL_MAJOR: dict[int, bool] = {}
+
+
+def _is_channel_major(handle) -> bool:
+    """Is this container's row stored (n_leads, n_samples) rather than the reverse?
+
+    Phase 1's containers are sample-major, (5000, 12); a chunk piece written by
+    `make_chunks.py` is channel-major, because the cutter stores what
+    `read_modality` returns. Both must come back as (12, 5000), so the reader has
+    to know which it is holding -- transposing a piece would hand the encoder a
+    (5000, 12) tensor and 12 "samples" of 5000 leads, silently.
+
+    A piece is identifiable by the salt the cutter stamps into it, so no file
+    needs rewriting and no checksum changes. Cached per handle: this is on the
+    per-item read path and an h5py attribute lookup is not free.
+    """
+    key = id(handle)
+    known = _CHANNEL_MAJOR.get(key)
+    if known is None:
+        known = "piece_salt" in handle.attrs
+        _CHANNEL_MAJOR[key] = known
+    return known
+
+
 def _read_signal(study_id: int, kind: str) -> np.ndarray:
     row = _index_for(kind).get(study_id)
     if row is None:
@@ -338,8 +376,15 @@ def _read_signal(study_id: int, kind: str) -> np.ndarray:
     if "scale" in handle:                      # int16 copy -> back to physical units
         raw = raw * np.float32(handle["scale"][container_row])
     if raw.ndim == 2:
-        # (5000, 12) as stored -> (12, 5000) as the encoder expects.
-        raw = np.ascontiguousarray(raw.T)
+        if _is_channel_major(handle):
+            # A single-lead piece stores (1, 5000); the base container gives a
+            # bare (5000,) for the same study, so match it rather than hand the
+            # encoder a shape that depends on where the bytes came from.
+            if raw.shape[0] == 1:
+                raw = raw[0]
+        else:
+            # (5000, 12) as stored -> (12, 5000) as the encoder expects.
+            raw = np.ascontiguousarray(raw.T)
     return raw
 
 

@@ -38,6 +38,10 @@ TASK_ORDER = ["A2_measurement_blind", "A1_ecg_diagnosis", "A4_event_localization
 TIER_RANK = ["algorithmic", "signal", "image", "text", "embedding", "multimodal"]
 SEEDS = [42, 123, 456]
 
+# 1-11 are the original campaigns; 12-14 are the Lead-II halves of 7, 8 and 11,
+# split out at open question 14 so every campaign fits the 45 GB ceiling.
+N_CAMPAIGNS = 14
+
 # The four L3 tasks use the smaller patient group and fit outright (§8.2 note,
 # and the execution plan's remark on campaigns 5 and 7).
 L3_TASKS = {"A1_ecg_diagnosis", "A3_lab_abnormality", "A4_event_localization",
@@ -57,7 +61,8 @@ def campaign_of(config: dict) -> int | None:
             return 10                                   # test-split sweeps only
         return 2 if "12lead" in tier else 3
     if tier.startswith("embedding_cosine"):
-        return 11                                       # scored from saved embeddings
+        # Split by lead subset for the same reason 7 and 8 are (below).
+        return 11 if "12lead" in tier else 14
     if tier.startswith("signal_"):
         if "lead2" in tier:
             return 4                                    # 4.7 GB covers every ECG
@@ -65,7 +70,17 @@ def campaign_of(config: dict) -> int | None:
             return 9                                    # raw-vs-filtered sweep
         return 5 if task in L3_TASKS else 6             # 12-lead preprocessed
     if tier.startswith("multimodal_fusion"):
-        return 8 if task in FUSION_FULL_TASKS else 7
+        # SPLIT BY LEAD SUBSET, 2026-08-29 (open question 14). A campaign is
+        # defined by the data it reads, and a fusion tier reads a whole lead
+        # set: the 12-lead halves read signals_12lead_* + images_clean_12lead_*,
+        # the Lead-II halves read signals_lead2 + images_clean_lead2. Keeping
+        # both in one campaign meant 69 GB resident against a 45 GB ceiling, so
+        # stage_data.sh refused to start it. Splitting changes no config, drops
+        # no run and moves no seed -- the same 312 runs, partitioned differently.
+        full = task in FUSION_FULL_TASKS
+        if "12lead" in tier:
+            return 8 if full else 7
+        return 13 if full else 12
     return None
 
 
@@ -100,7 +115,7 @@ def main() -> int:
         unscheduled = [c for c in matrix if campaign_of(c) is None]
         print(f"{'campaign':>8}  {'configs':>7}  {'runs':>5}  tiers")
         total = 0
-        for campaign in range(1, 12):
+        for campaign in range(1, N_CAMPAIGNS + 1):
             configs = [c for c in matrix if campaign_of(c) == campaign]
             tiers = sorted({c["arch_tier"] for c in configs})
             runs = len(configs) * len(SEEDS)

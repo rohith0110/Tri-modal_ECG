@@ -3,6 +3,7 @@
 #
 #   ./evict_data.sh                  # evict the campaign named in state
 #   ./evict_data.sh --pieces 0       # evict just these pieces (chunk cycling)
+#   ./evict_data.sh --pieces-all     # every piece + its overlays (phase swap)
 #   ./evict_data.sh --all            # everything under DATA_ROOT
 #   ./evict_data.sh --force          # skip the unpushed-results guard
 #
@@ -25,6 +26,9 @@ while [ $# -gt 0 ]; do
         --force) FORCE=1; shift ;;
         --pieces) MODE="pieces"; shift
                   while [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; do PIECES+=("$1"); shift; done ;;
+        # Every piece of every chunked base, and the overlays that point at
+        # them: what the campaign body runs between the train and eval phases.
+        --pieces-all) MODE="pieces_all"; shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -70,6 +74,15 @@ case "$MODE" in
             log "evicting $padded"
             find "$DATA_ROOT" -name "$padded.*" -delete 2>/dev/null || true
         done
+        ;;
+    pieces_all)
+        log "evicting every staged chunk piece under $DATA_ROOT"
+        find "$DATA_ROOT" -name 'piece_*' -delete 2>/dev/null || true
+        # A stale overlay would still name a piece that is gone, and the read
+        # would fail with a missing file rather than fall back to the base
+        # container -- so the pointer goes with the bytes.
+        find "$DATA_ROOT/manifest_overlays" -name 'pieces_*.parquet' -delete 2>/dev/null || true
+        rm -f "$STATE_DIR/current_pieces"
         ;;
     campaign)
         campaign="$(cat "$STATE_DIR/current_campaign" 2>/dev/null || true)"

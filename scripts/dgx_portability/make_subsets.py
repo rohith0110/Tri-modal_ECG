@@ -66,7 +66,14 @@ from _dataset_lib import build_common as bc                            # noqa: E
 from _dataset_lib import modality as mod                               # noqa: E402
 
 STAGE = "P2.4c"
-DERIVED_ROOT = bc.DATA_PROCESSED / "derived"
+# Derived containers are large and reproducible, so they may live off the data
+# volume while a night of uploads drains them. The DGX path is unaffected: the
+# overlay records `derived/<dataset>/<file>` either way.
+# TRIMODAL_DERIVED_BASE stands in for data/processed, and `derived/` is appended
+# to it -- so the relative path an overlay records, and the remote key the
+# uploader builds, are `derived/<dataset>/<file>` wherever the bytes actually sit.
+DERIVED_BASE = Path(os.environ.get("TRIMODAL_DERIVED_BASE", bc.DATA_PROCESSED))
+DERIVED_ROOT = DERIVED_BASE / "derived"
 OVERLAY_DIR = bc.DATA_PROCESSED / "manifest_overlays"
 SPLITS_PATH = bc.DATA_PROCESSED / "splits_subject_level.parquet"
 SPLITS = ("train", "val", "test")
@@ -94,6 +101,29 @@ DATASETS: dict[str, dict[str, Any]] = {
         "kind": ("image_scanlike_12lead", "image_scanlike_lead2"),
         "cohort": "all",
         "splits": ("test",),
+    },
+    # --- val/test for the CHUNKED campaigns (open question 15b) --------------
+    # Pieces are cut from TRAIN only, so campaigns 6, 8 and 9 had nothing to
+    # early-stop on and nothing to evaluate. MEASURED 2026-08-29: these fit
+    # alongside two resident pieces well under the 45 GB ceiling, so val and
+    # test ship as plain datasets and nothing extra is chunked.
+    "signals_12lead_valtest": {
+        "kind": "preprocessed_12lead",
+        "cohort": "all",
+        "splits": ("val", "test"),
+    },
+    "images_clean_12lead_valtest": {
+        "kind": "image_clean_12lead",
+        "cohort": "all",
+        "splits": ("val", "test"),
+    },
+    # float32: raw_12lead carries non-finite samples in ~1.6 % of records, and
+    # int16 cannot represent them (see make_chunks.py's refusal). 88.5 KiB per
+    # study rather than 47.9, which still fits.
+    "signals_raw_valtest": {
+        "kind": "raw_12lead",
+        "cohort": "all",
+        "splits": ("val", "test"),
     },
 }
 
@@ -179,10 +209,11 @@ def build_signal_split(kind: str, ids: np.ndarray, target: Path, log) -> pd.Data
         # the way the original does. Clamped for a split smaller than a chunk.
         source_chunks = probe["signal"].chunks or (64, *row_shape)
     chunks = (min(source_chunks[0], len(frame)), *source_chunks[1:])
-    if not has_scale:
-        raise SystemExit(
-            f"{first_path} has no `scale` dataset -- run make_int16.py first; the "
-            "subset must be the int16 copy, not the float32 original (§8.2).")
+    # A source WITH `scale` is an int16 copy: codes are copied verbatim, so the
+    # subset is bit-identical to what Step 5 proved equivalent. A source WITHOUT
+    # one is float32 and is copied as float32 -- that is raw_12lead, which has no
+    # int16 copy and cannot have one while ~1.6 % of its records carry non-finite
+    # samples that int16 cannot represent.
 
     written = 0
     with h5py.File(tmp, "w") as out:
@@ -190,20 +221,21 @@ def build_signal_split(kind: str, ids: np.ndarray, target: Path, log) -> pd.Data
                                     chunks=chunks, compression="gzip",
                                     compression_opts=4)
         out_ids = out.create_dataset("study_id", shape=(len(frame),), dtype="int64")
-        out_scale = out.create_dataset("scale", shape=(len(frame),), dtype="float32")
+        out_scale = out.create_dataset("scale", shape=(len(frame),), dtype="float32")             if has_scale else None
         for path, block in frame.groupby("container_path", sort=False):
             source = mod._resolve_h5(path)
             log.info("  <- %s (%d rows)", source.name, len(block))
             with h5py.File(source, "r") as handle:
                 rows = block.container_row.to_numpy()
-                scale = handle["scale"]
+                scale = handle["scale"] if has_scale else None
                 for start in range(0, len(rows), 64):
                     take = rows[start:start + 64]
                     # h5py fancy indexing needs ascending unique indices; the
                     # frame is already sorted by row, and a container row is
                     # unique per study.
                     signal[written:written + len(take)] = handle["signal"][take, ...]
-                    out_scale[written:written + len(take)] = scale[take]
+                    if scale is not None:
+                        out_scale[written:written + len(take)] = scale[take]
                     out_ids[written:written + len(take)] = \
                         block.study_id.to_numpy()[start:start + len(take)]
                     written += len(take)
@@ -380,13 +412,29 @@ def plan(datasets: list[str], log) -> int:
 
 
 def _bytes_per_study(kind: str) -> float:
-    """Measured average container bytes per study, for the plan estimate."""
+    """Measured container bytes per study, for the plan estimate.
+
+    Per CONTAINER, weighted by how many studies each holds -- not total bytes
+    over sampled studies. A container is only partly used once an overlay
+    redirects some of its studies elsewhere, and dividing a whole shard's size
+    by a partial row count overstated 12-lead by 53 % (155.5 KiB/study against
+    the true 101.6) the first time this was written.
+    """
+    import h5py
+
     index = mod._index_for(kind)
-    paths = {row[0] for row in list(index.values())[:2000]}
     if kind in mod.SIGNAL_KINDS:
-        total = sum(mod._resolve_h5(p).stat().st_size for p in paths)
-        rows = sum(1 for row in index.values() if row[0] in paths)
-        return total / max(rows, 1)
+        counts: dict[str, int] = {}
+        for path, _row in index.values():
+            counts[path] = counts.get(path, 0) + 1
+        total_bytes = total_rows = 0
+        for path in counts:
+            resolved = mod._resolve_h5(path)
+            with h5py.File(resolved, "r") as handle:
+                rows_in_file = handle["signal"].shape[0]
+            total_bytes += resolved.stat().st_size
+            total_rows += rows_in_file
+        return total_bytes / max(total_rows, 1)
     lengths = [row[2] for row in list(index.values())[:5000]]
     return float(np.mean(lengths)) + 1024
 

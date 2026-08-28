@@ -36,8 +36,21 @@ starting cold reads this first, works, then updates it before the session ends.
   `piece_000.h5/piece_000.h5`) and datasets have to carry paths *relative to
   `data/processed`*, not under a directory named after themselves. See §5
   questions 14 and 15 for what Step 6 uncovered and did not fix.
+- **Open questions 14 and 15 are CLOSED (2026-08-29), except 15a's validation.**
+  There are now **14 campaigns**: 7/8/11 are the 12-lead halves of the fusion
+  and final-eval campaigns and 12/13/14 the Lead-II ones, because a fusion
+  campaign reads a whole lead set and holding both put campaign 7 at 69 GB.
+  Staging also gained a **train phase and an eval phase**, so no campaign holds
+  its test split while it trains. **All 14 now pass `require_fit` in both
+  phases** with 5 GB of checkpoints resident; the largest is campaign 7 at
+  37.7 GB. The chunked campaigns got their val/test data (measured, plain
+  datasets, nothing extra chunked) and a piece reader plus in-epoch cycling —
+  **15a is implemented but not validated: a mid-epoch fetch needs outbound
+  internet on the DGX, which is open question 4.**
 - **Next action — finish Step 6's uploads**, one command per campaign:
   `upload_data.py --campaign N` (`--all --dry-run` prints every size first).
+  The three new `*_valtest` datasets still have to be BUILT
+  (`make_subsets.py build`) before campaigns 6, 8 and 9 can be staged.
 - **Step 12 — SIGNED OFF 2026-08-28 by the project owner. The first upload is
   released.** `cohort_audit.md` PASS, 184 checks, 0 violations; four disclosure
   items accepted for the paper's limitations (A3's structurally-absent rare
@@ -428,8 +441,8 @@ session and touch no laptop work.
 | 11  | **B5 row emission.** §4.B.5.3 ("one clean row per ECG + a corrupted row with p=0.5") gives 12:1; §6.4 asserts "balanced 50/50 by dataset design". Both cannot hold. | P2.2, B5 builder | **RESOLVED 2026-08-26** — one row per **eligible** study, corrupted with p=0.5 → exact 50/50 over **128,674 rows**, 38,438 subjects, train 89,855 / val 12,944 / test 25,875. Spec §12.8.5. |
 | 12  | **Regime_2 augmentation policy** is unspecified in §7.3. | P2.5, B2 regime_2 trainer | **DEFAULT APPLIED 2026-08-27** — `corruption_recipes_LOCKED.yaml` `regimes.regime_2.augmentation_policy`: p = 0.5 per sample, family uniform over all 8, SNR uniform over {30,20,10,5,0}, a train_augmentation RNG stream distinct from the frozen test set. The B2 builder stamps the policy into the task README so the trainer reads it from one place. Still revisitable at P2.5 — it changes a trainer, not the data. |
 | 13  | **B6 hard tier** — add a same-HR-bucket, SAME-SUBJECT swap? (Round 3 left it RESERVED.) | P2.2, B6 builder | **DEFAULT APPLIED 2026-08-27** — the hard tier ships empty. The tier name stays in `eval_keys.parquet`'s vocabulary, so adding it later rebuilds one small pointer table plus the matching B4 rows, and no trained model. |
-| 14  | **Campaigns 7, 8 and 11 read the Lead-II streams too, and no longer fit.** Their configs include `multimodal_fusion_lead2` / `embedding_cosine_lead2`; `campaigns.sh` did not list those datasets, so those runs would have died at the first read. The lists are now correct, which puts campaign 7 at **69 GB** and 8 at **48 GB** against a 45 GB ceiling, and `require_fit` now refuses them. **The fix is to split each campaign by lead subset** — a 12-lead half and a Lead-II half — which needs `campaign_runs.py` to route by lead subset as well as by tier. Left refusing until then: a refusal beats a run that dies on a file nobody staged. | before campaign 7 | **OPEN, raised 2026-08-29 (Step 6)** |
-| 15  | **The chunked campaigns (6, 8, 9) are not runnable on pieces yet, for two reasons beyond Step 6.** (a) Nothing reads `piece_NNN.h5` — the pieces are self-describing (`signal`, `study_id`, `scale`) but no dataloader consumes them, and §8.2 rule 2's within-epoch cycling lives in that unwritten reader. (b) Pieces are cut from **train** only, by design, so those campaigns have no val split resident for early stopping and no test split for evaluation. | Step 7/8 planning | **OPEN, raised 2026-08-29 (Step 6)** |
+| 14  | **Campaigns 7, 8 and 11 read the Lead-II streams too, and did not fit.** Their configs include `multimodal_fusion_lead2` / `embedding_cosine_lead2`, so they needed both lead sets resident: campaign 7 measured **69 GB** against a 45 GB ceiling. | before campaign 7 | **CLOSED 2026-08-29. Split by lead subset.** `campaign_runs.py` now routes fusion and embedding tiers by lead subset as well as by tier: **7/8/11 are the 12-lead halves, 12/13/14 the Lead-II ones**, with `campaign_12/13/14.sbatch` written to match. `--table` still reports **104 configs and 312 runs** — no config renamed, no run dropped, no seed dropped. Residency was then re-derived from the files on disk rather than estimated, and a second lever was needed: a campaign does not hold its test split while it trains, so the table carries a train-phase and an eval-phase size and `stage_data.sh --phase` picks one (it filters on the `__<split>.` suffix the derived containers already carry, so no dataset had to be duplicated). **ACCEPTANCE MET: all 14 campaigns pass `require_fit` in both phases with 5 GB of checkpoints resident** — the largest is campaign 7 at 37.7 GB. |
+| 15  | **The chunked campaigns (6, 8, 9) could not run on pieces:** nothing read `piece_NNN.h5`, and pieces are cut from TRAIN only, so there was no val split to early-stop on and no test split to evaluate. | Step 7/8 planning | **15b CLOSED 2026-08-29, no chunking needed — the preferred outcome. MEASURED** off the containers: 12-lead int16 **101.6 KiB/study** (val 7.9 GB, test 15.6 GB), clean 12-lead images **11.7 KiB/study** (0.9 / 1.8 GB), raw 12-lead float32 **88.5 KiB/study** (6.8 / 13.6 GB). All of that fits beside two resident pieces, so val and test ship as PLAIN datasets (`signals_12lead_valtest`, `images_clean_12lead_valtest`, `signals_raw_valtest`) and nothing extra is cut. Campaign 6 is 21.0 GB training / 15.5 GB evaluating. **15a IMPLEMENTED 2026-08-29, VALIDATION BLOCKED ON QUESTION 4.** The read side is `_dataset_lib/chunk_pieces.py`: a piece already carries `study_id` per row, so it needs no new reader — an overlay makes `read_modality()` resolve it, and `modality.py` learned that a piece is stored channel-major (it carries the cutter's `piece_salt`) so it is not transposed twice. The cycling is `_train_lib/chunk_cycle.py` **in the training loop, not the Dataset**: staging is a transport call, and `stage_data.sh:51` is explicit that the loop asks for the next piece as it goes. Every piece appears once per epoch in a reshuffled order, two resident, rows shuffled inside the window; the sampling deviation and the transport are stamped into the run metadata. Both self-checks pass. **What is blocked:** fetching piece k+1 mid-epoch needs outbound internet (question 4). Written against `transport()`, so `rclone` (online) and `rclone-offline` + `TRIMODAL_SOURCE` (a mounted drive) are both expressible and the body warns on the offline one — but no mid-epoch fetch has been exercised on a real node. |
 
 ---
 
@@ -739,6 +752,15 @@ plan; this is the index of record.
 ### Part 2 — First DGX session (~1 hour)
 
 - [ ] **Step 7 — Environment survey** (the 7 checks; answers → §5 questions 4–7)
+  - [ ] **Question 4 is now on the critical path and answers in one command.**
+        Run it on a COMPUTE node, not the login node:
+        `rclone lsd r2:trimodal-data && echo ONLINE || echo OFFLINE`.
+        ONLINE means the chunked campaigns (6, 8, 9) can fetch piece k+1
+        mid-epoch, which is what §8.2 rule 2's cycling does. OFFLINE means they
+        cannot, and the piece set has to be on the node before the run starts —
+        `export TRIMODAL_SOURCE=/path/to/staged/data` (mounted drive or campus
+        share); `_campaign_body.sh` already warns when it sees
+        `transport() = rclone-offline`. Nothing else in the design changes.
 - [ ] **Step 8 — Set up rclone + folders, run a 5-minute Slurm smoke job**
 
 ### Part 3 — Full-scale build + audits, **on the laptop** (~2 days of compute)
@@ -928,20 +950,25 @@ now happen inside Steps 2 and 3 rather than after Step 8.
 - [ ] **Step 17 — 12-lead signals, L3 tasks** (12, fits resident)
 - [ ] **Step 18 — 12-lead signals, full cohort** (18, chunked)
 
-### Part 6 — Campaigns 7–8, the heart of the paper (~1.5 weeks)
+### Part 6 — Campaigns 7–8 and 12–13, the heart of the paper (~1.5 weeks)
 
-Round 10.5 added the trained no-text tier here: campaign 7 is now 12 configs /
-36 runs and campaign 8 is 10 / 30. Project total **104 configs, 312 runs**
-(was 94 / 282). `campaign_runs.py --table` is the authority.
+Round 10.5 added the trained no-text tier here. **SPLIT BY LEAD SUBSET
+2026-08-29 (open question 14)**: a fusion campaign reads a whole lead set, and
+holding both put campaign 7 at 69 GB against a 45 GB ceiling. 7 and 8 are now
+the 12-lead halves, 12 and 13 the Lead-II ones. Project total is unchanged —
+**104 configs, 312 runs**; `campaign_runs.py --table` is the authority.
 
-- [ ] **Step 19 — End-to-end fusion, L3 tasks A1/A3/A6** (36 runs, fits resident)
-- [ ] **Step 20 — End-to-end fusion, full cohort A5/B4/B5/B6** (30 runs, chunked)
+- [ ] **Step 19 — End-to-end fusion, L3 tasks A1/A3/A6**
+      — campaign 7 (12-lead, 18 runs) + campaign 12 (Lead-II, 18 runs)
+- [ ] **Step 20 — End-to-end fusion, full cohort A5/B4/B5/B6**
+      — campaign 8 (12-lead, 15 runs, chunked) + campaign 13 (Lead-II, 15 runs)
 - [ ] **Step 21 — Frozen-fusion ablation** (near-free by-product)
 
-### Part 7 — Campaigns 9–11 (~1.5 weeks)
+### Part 7 — Campaigns 9–11 and 14 (~1.5 weeks)
 
 - [ ] **Step 22 — Re-training sweeps** · [ ] **Step 23 — Re-testing sweeps**
 - [ ] **Step 24 — Final eval + calibration/threshold/reproducibility audits**
+      — campaign 11 (12-lead, 6 runs) + campaign 14 (Lead-II, 6 runs)
 - [ ] **Step 25 — Tables + figures** · [ ] **Step 26 — Release package**
 
 ### Audits that must all be PASS before submission (spec §1.2)
@@ -1518,3 +1545,48 @@ rebuilt, all three audits re-run — 366 checks, 0 violations).
   cuts building. Report: `outputs/stage_reports/step6_staging_report.md`.
 - **Next:** finish the uploads, one campaign per night
   (`upload_data.py --campaign N`), then Step 7, the DGX environment survey.
+
+### Session 9 — 2026-08-29 — closing open questions 14 and 15
+
+No bytes were uploaded in this session; the transfers already in flight were
+left alone (`upload_data.py` never calls `require_fit`, so none of this touches
+them).
+
+**Question 15b was measured before anything was built, and the measurement
+deleted the work.** The question was whether val/test need chunking too. Per
+study, off the containers: 12-lead int16 **101.6 KiB**, clean 12-lead images
+**11.7 KiB**, raw 12-lead float32 **88.5 KiB** — so val is 7.9 / 0.9 / 6.8 GB
+and test is 15.6 / 1.8 / 13.6 GB. That fits beside two resident pieces, so
+**val and test ship as plain datasets and nothing beyond the training split is
+ever chunked** — three new entries in `make_subsets.py`, no new machinery.
+
+**Two defects found while measuring.**
+- `raw_12lead` carries **non-finite samples in ~1.6 % of records** (8 of 512
+  sampled; the preprocessed copies carry none, the filtering interpolates them
+  out). `--int16` would have turned every one into a plausible-looking integer
+  with no error, because casting NaN to int16 is undefined. The cutter now
+  refuses; raw pieces and `signals_raw_valtest` are float32. **This is a live
+  problem beyond chunking** — nothing on the model path sanitises a non-finite
+  sample, so campaign 9 would train on them either way.
+- `make_subsets.py plan` was overstating 12-lead by 53 % (155.5 KiB/study
+  against the true 101.6): it divided a whole shard's size by a partial row
+  count, which the L3 overlay made wrong the moment it existed.
+
+**Question 15a is implemented, and honestly not validated.** The read side is
+`_dataset_lib/chunk_pieces.py` — a piece already carries `study_id` per row, so
+the overlay mechanism covers it and no new reader was needed; `modality.py`
+learned that a piece is stored channel-major so it is not transposed twice. The
+cycling is `_train_lib/chunk_cycle.py`, **in the training loop, not the
+Dataset**, because staging is a transport call. Every piece appears once per
+epoch in a reshuffled order, two resident, rows shuffled inside the window, and
+the deviation plus the transport are stamped into the run metadata. What is not
+validated is a real mid-epoch fetch: that needs outbound internet on the DGX
+(question 4), so both the online and the offline path are written against
+`transport()` and the campaign body warns when it sees `rclone-offline`.
+
+**Question 14 closed by splitting the campaigns by lead subset**, plus a
+train/eval phase split so no campaign holds its test data while it trains.
+`campaign_runs.py --table` still reports 104 configs and 312 runs.
+
+**Next:** build the three `*_valtest` datasets, finish the uploads, then Step 7
+— and answer question 4 first, because 15a's validation waits on it.

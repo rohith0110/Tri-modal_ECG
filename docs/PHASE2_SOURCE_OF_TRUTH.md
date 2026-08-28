@@ -2320,8 +2320,33 @@ scripts/dgx_portability/
 ├── evict_data.sh             # wipe the current campaign's data after results are pushed
 ├── push_results.sh           # best checkpoint + predictions + logs off-node, then delete local
 ├── make_chunks.py            # cut oversized modalities into aligned i.i.d. pieces (below)
-└── slurm/campaign_<n>.sbatch # one submission file per campaign
+├── make_subsets.py           # the derived datasets (L3, val/test, scan-like test) + their overlays
+├── upload_data.py            # push a campaign's data to R2 in the layout stage_data.sh reads
+└── slurm/campaign_<n>.sbatch # one submission file per campaign (14 of them)
 ```
+
+> **AMENDED 2026-08-29 (open questions 14 and 15).** Three things about the
+> campaign model changed, all of them measured rather than estimated, and none
+> of them touching the two rules below.
+>
+> 1. **There are 14 campaigns, not 11.** A fusion campaign reads a whole lead
+>    set, and campaigns 7, 8 and 11 had configs covering both, which put
+>    campaign 7 at 69 GB against the 45 GB ceiling. They are split by lead
+>    subset: **7/8/11 are the 12-lead halves, 12/13/14 the Lead-II ones.**
+>    `campaign_runs.py --table` still reports 104 configs and 312 runs — the
+>    same work, partitioned differently. Step-ledger references to campaign
+>    numbers were updated with it.
+> 2. **A campaign is staged in two phases.** It does not hold its test split
+>    while it trains, so the table carries a train-phase size and an eval-phase
+>    size, and `stage_data.sh --phase` stages one or the other; the campaign
+>    body swaps between them after the training runs finish. Every campaign now
+>    passes the quota gate in both phases with 5 GB of checkpoints resident.
+> 3. **Pieces are cut from TRAIN only, and val/test ship whole.** Rule 1 below
+>    is about the training split, so campaigns 6, 8 and 9 had no val split to
+>    early-stop on and no test split to evaluate. Measured: 12-lead int16 is
+>    101.6 KiB/study, clean 12-lead images 11.7 KiB/study, raw 12-lead float32
+>    88.5 KiB/study — val and test fit beside two resident pieces as plain
+>    datasets, so **nothing beyond the training split is ever chunked**.
 
 Two rules bind the science, not just the operations:
 

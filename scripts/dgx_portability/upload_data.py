@@ -101,12 +101,28 @@ DATASETS: dict[str, dict] = {
         "derived/images_scanlike_test/*.tar",
         "derived/images_scanlike_test/*__rows.parquet",
         "manifest_overlays/images_scanlike_test.parquet"]},
+    # val/test for the chunked campaigns 6, 8 and 9 (open question 15b). The
+    # `__<split>.` in each filename is what stage_data.sh --phase filters on.
+    "signals_12lead_valtest": {"root": DATA, "paths": [
+        "derived/signals_12lead_valtest/*.h5",
+        "derived/signals_12lead_valtest/*__rows.parquet",
+        "manifest_overlays/signals_12lead_valtest.parquet"]},
+    "images_clean_12lead_valtest": {"root": DATA, "paths": [
+        "derived/images_clean_12lead_valtest/*.tar",
+        "derived/images_clean_12lead_valtest/*__rows.parquet",
+        "manifest_overlays/images_clean_12lead_valtest.parquet"]},
+    "signals_raw_valtest": {"root": DATA, "paths": [
+        "derived/signals_raw_valtest/*.h5",
+        "derived/signals_raw_valtest/*__rows.parquet",
+        "manifest_overlays/signals_raw_valtest.parquet"]},
 }
 
 # --- chunked datasets: local cut directory -> the remote base name -----------
 # campaigns.sh names these `<base>_pieces`; stage_data.sh reads them back from
 # chunks/<base>/. The local directory is what make_chunks.py wrote.
 CHUNK_ROOT = Path(os.environ.get("TRIMODAL_CHUNK_ROOT", DATA / "chunks"))
+# Where `derived/` actually lives; see TRIMODAL_DERIVED_BASE in make_subsets.py.
+DERIVED_BASE = Path(os.environ.get("TRIMODAL_DERIVED_BASE", DATA))
 
 CHUNKS: dict[str, str] = {
     "signals_12lead": "preprocessed_12lead__train__p8",
@@ -224,6 +240,7 @@ def dataset_files(dataset: str) -> list[tuple[Path, str]]:
     root: Path = spec["root"]
     out: list[tuple[Path, str]] = []
     for pattern in spec["paths"]:
+        root = DERIVED_BASE if pattern.startswith("derived/") else spec["root"]
         matches = sorted(root.glob(pattern)) if any(c in pattern for c in "*?[") \
             else [root / pattern]
         if not matches:
@@ -246,7 +263,10 @@ def campaign_datasets(campaign: int) -> list[str]:
     match = re.search(rf'^\s*{campaign}\)\s+echo "([^"]+)"', text, re.M)
     if not match:
         raise SystemExit(f"campaigns.sh has no campaign {campaign}")
-    return match.group(1).split("|")[-1].split()
+    # name|resident_gb|runs|gpu_hours|chunked|datasets|eval_gb -- field 6 by
+    # index, not "the last one": a seventh field (the eval-phase size) was added
+    # for open question 15b and `[-1]` silently started returning that instead.
+    return match.group(1).split("|")[5].split()
 
 
 # --- staging + push ----------------------------------------------------------

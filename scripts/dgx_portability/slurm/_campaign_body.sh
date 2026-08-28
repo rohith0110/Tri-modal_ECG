@@ -80,6 +80,23 @@ fi
 # §8.2 stages signals as int16 + per-record scale; modality.py rescales on read.
 export TRIMODAL_SIGNAL_INT16="${TRIMODAL_SIGNAL_INT16:-1}"
 
+# §8.2 rule 2: a chunked campaign cycles its pieces WITHIN each epoch, two
+# resident at a time. The trainer drives the swaps (_train_lib/chunk_cycle.py);
+# these two variables are how it learns that it should, and which campaign to
+# ask stage_data.sh for. CAMPAIGN is exported because the cycling shells out.
+export CAMPAIGN
+if [ "$CHUNKED" = "yes" ]; then
+    export TRIMODAL_CHUNKED=1
+    export TRIMODAL_CHUNK_PIECES="${TRIMODAL_CHUNK_PIECES:-8}"
+    log "chunk cycling ON: ${TRIMODAL_CHUNK_PIECES} pieces, 2 resident, transport=$(transport)"
+    if [ "$(transport)" = "rclone-offline" ]; then
+        log "WARNING: rclone is present but this node has no outbound internet."
+        log "         Mid-epoch piece fetches will fail. Export TRIMODAL_SOURCE to a"
+        log "         mounted drive or campus share holding chunks/, or answer open"
+        log "         question 4 first:   rclone lsd r2:trimodal-data"
+    fi
+fi
+
 # ---- run ------------------------------------------------------------------
 # campaign_runs.py emits `<task> <arch_tier> <seed> <config_filename>` in §8.3
 # order. It resolves the config filename because 30_train.py is driven by
@@ -110,6 +127,16 @@ while read -r task tier seed config; do
     fi
     evaluated["$task|$tier"]=1
 done < <(python3 "$PROJECT_ROOT/scripts/dgx_portability/campaign_runs.py" "$CAMPAIGN")
+
+# ---- swap to the EVAL phase ------------------------------------------------
+# Training held train+val; evaluation needs the test split, and on a chunked
+# campaign it does not need the train pieces at all. Evicting first is what
+# keeps both phases under the ceiling (open question 15b).
+if [ "$CHUNKED" = "yes" ]; then
+    "$HERE/evict_data.sh" --pieces-all || log "piece eviction reported a problem, continuing"
+fi
+log "staging the eval phase (test split)"
+"$HERE/stage_data.sh" "$CAMPAIGN" --phase eval || status=1
 
 # 31_eval.py aggregates ACROSS seeds (mean +/- std over the three), so it runs
 # once per (task, arch tier) after all its seeds are done -- not once per seed.

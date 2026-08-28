@@ -4,6 +4,8 @@
 #   ./stage_data.sh 4                 # stage campaign 4
 #   ./stage_data.sh 6 --pieces 0 1    # a chunked campaign: only these pieces
 #   ./stage_data.sh 4 --dry-run       # decide and report, move no bytes
+#   ./stage_data.sh 5 --phase eval    # the test split, after training is done
+#   ./stage_data.sh 6 --pieces 2 --pieces-only   # one more piece, mid-epoch
 #
 # Spec §8.2 storage rule 6: check free quota BEFORE pulling anything and refuse
 # if the campaign will not fit under 45 GB. A refusal beats a job that dies at
@@ -18,31 +20,42 @@ CAMPAIGN="${1:-}"
 shift || true
 PIECES=()
 DRY_RUN=0
+# TRAIN stages train+val data; EVAL stages the test split, after the training
+# runs are done and their pieces evicted. A campaign that held both at once
+# would exceed the 45 GB ceiling on paper (5, 7 and 8 did) while never actually
+# needing both at the same moment.
+PHASE=train
+PIECES_ONLY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --pieces) shift; while [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; do PIECES+=("$1"); shift; done ;;
+        --phase) shift; PHASE="${1:-train}"; shift ;;
+        # Mid-epoch piece cycling (§8.2 rule 2) asks for ONE more piece while a
+        # run is live. Re-staging and re-verifying every plain dataset for that
+        # would cost minutes per swap, so this stages only the piece files.
+        --pieces-only) PIECES_ONLY=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 
 if [ -z "$CAMPAIGN" ] || ! campaign_spec "$CAMPAIGN" >/dev/null 2>&1; then
-    echo "usage: $0 <campaign 1-11> [--pieces N...] [--dry-run]" >&2
+    echo "usage: $0 <campaign 1-$N_CAMPAIGNS> [--pieces N...] [--phase train|eval] [--dry-run]" >&2
     exit 2
 fi
 
 NAME="$(campaign_name "$CAMPAIGN")"
-RESIDENT="$(campaign_resident "$CAMPAIGN")"
+RESIDENT="$(campaign_phase_gb "$CAMPAIGN" "$PHASE")"
 CHUNKED="$(campaign_chunked "$CAMPAIGN")"
 DATASETS="$(campaign_datasets "$CAMPAIGN")"
 
-log "campaign $CAMPAIGN ($NAME): resident ~${RESIDENT} GB, chunked=$CHUNKED"
+log "campaign $CAMPAIGN ($NAME) phase=$PHASE: resident ~${RESIDENT} GB, chunked=$CHUNKED"
 log "transport=$(transport)  DATA_ROOT=$DATA_ROOT"
 
 # A chunked campaign never stages the whole modality -- only the resident
 # pieces (two at a time per §8.2 rule 2). Staging all of them would defeat the
 # entire point and blow the quota.
-if [ "$CHUNKED" = "yes" ] && [ ${#PIECES[@]} -eq 0 ]; then
+if [ "$CHUNKED" = "yes" ] && [ "$PHASE" = "train" ] && [ ${#PIECES[@]} -eq 0 ]; then
     cat >&2 <<MSG
 REFUSING: campaign $CAMPAIGN is a CHUNKED campaign (§8.2 rule 1).
   Its training data does not fit, so it is staged piece by piece.
@@ -55,7 +68,7 @@ MSG
 fi
 
 # ---- the refusal gate, before any transfer --------------------------------
-require_fit "$RESIDENT" "campaign $CAMPAIGN ($NAME)" || exit 1
+require_fit "$RESIDENT" "campaign $CAMPAIGN ($NAME), $PHASE phase" || exit 1
 
 if [ "$DRY_RUN" -eq 1 ]; then
     log "dry run: would stage [$DATASETS] into $DATA_ROOT"
@@ -68,6 +81,8 @@ mkdir -p "$DATA_ROOT" "$STATE_DIR"
 for dataset in $DATASETS; do
     case "$dataset" in
         *_pieces)
+            # Pieces are TRAIN data; the eval phase never stages them.
+            if [ "$PHASE" = "eval" ]; then continue; fi
             base="${dataset%_pieces}"
             for piece in "${PIECES[@]}"; do
                 printf -v padded 'piece_%03d' "$piece"
@@ -79,20 +94,23 @@ for dataset in $DATASETS; do
             fetch "chunks/$base/assignment.parquet" "$DATA_ROOT/$base" || true
             ;;
         code|configs)
+            if [ "$PIECES_ONLY" = "1" ]; then continue; fi
             # These are repo paths (`scripts/`, `config/`), not data paths, and
             # the loader resolves them under PROJECT_ROOT. Everything else keeps
             # its path relative to data/processed and unpacks into DATA_ROOT,
             # which _campaign_body.sh links to $PROJECT_ROOT/data/processed.
             log "staging $dataset into $PROJECT_ROOT"
-            fetch "$dataset" "$PROJECT_ROOT"
+            fetch "$dataset" "$PROJECT_ROOT" "$PHASE"
             ;;
         results)
+            if [ "$PIECES_ONLY" = "1" ]; then continue; fi
             log "staging $dataset from $R2_RESULTS"
-            R2_DATA="$R2_RESULTS" fetch "" "$RESULTS_ROOT"
+            R2_DATA="$R2_RESULTS" fetch "" "$RESULTS_ROOT" "$PHASE"
             ;;
         *)
+            if [ "$PIECES_ONLY" = "1" ]; then continue; fi
             log "staging $dataset"
-            fetch "$dataset" "$DATA_ROOT"
+            fetch "$dataset" "$DATA_ROOT" "$PHASE"
             ;;
     esac
 done
@@ -139,4 +157,5 @@ fi
 
 printf '%s\n' "$CAMPAIGN" > "$STATE_DIR/current_campaign"
 printf '%s\n' "${PIECES[*]:-}" > "$STATE_DIR/current_pieces"
+printf '%s\n' "$PHASE" > "$STATE_DIR/current_phase"
 log "campaign $CAMPAIGN staged. Used: $(used_gb) GB of ${QUOTA_CEILING_GB} GB ceiling."

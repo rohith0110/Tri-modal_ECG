@@ -8,7 +8,7 @@
 #SBATCH --output=trimodal_c8_%j.out
 #SBATCH --error=trimodal_c8_%j.err
 #
-# Campaign 8 -- fusion_full.
+# Campaign 8 -- fusion_full_12lead (the 12-lead half; Lead-II is 13).
 #   resident data ~33 GB | plan estimate ~30 GPU-hours | chunked: yes
 #   wall clock requested is 2x the estimate for queue and I/O, capped at 48 h.
 #

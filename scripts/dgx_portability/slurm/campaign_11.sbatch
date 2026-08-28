@@ -8,7 +8,7 @@
 #SBATCH --output=trimodal_c11_%j.out
 #SBATCH --error=trimodal_c11_%j.err
 #
-# Campaign 11 -- final_eval.
+# Campaign 11 -- final_eval_12lead (the 12-lead half; Lead-II is 14).
 #   resident data ~5 GB | plan estimate ~4 GPU-hours | chunked: no
 #   wall clock requested is 2x the estimate for queue and I/O, capped at 48 h.
 #

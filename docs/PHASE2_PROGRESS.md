@@ -522,7 +522,45 @@ plan; this is the index of record.
         68/68 PASS**, plus the 5 recovery/determinism/gate checks: **73 PASS,
         0 FAIL** on `dev_sample/` with tiny batches. Log:
         `outputs/stage_reports/stage_P2.4_smoke_test.log`
-- [ ] **Step 4 — Write the chunk-cutter and campaign launchers** (~2 days)
+- [x] **Step 4 — Write the chunk-cutter and campaign launchers. DONE
+      2026-08-28.** `scripts/dgx_portability/` now holds real launchers:
+      `campaigns.sh` (campaign table, quota, transport, root resolution),
+      `campaign_runs.py` (campaign -> its `<task> <arch_tier> <seed>` list),
+      `make_chunks.py` (plan / cut / verify), `stage_data.sh`, `evict_data.sh`,
+      `push_results.sh`, `slurm/_campaign_body.sh` and 11 thin
+      `slurm/campaign_NN.sbatch` files.
+      **§8.2 rule 1 measured, not asserted:** on the real 12-lead train split,
+      523,945 studies into 8 pieces gives sizes 65,260-65,758 (**0.40 %** max
+      deviation) and **0 of 523,945 studies disagree** between
+      `preprocessed_12lead` and `image_clean_12lead` — the piece key is a pure
+      function of `study_id`, so modality alignment is structural and needs no
+      coordination between cuts. Independence from the label-like strata:
+      cart_id chi2 46.9/dof 70, hr_bucket 12.5/14, link_tier 15.5/21, stratum
+      80.6/70. **No acquisition timestamp exists in any processed index**, so
+      independence from TIME cannot be measured; the proxy is that consecutive
+      study ids scatter across all 8 pieces.
+      **Guards tested on this laptop:** the quota gate refuses 44 GB used +
+      30 GB asked (exit 1) before any byte moves; a chunked campaign without
+      `--pieces` refuses rather than staging everything; a failed push leaves
+      checkpoints untouched while a verified push deletes them; the evict guard
+      was exercised in all four states (never pushed / just pushed / new result
+      after push / `--force`). **One real bug was found and fixed in testing** —
+      the evict guard's `find ! -newer` was inverted and counted already-pushed
+      results as unpushed.
+      **Nothing assumes a verified DGX** (Step 7 has not run): transport falls
+      back rclone -> offline rclone -> a plain directory (`TRIMODAL_SOURCE`, the
+      courier-a-drive path) -> a refusal naming both options; `DATA_ROOT` probes
+      `$SCRATCH`, `/scratch`, `/raid`, `/work`, `/tmp` then `$HOME`; **no
+      `--partition` is written into any sbatch file** because a wrong name is a
+      submit-time rejection; and the python environment is detected by actually
+      importing torch, never by a hard-coded module name.
+      **Two decisions taken** (recorded in the README): the 94-config matrix is
+      the authority on run counts, not the plan's older estimate table
+      (`campaign_runs.py --table` maps all 94 configs to exactly one campaign,
+      none orphaned, and exits non-zero if that breaks — campaign 1 is 36 runs,
+      not the estimated 21); and Lead-II raw signals stay in campaign 4 rather
+      than the campaign-9 sweep, because a campaign is defined by the data it
+      reads and both Lead-II encodings are already resident there at 5.7 GB.
 - [ ] **Step 5 — Make int16 copies + prove equivalence** (float32-vs-int16
       training comparison for the supplementary)
 - [ ] **Step 6 — Staged uploads to R2** (~145 GB total, in campaign order)

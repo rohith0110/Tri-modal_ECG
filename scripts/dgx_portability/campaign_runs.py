@@ -1,0 +1,121 @@
+"""Resolve a campaign number to its `<task> <arch_tier> <seed>` run list.
+
+    ./ecg_env/Scripts/python.exe scripts/dgx_portability/campaign_runs.py 4
+    ./ecg_env/Scripts/python.exe scripts/dgx_portability/campaign_runs.py --table
+
+One line per run, ordered by the §8.3 training-queue priority, so a campaign's
+sbatch file can simply read stdin. The run list is DERIVED from the 94 generated
+model configs rather than typed out again -- a config added or removed changes
+the campaigns automatically, and a typo cannot put a run in two campaigns or
+none.
+
+The campaign a config belongs to is decided by the data it reads, because that
+is exactly what a campaign is (§8.2: "one group of runs that all read the same
+data"). Only the modality and cohort matter, never the task.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "phase2_tasks_benchmark_and_paper"
+sys.path.insert(0, str(SCRIPTS))
+
+from _model_lib.model_configs import build_matrix                      # noqa: E402
+
+# §8.3 locks both the task order and, within a task, the tier order.
+TASK_ORDER = ["A2_measurement_blind", "A1_ecg_diagnosis", "A4_event_localization",
+              "A3_lab_abnormality", "A6_risk_stratification",
+              "A5_cross_modal_verification",
+              "B1_measurement_blind", "B2_noise_robustness", "B3_temporal_grounding",
+              "B4_cross_modal_verification", "B5_contradiction_detection",
+              "B6_difficulty_stratified"]
+TIER_RANK = ["algorithmic", "signal", "image", "text", "embedding", "multimodal"]
+SEEDS = [42, 123, 456]
+
+# The four L3 tasks use the smaller patient group and fit outright (§8.2 note,
+# and the execution plan's remark on campaigns 5 and 7).
+L3_TASKS = {"A1_ecg_diagnosis", "A3_lab_abnormality", "A4_event_localization",
+            "A6_risk_stratification"}
+FUSION_FULL_TASKS = {"A5_cross_modal_verification", "B4_cross_modal_verification",
+                     "B5_contradiction_detection", "B6_difficulty_stratified"}
+
+
+def campaign_of(config: dict) -> int | None:
+    """Which campaign reads this config's data. None = not scheduled on the DGX."""
+    tier, task = config["arch_tier"], config["task"]
+
+    if tier.startswith("text_"):
+        return 1
+    if tier.startswith("image_"):
+        if "scanlike" in tier:
+            return 10                                   # test-split sweeps only
+        return 2 if "12lead" in tier else 3
+    if tier.startswith("embedding_cosine"):
+        return 11                                       # scored from saved embeddings
+    if tier.startswith("signal_"):
+        if "lead2" in tier:
+            return 4                                    # 4.7 GB covers every ECG
+        if "raw" in tier:
+            return 9                                    # raw-vs-filtered sweep
+        return 5 if task in L3_TASKS else 6             # 12-lead preprocessed
+    if tier.startswith("multimodal_fusion"):
+        return 8 if task in FUSION_FULL_TASKS else 7
+    return None
+
+
+def sort_key(config: dict) -> tuple:
+    task = config["task"]
+    tier = config["arch_tier"]
+    tier_rank = next((i for i, prefix in enumerate(TIER_RANK)
+                      if tier.startswith(prefix)), len(TIER_RANK))
+    task_rank = TASK_ORDER.index(task) if task in TASK_ORDER else len(TASK_ORDER)
+    return (task_rank, tier_rank, tier)
+
+
+def runs_for(campaign: int) -> list[tuple[str, str, int]]:
+    configs = [c for c in build_matrix() if campaign_of(c) == campaign]
+    out: list[tuple[str, str, int]] = []
+    for config in sorted(configs, key=sort_key):
+        for seed in SEEDS:
+            out.append((config["task"], config["arch_tier"], seed))
+    return out
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("campaign", nargs="?", type=int)
+    parser.add_argument("--table", action="store_true",
+                        help="summarise every campaign instead of listing one")
+    args = parser.parse_args()
+
+    if args.table:
+        matrix = build_matrix()
+        unscheduled = [c for c in matrix if campaign_of(c) is None]
+        print(f"{'campaign':>8}  {'configs':>7}  {'runs':>5}  tiers")
+        total = 0
+        for campaign in range(1, 12):
+            configs = [c for c in matrix if campaign_of(c) == campaign]
+            tiers = sorted({c["arch_tier"] for c in configs})
+            runs = len(configs) * len(SEEDS)
+            total += runs
+            print(f"{campaign:>8}  {len(configs):>7}  {runs:>5}  {', '.join(tiers) or '-'}")
+        print(f"{'total':>8}  {len(matrix) - len(unscheduled):>7}  {total:>5}")
+        if unscheduled:
+            print(f"\nUNSCHEDULED ({len(unscheduled)}) -- these would never run:")
+            for config in unscheduled:
+                print(f"  {config['task']:32s} {config['arch_tier']}")
+            return 1
+        return 0
+
+    if args.campaign is None:
+        parser.error("give a campaign number, or --table")
+    for task, tier, seed in runs_for(args.campaign):
+        print(f"{task} {tier} {seed}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

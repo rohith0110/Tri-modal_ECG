@@ -331,10 +331,17 @@ def cut(kinds: list[str], split: str, n_pieces: int, int16: bool, only: list[int
             return 1
 
         directory = out_dir(kind, split, n_pieces)
-        frame[["study_id", "subject_id", "piece", "split"]].to_parquet(
-            directory / "assignment.parquet", index=False)
-        (directory / "fairness.json").write_text(
-            json.dumps(report, indent=2), encoding="utf-8")
+        # Both are a pure function of (kind, split, n_pieces), which the directory
+        # name already pins, so a rewrite can only reproduce them. Writing only
+        # when absent lets several `--only` workers cut disjoint pieces into this
+        # directory at once without racing on the same parquet.
+        assignment_path = directory / "assignment.parquet"
+        if not assignment_path.exists():
+            frame[["study_id", "subject_id", "piece", "split"]].to_parquet(
+                assignment_path, index=False)
+        fairness_path = directory / "fairness.json"
+        if not fairness_path.exists():
+            fairness_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
         checksums_path = directory / "checksums.json"
         checksums = json.loads(checksums_path.read_text(encoding="utf-8")) \
@@ -358,6 +365,16 @@ def cut(kinds: list[str], split: str, n_pieces: int, int16: bool, only: list[int
                 "bytes": target.stat().st_size,
                 **info,
             }
+            # Merge, do not overwrite: a parallel `--only` worker may have recorded
+            # its own piece since this process read the file, and a wholesale write
+            # would drop it -- leaving a piece on disk that no manifest names, which
+            # is exactly what the uploader refuses to push.
+            # ponytail: read-modify-write, not locked. Pieces land minutes apart;
+            # if that ever stops being true, take a lock file here.
+            if checksums_path.exists():
+                merged = json.loads(checksums_path.read_text(encoding="utf-8"))
+                merged.update(checksums)
+                checksums = merged
             checksums_path.write_text(json.dumps(checksums, indent=2), encoding="utf-8")
             log.info("  wrote %s (%.2f GB, %d rows)", target.name,
                      target.stat().st_size / 1e9, info["n_rows"])

@@ -1,2 +1,8 @@
 data/** filter=lfs diff=lfs merge=lfs -text
 processed/** filter=lfs diff=lfs merge=lfs -text
+
+# Shell scripts run on the Linux DGX after being uploaded straight from this
+# working tree, so a CRLF checkout ships a script whose every line ends in a
+# stray carriage return -- bash fails it at the shebang. Keep them LF anywhere.
+*.sh     text eol=lf
+*.sbatch text eol=lf

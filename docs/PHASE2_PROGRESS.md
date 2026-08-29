@@ -4,7 +4,7 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-29 (session 8)
+- **Last updated:** 2026-08-30 (session 10)
 - **Current stage:** Stages P2.1–P2.4 were complete at full scale. **Round 10 —
   the Plan A/B compliance audit — then reopened four of them on purpose.**
   A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`
@@ -16,26 +16,27 @@ starting cold reads this first, works, then updates it before the session ends.
   Round 10 tables were rebuilt at full scale and all three audits re-run:
   leakage **PASS 88/88**, cohort **PASS 199/199**, split **PASS 79/79** —
   **366 checks, zero violations**. `30_train.py` will now start.
-- **Step 6 — IN PROGRESS since 2026-08-29 (session 8). The tooling is done and
-  proved; the bytes are still moving.** Report:
-  `outputs/stage_reports/step6_staging_report.md`.
-  **Campaigns 1–4 are UPLOADED — 41.4 GiB, 524 objects — and campaign 1 was
-  pulled back with the real `stage_data.sh`: 49 files checksum-verified, zero
-  mismatches, every path where `modality.py` looks for it.** Two of the three
-  derived datasets are built and verified (`images_clean_12lead_L3` 5.02 GB,
-  `images_scanlike_test` 20.33 GB) and are uploading with the finished
-  `chunks/images_clean_12lead` cut (8/8 pieces); `signals_12lead_L3` has train
-  and val on disk with test still building, and the 12-lead signal cut is on
-  piece 1 of 8.
-  New: `make_subsets.py` (the three derived datasets, from the task parquets'
-  `is_primary` rows — 422,147 studies) and `upload_data.py` (resumable,
-  `--dry-run`, per-dataset checksum manifests). `modality.py` gained **manifest
-  overlays** so a subset container is read with no caller changed.
-  **Two read-path bugs were found and fixed before any campaign could have hit
-  them** — `fetch()` named the destination after the object (a piece landed at
-  `piece_000.h5/piece_000.h5`) and datasets have to carry paths *relative to
-  `data/processed`*, not under a directory named after themselves. See §5
-  questions 14 and 15 for what Step 6 uncovered and did not fix.
+- **Step 6 — DONE 2026-08-30 (sessions 8–10). Every byte the DGX needs is in
+  `r2:trimodal-data`: 601 objects, 226.4 GiB.** Report:
+  `outputs/stage_reports/step6_staging_report.md`. All 14 campaigns' datasets
+  are uploaded; campaign 11–14's `results` come from `r2:trimodal-results`,
+  which `push_results.sh` fills from the DGX.
+  New tooling: `make_subsets.py` (six derived datasets — the three L3/scan-like
+  ones from the task parquets' `is_primary` rows, 422,147 studies, plus the
+  three `*_valtest` sets the chunked campaigns evaluate on) and `upload_data.py`
+  (resumable, `--dry-run`, per-dataset checksum manifests, refuses raw MIMIC and
+  credential-shaped paths by pattern). `modality.py` gained **manifest overlays**
+  so a subset container or a chunk piece is read with no caller changed.
+  **The read path was proved by round trip, twice.** Campaign 1: 49 files pulled
+  back with the real `stage_data.sh`, checksum-verified, every path where
+  `modality.py` looks for it. Campaign 9 (session 10): a raw piece pulled from
+  R2, `install_overlays()` installed, and `read_modality()` returned arrays
+  **bit-identical** to the base container for sampled studies — the chunked
+  read path, which nothing had exercised end to end before.
+  **Four bugs were found and fixed before a campaign could hit them:** `fetch()`
+  named the destination after the object; datasets must carry paths *relative to
+  `data/processed`*; a cross-volume hard link made an upload report success
+  while pushing nothing; and `used_gb()` counted nested roots twice (below).
 - **Open questions 14 and 15 are CLOSED (2026-08-29), except 15a's validation.**
   There are now **14 campaigns**: 7/8/11 are the 12-lead halves of the fusion
   and final-eval campaigns and 12/13/14 the Lead-II ones, because a fusion
@@ -47,10 +48,24 @@ starting cold reads this first, works, then updates it before the session ends.
   datasets, nothing extra chunked) and a piece reader plus in-epoch cycling —
   **15a is implemented but not validated: a mid-epoch fetch needs outbound
   internet on the DGX, which is open question 4.**
-- **Next action — finish Step 6's uploads**, one command per campaign:
-  `upload_data.py --campaign N` (`--all --dry-run` prints every size first).
-  The three new `*_valtest` datasets still have to be BUILT
-  (`make_subsets.py build`) before campaigns 6, 8 and 9 can be staged.
+- **Next action — Step 7, the first DGX session.** Nothing on the laptop blocks
+  it. Take the open-question-4 checklist below: one command on a compute node
+  (`rclone lsd r2:trimodal-data && echo ONLINE || echo OFFLINE`) decides whether
+  15a's mid-epoch piece fetch is validated or the run needs `TRIMODAL_SOURCE`.
+- **Two DGX-only bugs were caught on the laptop in session 10 and fixed.**
+  (1) `used_gb()` summed `du` over `PROJECT_ROOT`, `DATA_ROOT` and
+  `RESULTS_ROOT` without noticing that **`RESULTS_ROOT` defaults to
+  `$PROJECT_ROOT/outputs`** — so every staged byte under a nested root was
+  counted twice and the 45 GB ceiling was enforced against roughly double the
+  truth. On a node with no scratch (`DATA_ROOT=$PROJECT_ROOT/data/processed`,
+  the case `_campaign_body.sh` explicitly contemplates) **campaign 7 at 37.7 GB
+  would have measured ~75 GB and refused to stage.** Nested roots are now
+  dropped before `du`; `bash campaigns.sh selfcheck` is the runnable proof.
+  (2) Ten of the shell scripts had **CRLF line endings** in the working tree,
+  and `upload_data.py` ships `scripts/` straight from that tree to a Linux box,
+  where `bash` fails a CRLF script at the shebang. `.gitattributes` now pins
+  `*.sh` and `*.sbatch` to `eol=lf`, all ten are normalised, and `code` was
+  re-uploaded.
 - **Step 12 — SIGNED OFF 2026-08-28 by the project owner. The first upload is
   released.** `cohort_audit.md` PASS, 184 checks, 0 violations; four disclosure
   items accepted for the paper's limitations (A3's structurally-absent rare
@@ -677,8 +692,8 @@ plan; this is the index of record.
       note: the "max abs error 1.1e-3 against amplitude 70" does not describe
       this data (the preprocessed signals are z-scored per lead and reach
       **1923**), and the validation belongs to Stage P2.5, not P2.0.
-- [ ] **Step 6 — Staged uploads to R2. TOOLING DONE + PROVED 2026-08-29; the
-      uploads themselves run across nights.** Report:
+- [x] **Step 6 — Staged uploads to R2. DONE 2026-08-30.** 601 objects,
+      **226.4 GiB** in `r2:trimodal-data`. Report:
       `outputs/stage_reports/step6_staging_report.md`. **~195 GB** total, revised
       up again: Step 5's measured int16 ratio plus the chunk cuts, which
       duplicate the training split in piece form.
@@ -706,8 +721,23 @@ plan; this is the index of record.
         wrong bytes. `make_subsets.py selfcheck` proves a live overlay returns
         **bit-identical** signal arrays and image bytes for 40 studies; the P2.0
         gate is still **26/26** and `modality.py`'s own self-check still 9/9.
-  - [ ] **Job 2 — cut the chunks.** `chunks/` held only plans. Three cuts, TRAIN
-        split, 8 pieces, `--int16` for the signal kinds, running into
+  - [x] **Job 2 — cut the chunks. 24/24 pieces, all verified.**
+        `chunks/signals_12lead` 8×6.8 GB (50.94 GB), `chunks/images_clean_12lead`
+        8 tars (5.82 GB), `chunks/signals_raw` 8×3.65 GB (27.20 GB).
+        **`raw_12lead` ships float32, NOT int16**: 8 of 512 sampled raw records
+        carry non-finite samples, which `--int16` would have cast to plausible
+        integers with nothing on the model path to catch it. `make_chunks` now
+        refuses a non-finite record under `--int16`. *The non-finite samples
+        themselves are still unhandled on the model path — campaign 9's problem,
+        recorded in §7.*
+        **The cut was single-threaded on a 20-core box** (measured: 98.5 % of one
+        core, both volumes on one NVMe). `--only` already selected pieces; what
+        blocked parallel workers was shared state — `assignment.parquet` and
+        `fairness.json` rewritten on every run, and `checksums.json` read once
+        and written back whole, dropping any sibling's entry. Both fixed; four
+        workers then cut pieces 4–7 in **1h45m instead of 4h32m**.
+        Three cuts, TRAIN split, 8 pieces, `--int16` for `preprocessed_12lead`,
+        running into
         `TRIMODAL_CHUNK_ROOT` on C: (D: has 84 GB free and the cuts are ~84 GB).
         **Two bugs fixed first:** `cut_image_piece` called a
         `modality.read_modality_bytes()` that does not exist (`read_modality`
@@ -735,7 +765,11 @@ plan; this is the index of record.
         int16 copy, `_resolve_h5` falls back to the float32 original when the
         int16 file is absent, and both files are uploaded at exactly the two
         paths the manifest names — so campaign 4 resolves both encodings.
-  - [ ] **Job 4 — upload, in campaign order.** **Campaigns 1–4 UPLOADED**
+  - [x] **Job 4 — upload, in campaign order. COMPLETE.** 601 objects,
+        226.4 GiB. Uploads were paced across nights and overlapped with the
+        cuts once it was clear the two contend for nothing: the cut is CPU-bound
+        on one core, the link runs at 24 MiB/s. Historical detail below.
+        **Campaigns 1–4 UPLOADED**
         (1.10 + 8.94 + 17.84 + 13.50 GB; `rclone size` = 41.4 GiB, 524 objects),
         campaign 1 round-trip verified. `images_clean_12lead_L3`,
         `images_scanlike_test` and `chunks/images_clean_12lead` uploading. The
@@ -1590,3 +1624,65 @@ train/eval phase split so no campaign holds its test data while it trains.
 
 **Next:** build the three `*_valtest` datasets, finish the uploads, then Step 7
 — and answer question 4 first, because 15a's validation waits on it.
+
+### Session 10 — 2026-08-29/30 — Step 6 finished, and two DGX bugs caught early
+
+The laptop shut down mid-cut. Nothing was lost but one piece: pieces 0–5 of the
+12-lead cut survived, `piece_006.h5.tmp` was redone. The system clock came back
+12h41m behind, which R2 warns about and tolerates; it resynced itself. Log
+timestamps between 03:07 and 15:53 are that jump, not elapsed time.
+
+**An upload had reported success while pushing nothing.** The staging tree is
+hard links, and a hard link cannot cross volumes: the containers were on C: and
+their overlay parquet on D:, so `images_clean_12lead_valtest` was refused while
+the wrapper still echoed UPLOADED. A file that cannot be linked is now copied
+instead, up to 2 GiB — above that it still refuses rather than silently
+duplicating 30 GB. The dataset was re-pushed and verified in the bucket.
+
+**Everything left was serial for no reason.** The cut is CPU-bound on a single
+core (98.5 % of one of 20, both volumes on one NVMe), so the queue was split
+into a disk queue and a network queue, and then the raw cut itself into four
+`--only` workers. Pieces 4–7 took **1h45m instead of 4h32m**; the two `*_valtest`
+builds ran alongside them. Making that safe needed two fixes in `make_chunks.py`
+(nested under Step 6, job 2): `assignment.parquet` / `fairness.json` are written
+only when absent, and `checksums.json` merges instead of overwriting. The proof
+it held: eight entries in one `checksums.json`, written by four processes,
+verified 8/8.
+
+**Step 6 is DONE — 601 objects, 226.4 GiB.** Final pieces: `signals_12lead`
+50.94 GB, `signals_raw` 27.20 GB, `images_clean_12lead` 5.82 GB;
+`signals_12lead_valtest` 21.93 GB, `signals_raw_valtest` 11.84 GB,
+`images_clean_12lead_valtest` 2.50 GB.
+
+**The chunked read path was round-tripped for the first time.** Campaign 9's
+piece 0 was pulled from R2 with the real `stage_data.sh`, checksum-verified,
+junctioned where the loader looks, and read through `install_overlays()`:
+all 65,309 rows hash to piece 0, and `read_modality()` returned arrays
+**bit-identical** to the base container for five sampled studies. This is what
+campaigns 6, 8 and 9 depend on and nothing had exercised it end to end.
+
+**Two bugs that would only have appeared on the DGX, found on the laptop.**
+- **`used_gb()` double-counted nested roots.** It summed `du` over
+  `PROJECT_ROOT`, `DATA_ROOT` and `RESULTS_ROOT`, and `RESULTS_ROOT` defaults to
+  `$PROJECT_ROOT/outputs`. The round-trip made it visible: a 3.63 GB piece was
+  reported as **6.78 GB used**. On a node with no scratch, where `DATA_ROOT` is
+  `$PROJECT_ROOT/data/processed`, every staged byte counts twice and **campaign
+  7's 37.7 GB measures ~75 GB against a 45 GB ceiling — a refusal to stage, on
+  the first real campaign.** Nested roots are dropped before `du`; a root
+  reached through `_campaign_body.sh`'s symlink is correctly *not* nested,
+  because `du` does not follow symlinks and `pwd -P` distinguishes the cases.
+  `bash campaigns.sh selfcheck` asserts both directions. A bare `$USER` under
+  `set -u` was guarded in the same function.
+- **Ten shell scripts had CRLF line endings.** `upload_data.py` ships `scripts/`
+  straight from the working tree, and Linux `bash` fails a CRLF script at the
+  shebang. `.gitattributes` now pins `*.sh` / `*.sbatch` to `eol=lf`, all ten
+  are normalised, and `code` was re-uploaded. The copy already in the bucket was
+  LF, so nothing staged before this was broken.
+
+All 14 campaigns still pass `require_fit` in both phases under the corrected
+accounting (chunked ones with `--pieces`, which is the by-design refusal without
+them).
+
+**Next:** Step 7, the first DGX session. Answer question 4 on a compute node
+before anything else — 15a's validation waits on it.
+

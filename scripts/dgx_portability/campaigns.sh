@@ -30,8 +30,8 @@ resolve_data_root() {
         return
     fi
     local candidate
-    for candidate in "${SCRATCH:-}" "/scratch/$USER" "/raid/$USER" "/work/$USER" \
-                     "/tmp/$USER"; do
+    for candidate in "${SCRATCH:-}" "/scratch/${USER:-}" "/raid/${USER:-}" "/work/${USER:-}" \
+                     "/tmp/${USER:-}"; do
         [ -n "$candidate" ] || continue
         if mkdir -p "$candidate/trimodal-data" 2>/dev/null \
            && [ -w "$candidate/trimodal-data" ]; then
@@ -242,12 +242,61 @@ campaign_phase_gb() {
 # The README is explicit: measure with du on a COMPUTE node, not the login
 # node, and not with `quota` (which reports the wrong thing here).
 used_gb() {
-    local total=0 path
+    local total=0 path other resolved keep bytes
+    local -a roots=()
     for path in "$PROJECT_ROOT" "$DATA_ROOT" "$RESULTS_ROOT"; do
         [ -d "$path" ] || continue
-        total=$(( total + $(du -sb "$path" 2>/dev/null | cut -f1) ))
+        resolved="$(cd "$path" 2>/dev/null && pwd -P)" || continue
+        for other in ${roots[@]+"${roots[@]}"}; do
+            [ "$other" = "$resolved" ] && { resolved=""; break; }
+        done
+        [ -n "$resolved" ] && roots+=("$resolved")
+    done
+    # Drop any root that lives INSIDE another, or du counts its bytes twice and
+    # the ceiling is enforced against a number close to double the truth. That is
+    # the DEFAULT layout, not a corner case: RESULTS_ROOT is $PROJECT_ROOT/outputs
+    # unless overridden, and _campaign_body.sh only symlinks data/processed when
+    # DATA_ROOT sits elsewhere -- so a node with no scratch, staging into
+    # $PROJECT_ROOT/data/processed, measured every staged byte twice and would
+    # have refused the 37.7 GB campaign against the 45 GB ceiling.
+    # A DATA_ROOT reached through that symlink is NOT nested: du does not follow
+    # symlinks, and `pwd -P` is what tells the two cases apart.
+    for path in ${roots[@]+"${roots[@]}"}; do
+        keep=1
+        for other in ${roots[@]+"${roots[@]}"}; do
+            [ "$path" = "$other" ] && continue
+            case "$path/" in "$other"/*) keep=0; break ;; esac
+        done
+        [ $keep -eq 1 ] || continue
+        bytes="$(du -sb "$path" 2>/dev/null | cut -f1)"
+        total=$(( total + ${bytes:-0} ))
     done
     awk -v b="$total" 'BEGIN { printf "%.2f", b / 1073741824 }'
+}
+
+# One runnable check for the accounting above: nested roots counted once,
+# separate roots both counted.   bash campaigns.sh selfcheck
+used_gb_selfcheck() {
+    local tmp; tmp="$(mktemp -d)"
+    mkdir -p "$tmp/proj/outputs" "$tmp/proj/data/processed" "$tmp/elsewhere"
+    head -c 10000000 /dev/zero > "$tmp/proj/outputs/a.bin"
+    head -c 20000000 /dev/zero > "$tmp/proj/data/processed/b.bin"
+    head -c 40000000 /dev/zero > "$tmp/elsewhere/c.bin"
+
+    local got want rc=0
+    got="$(PROJECT_ROOT="$tmp/proj" DATA_ROOT="$tmp/proj/data/processed"            RESULTS_ROOT="$tmp/proj/outputs" used_gb)"
+    want="$(awk 'BEGIN { printf "%.2f", 30000000 / 1073741824 }')"
+    [ "$got" = "$want" ] || {
+        echo "FAIL nested: got $got want $want -- double counting is back" >&2; rc=1; }
+
+    got="$(PROJECT_ROOT="$tmp/proj" DATA_ROOT="$tmp/elsewhere"            RESULTS_ROOT="$tmp/proj/outputs" used_gb)"
+    want="$(awk 'BEGIN { printf "%.2f", 70000000 / 1073741824 }')"
+    [ "$got" = "$want" ] || {
+        echo "FAIL separate: got $got want $want -- a real root was dropped" >&2; rc=1; }
+
+    rm -rf "$tmp"
+    [ $rc -eq 0 ] && echo "used_gb self-check PASS"
+    return $rc
 }
 
 # will_fit <additional_gb> -- true when used + additional stays under the ceiling
@@ -281,3 +330,8 @@ MSG
 }
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+# Sourced by every launcher; run directly only for the self-check.
+if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "selfcheck" ]; then
+    used_gb_selfcheck
+fi

@@ -66,7 +66,7 @@ cuts are running, all TRAIN split, 8 pieces, `--int16` for the signal kinds:
 
     make_chunks.py cut --kinds image_clean_12lead  --pieces 8
     make_chunks.py cut --kinds preprocessed_12lead --int16 --pieces 8
-    make_chunks.py cut --kinds raw_12lead --int16  --pieces 8
+    make_chunks.py cut --kinds raw_12lead           --pieces 8   # float32, see below
 
 Two fixes were needed before the first one could run:
 
@@ -155,35 +155,51 @@ nothing. The stager's `find` now matches `checksums*.json`.
 
 ---
 
-## 3. Upload status
+## 3. Upload status — COMPLETE 2026-08-30
+
+`rclone size r2:trimodal-data` = **601 objects, 226.368 GiB**.
 
 | # | campaign | datasets | bytes | state |
 | - | -------- | -------- | ----: | ----- |
 | 1 | text_models | code, configs, tasks, fiducials, index, text | 1.10 GB | **UPLOADED, round-trip verified** |
 | 2 | images_12lead | + images_clean_12lead | 8.94 GB | **UPLOADED** |
 | 3 | images_lead2 | + images_clean_lead2 | 17.84 GB | **UPLOADED** |
-| 4 | signals_lead2 | + signals_lead2 (12.57 GB), signals_corrupted | 13.50 GB | **UPLOADED** |
-| 5 | signals_12lead_L3 | + signals_12lead_L3 | 43.93 GB | train + val built; test building |
-| 6 | signals_12lead_full | chunks/signals_12lead ×8 | ~54.5 GB | cutting, 1 of 8 pieces |
-| 7 | fusion_L3 | + images_clean_12lead_L3 | 5.02 GB | **BUILT + verified, uploading** |
-| 8 | fusion_full | chunks/images_clean_12lead ×8 | 5.82 GB | **CUT 8/8, uploading** |
-| 9 | retrain_sweeps | chunks/signals_raw ×8 | ~23.6 GB | queued behind campaign 6's cut |
-| 10 | test_sweeps | + images_scanlike_test | 20.33 GB | **BUILT, uploading** |
-| 11 | final_eval | results | — | reads `r2:trimodal-results`, filled by `push_results.sh` |
+| 4 | signals_lead2 | + signals_lead2, signals_corrupted | 13.50 GB | **UPLOADED** |
+| 5 | signals_12lead_L3 | + signals_12lead_L3 | 43.93 GB | **UPLOADED** |
+| 6 | signals_12lead_full | chunks/signals_12lead ×8 + signals_12lead_valtest | 50.94 + 21.93 GB | **UPLOADED** |
+| 7 | fusion_L3 | + images_clean_12lead_L3 | 5.02 GB | **UPLOADED** |
+| 8 | fusion_full | chunks/images_clean_12lead ×8 + images_clean_12lead_valtest | 5.82 + 2.50 GB | **UPLOADED** |
+| 9 | retrain_sweeps | chunks/signals_raw ×8 + signals_raw_valtest | 27.20 + 11.84 GB | **UPLOADED** |
+| 10 | test_sweeps | + images_scanlike_test | 20.33 GB | **UPLOADED** |
+| 11–14 | final_eval / lead-II halves | reuse the above + `results` | — | data uploaded; `results` comes from `r2:trimodal-results`, filled by `push_results.sh` |
 
-**41.36 GiB was in the bucket after campaigns 1–4** (524 objects), measured with
-`rclone size r2:trimodal-data`.
+**Raw ships float32, not int16.** 8 of 512 sampled `raw_12lead` records carry
+non-finite samples, and casting those to int16 is undefined — every one would
+have become a plausible integer with nothing on the model path to catch it.
+`make_chunks` now refuses a non-finite record under `--int16`. The non-finite
+samples themselves remain unhandled on the model path; that is campaign 9's
+problem, not a staging one.
 
-**Project upload total ≈ 195 GB**, not the ~142 GB the plan assumed — Step 5's
-measured int16 ratio (77.5 GiB of 12-lead, not 56.7) plus the chunk cuts, which
-duplicate the training split in piece form.
+**The cut ran on one core.** Measured at 98.5 % of one core of 20, with both
+volumes on a single NVMe — it was never I/O bound. `--only` already selected a
+piece subset; what stopped parallel workers sharing an output directory was
+shared state, fixed in two places (below). Pieces 4–7 then cut in **1h45m
+instead of 4h32m**, alongside both `*_valtest` builds and an upload.
 
-Uploads are deliberately paced across nights and are one command each:
+**A dataset built on one volume and overlaid from another was silently skipped.**
+The staging tree is hard links, which cannot cross volumes: the
+`images_clean_12lead_valtest` containers were on C: and their overlay parquet on
+D:, so the dataset was refused while the driver still logged UPLOADED (zero
+objects in the bucket). A file that cannot be linked is now copied, up to 2 GiB;
+above that it still refuses rather than duplicate 30 GB into a staging area.
 
-    ./ecg_env/Scripts/python.exe scripts/dgx_portability/upload_data.py --campaign N
-    ./ecg_env/Scripts/python.exe scripts/dgx_portability/upload_data.py --all --dry-run
-
----
+**Derived datasets live under two roots.** `signals_12lead_L3`,
+`images_clean_12lead_L3` and `images_scanlike_test` were built under
+`data/processed/derived/` on D:; the three `*_valtest` sets under
+`C:	rimodal_derived` (`TRIMODAL_DERIVED_BASE`), because D: had 26 GB left.
+All six are uploaded. A `--all --dry-run` run with only one root exported prints
+`NOT READY` for the other three — loudly, which is the intent, but it is not a
+missing upload.
 
 ## 4. Privacy and access, checked before the first push
 
@@ -234,3 +250,59 @@ Uploads are deliberately paced across nights and are one command each:
 6. **Campaign 11's `results` dataset lives in `r2:trimodal-results`**, which
    `push_results.sh` fills from the DGX. The uploader skips it by name and says
    so rather than failing.
+
+---
+
+## 5. Two bugs that would only have shown up on the DGX
+
+Both were found on the laptop, in session 10, while round-tripping campaign 9.
+
+### 5.1 `used_gb()` counted nested roots twice
+
+`campaigns.sh::used_gb` summed `du -sb` over `PROJECT_ROOT`, `DATA_ROOT` and
+`RESULTS_ROOT` — and `RESULTS_ROOT` defaults to `$PROJECT_ROOT/outputs`. Staging
+one 3.63 GB piece reported **"Used: 6.78 GB"**, which is what made it visible.
+
+The consequence is not cosmetic. `require_fit` enforces the 45 GB ceiling
+against this number. On a node with no scratch — where `DATA_ROOT` is
+`$PROJECT_ROOT/data/processed`, the case `_campaign_body.sh` explicitly handles
+— every staged byte is counted twice, so **campaign 7's 37.7 GB measures ~75 GB
+and the stager refuses**, on the first real campaign, with a message blaming the
+quota.
+
+Nested roots are now dropped before `du`. A `DATA_ROOT` reached through
+`_campaign_body.sh`'s symlink is correctly *not* nested: `du` does not follow
+symlinks, and `pwd -P` is what separates the two cases. `bash campaigns.sh
+selfcheck` asserts both directions — nested counted once, separate roots both
+counted. A bare `$USER` under `set -u` was guarded in the same pass.
+
+### 5.2 Ten shell scripts had CRLF line endings
+
+`upload_data.py` ships `scripts/` straight from the Windows working tree, and
+Linux `bash` fails a CRLF script at the shebang. `.gitattributes` now pins
+`*.sh` and `*.sbatch` to `eol=lf`, the ten affected files are normalised, and
+`code` was re-uploaded. The copy already in the bucket happened to be LF, so
+nothing staged before this was broken.
+
+---
+
+## 6. The chunked read path, proved
+
+Campaign 1 proved the plain-dataset layout in session 8. The **piece** path had
+never been exercised end to end, and campaigns 6, 8 and 9 are built on it.
+
+Session 10 pulled `chunks/signals_raw/piece_000.h5` from R2 with the real
+`stage_data.sh` (`--pieces 0 --pieces-only`), checksum-verified on arrival, put
+it where the loader looks, and read through it:
+
+* the piece carries `piece_salt`, `dtype=float32`, `scaled=False`, and rows
+  stored channel-major as `(12, 5000)` — so `modality.py` does not transpose it
+  a second time;
+* **all 65,309 rows** in piece 0 hash to piece 0 under `piece_of()`, which is
+  the property `check_alignment()` assumes across modalities;
+* `read_modality()` through the installed overlay returned arrays
+  **bit-identical** to the base container for five sampled studies.
+
+All 14 campaigns pass `require_fit` in both phases under the corrected disk
+accounting.
+

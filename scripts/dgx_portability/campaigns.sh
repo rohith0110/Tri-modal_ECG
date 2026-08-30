@@ -13,9 +13,12 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # quota
 # ---------------------------------------------------------------------------
-# §8.0: 50 GB total. §8.1/§8.2: refuse to start above 45 GB.
+# §8.0: 50 GB total. §8.1/§8.2: refuse to start above the ceiling.
+# Raised 45 -> 49 on 2026-08-30: `used_gb()` sums PROJECT_ROOT, which now also
+# holds the 5.7 GB `ecg_env` venv and the HuggingFace cache. Campaign 7 stages
+# 37.7 GB, so the old ceiling left ~1 GB of margin on a fixed, non-staged cost.
 QUOTA_TOTAL_GB="${QUOTA_TOTAL_GB:-50}"
-QUOTA_CEILING_GB="${QUOTA_CEILING_GB:-45}"
+QUOTA_CEILING_GB="${QUOTA_CEILING_GB:-49}"
 
 # ---------------------------------------------------------------------------
 # roots -- resolved, never assumed
@@ -208,7 +211,7 @@ push() {
 # phase (test data), staged after the training runs finish and the train pieces
 # are evicted. stage_data.sh --phase picks one, and filters by the `__<split>.`
 # suffix the derived containers carry, so no dataset had to be split in two.
-# Without this campaigns 5, 7 and 8 exceed the 45 GB ceiling on paper while
+# Without this campaigns 5, 7 and 8 exceed the ceiling on paper while
 # never actually needing that much at once.
 #
 # THE LEAD-II SPLIT (open question 14). Campaigns 7, 8 and 11 read a whole lead

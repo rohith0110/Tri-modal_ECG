@@ -46,7 +46,9 @@ from _model_lib.task_models import build_model, train_class_stats      # noqa: E
 from _train_lib.seed import set_seed                                   # noqa: E402
 from _train_lib.trainer import TrainConfig, Trainer, build_batch_order  # noqa: E402
 
-PYTHON = bc.PROJECT_ROOT / "ecg_env" / "Scripts" / "python.exe"
+# The interpreter running this file -- the venv's own python whether that is
+# `ecg_env/Scripts/python.exe` on Windows or `ecg_env/bin/python` on the DGX.
+PYTHON = Path(sys.executable)
 TRAIN_SCRIPT = bc.PROJECT_ROOT / "scripts" / "phase2_tasks_benchmark_and_paper" / "30_train.py"
 EVAL_SCRIPT = bc.PROJECT_ROOT / "scripts" / "phase2_tasks_benchmark_and_paper" / "31_eval.py"
 DEV_RUNS = bc.PROJECT_ROOT / "outputs" / "model_runs" / "_dev"

@@ -955,11 +955,52 @@ plan; this is the index of record.
         `train_log.jsonl`. Nothing measured GPU memory before, and on this
         cluster that number decides between a slice available now and a full
         card three weeks out.
-  - [ ] **NEXT: campaign 1 for real**, submitted against a MIG slice rather than
-        a full card — `sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1`
-        overrides the `.sbatch`'s `a100:1` without editing it. Read
-        `peak_gpu_gb` from its `train_log.jsonl` to size every later
-        campaign of the same family.
+  - [x] **Campaign 1 IS RUNNING (2026-08-30, session 12) — Step 13 has started.**
+        Four more DGX-only bugs had to be fixed to get there, each of which
+        stopped a submit dead (commits 23ceade, 6f15ca3, 74f2a8b, 7d3602d):
+        1. **Every tracked `*.sh` was mode 100644.** `_campaign_body.sh` invokes
+           `stage_data.sh`, `push_results.sh` and `evict_data.sh` directly, so
+           the first submit died with `Permission denied` (exit 126).
+           `core.fileMode=false` on the Windows checkout is why nobody saw it.
+           All five are 100755 in git now.
+        2. **`transport=none`.** rclone lives at `$PROJECT_ROOT/bin/rclone` and
+           reaches PATH through `.bashrc`, which a Slurm batch shell never
+           sources. `resolve_rclone()` searches real paths and exports `RCLONE`.
+        3. **A hard hang at batch 1 of 8218.** Main process in
+           `futex_wait_queue_me`, four DataLoader workers alive at 0 CPU, 15 s
+           of CPU across 10 minutes of wall clock. transformers 5.x resolves a
+           model against the Hub (`/discussions`, `/commits/refs%2Fpr%2F16`) and
+           each forked worker then re-resolved the tokenizer. Fixed by exporting
+           `TOKENIZERS_PARALLELISM=false` always and `HF_HUB_OFFLINE=1` when the
+           model is cached. It would have burned the whole allocation silently.
+        4. **Staging `code` from R2 reverted five tracked files mid-session** —
+           the ceiling fix, the rclone resolver, `peak_gpu_gb` and the smoke-test
+           interpreter fix all rolled back, and the next job then failed on the
+           reverted copy (its log said `45 GB ceiling`, which is what exposed
+           it). `stage_data.sh` now skips `code`/`configs` when `PROJECT_ROOT`
+           is a git checkout, and skips their manifests with them, since those
+           describe R2's copy. `TRIMODAL_FORCE_CODE_STAGE=1` is the override.
+  - [x] **THE ACCOUNT MAY HOLD ONE GPU AT A TIME.**
+        `sacctmgr show assoc` gives `cpu=32,gres/gpu=1,mem=256G` for
+        `se23ucse027`, and a MIG slice counts as `gres/gpu=1` exactly as a full
+        A100 does. Campaign 1 was submitted as six per-task shards across six
+        free slices; five pended on `AssocGrpGRES` and would have waited
+        forever. **All 312 runs are therefore strictly sequential**, which the
+        campaign schedule in Part 4–7 does not assume. Asking the facility to
+        raise `gres/gpu` is the highest-leverage action available to this
+        project. Sharding was kept anyway: with the cap, Slurm starts the next
+        shard automatically, each is a smaller resumable unit, and none risks
+        the wall-clock timeout a single 36-run job would.
+  - [ ] **IN FLIGHT: campaign 1 / Step 13, sharded by task.** Job 22339 runs
+        `A1_ecg_diagnosis` on a dgxa `a100_4g.20gb` slice at **4.88 it/s,
+        ~28 min/epoch** (8,218 batches of 32). Jobs 22345–22349 are queued for
+        the other five tasks on a **dgxb full `a100:1`** — `task_dataset.py:334`
+        reads the text parquet once into memory and tokenises from RAM, so
+        there is no per-sample disk read and rule 2's 28x NFS penalty does not
+        apply to a text campaign. A full card is ~1.75x a `4g.20gb` slice.
+        ETA at 20 epochs / patience 5: **5–9 days for campaign 1**.
+  - [ ] Read `peak_gpu_gb` from the first completed epoch's `train_log.jsonl`
+        and size every later campaign of each family from it.
 
 ### Part 3 — Full-scale build + audits, **on the laptop** (~2 days of compute)
 
@@ -1140,7 +1181,8 @@ now happen inside Steps 2 and 3 rather than after Step 8.
 
 ### Part 4 — Campaigns 1–4 (~1 week)
 
-- [ ] **Step 13 — Text models** (21 runs) · [ ] **Step 14 — 12-lead pictures** (21)
+- [ ] **Step 13 — Text models** (36 runs: 6 tasks x 2 tiers x 3 seeds, as
+      `campaign_runs.py 1` derives them; the older "21" predates Round 10) · [ ] **Step 14 — 12-lead pictures** (21)
 - [ ] **Step 15 — Lead-II pictures** (21) · [ ] **Step 16 — Lead-II signals** (33)
 
 ### Part 5 — Campaigns 5–6 (~1 week)
@@ -1984,6 +2026,25 @@ on Linux and was the only live occurrence; and the ceiling moved 45 -> 49 GB in
 because `used_gb()` now also counts the 5.7 GB venv and the HF cache against a
 campaign that stages 37.7 GB.
 
-**Next:** campaign 1 for real, submitted with
-`--gres=gpu:a100_4g.20gb:1` overriding the `.sbatch`'s `a100:1`, then read
-`peak_gpu_gb` off its log to size the rest.
+**Campaign 1 is running — Step 13 has started.** Four more DGX-only bugs had to
+be fixed first, each fatal to a submit: shell scripts tracked as 100644 (exit
+126 on `stage_data.sh`), rclone unreachable because a batch shell never sources
+`.bashrc`, a HuggingFace fork/Hub deadlock that hung the trainer at batch 1 of
+8218 with 15 seconds of CPU in ten minutes, and — the worst of them — staging
+`code` from R2 silently reverting five tracked files mid-session, including the
+rclone resolver that the same script needs to run. All four are fixed in
+23ceade, 6f15ca3, 74f2a8b and 7d3602d.
+
+**The account may hold ONE GPU at a time** (`gres/gpu=1`), and a MIG slice
+counts the same as a full A100. Six per-task shards were submitted across six
+idle slices; five pended on `AssocGrpGRES`. All 312 runs are sequential, which
+Parts 4-7 of the schedule do not assume. The sharding was kept anyway because
+Slurm then starts each task's job back to back with no babysitting.
+
+Measured: **4.88 it/s, ~28 min/epoch** for BioClinicalBERT on a `4g.20gb`
+slice; 20 epochs with patience 5 puts campaign 1 at **5-9 days**. The remaining
+five tasks are queued on a dgxb full card, which is the right node for text
+because `task_dataset.py:334` reads the parquet once into memory -- rule 2's
+28x NFS penalty is a per-sample-read problem and text has no per-sample reads.
+
+**Next:** `peak_gpu_gb` off the first finished epoch, then campaign 2.

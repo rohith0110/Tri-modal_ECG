@@ -248,6 +248,49 @@ stands: always pass it, on every job, whatever GPU you asked for.
 
 ---
 
+## 3b. One GPU. That is the whole budget — measured 2026-08-30
+
+```
+$ sacctmgr -n show assoc where user=$USER format=User,Account,GrpTRES
+se23ucse027   student   cpu=32,gres/gpu=1,mem=256G
+```
+
+**This account may hold exactly ONE GPU at a time, of any kind.** A MIG slice
+counts as `gres/gpu=1` exactly as a full A100 does. A second GPU job pends on
+`AssocGrpGRES` no matter how idle the cluster is — five free slices on dgxa
+made no difference. Running campaign 1 as six shards on six slices was tried on
+2026-08-30 and refused by the scheduler.
+
+What this means, and it is the single most important operational fact here:
+
+* **Every one of the 312 runs is sequential.** The campaign schedule's parts
+  cannot overlap. At ~28 min/epoch for a BioClinicalBERT run on a 20 GB slice,
+  campaign 1 alone is 5–9 days.
+* **Sharding is still worth doing**, just not for parallelism. `TRIMODAL_TASKS`
+  splits a campaign into per-task jobs that Slurm starts back to back as the
+  cap frees up: each is a smaller resumable unit, none risks a wall-clock
+  timeout the way one 36-run job would, and a failure costs one task rather
+  than the campaign.
+* **Ask the facility to raise `gres/gpu`.** It is a one-line `sacctmgr` change
+  on their side and the only thing that makes the remaining campaigns tractable
+  on the planned calendar. Everything else here is working around it.
+
+### Picking the node once you know you get one GPU
+
+Since only one job runs at a time, the only question is which GPU that job
+should sit on, and the answer is **whichever is fastest for the work at hand**:
+
+| campaign kind | node | why |
+| ------------- | ---- | --- |
+| **text** (campaign 1) | **dgxb full `a100:1`** when one is free | `task_dataset.py:334` reads the text parquet ONCE into an in-memory array and tokenises from RAM. There is no per-sample disk read, so rule 2's measured 28x NFS penalty simply does not apply. A full card is ~1.75x a `4g.20gb` slice. |
+| **signals / images** | **dgxa**, slice or card | tens of thousands of ~100 KB random reads per epoch. This is exactly what rule 2 is about; dgxb would starve the GPU. |
+
+Rule 2 still stands — it was measured, and it is right about the loader. It is
+about *where the bytes are read from*, so it binds only on campaigns that
+actually stream bytes per sample.
+
+---
+
 ## 4. Slurm, practically
 
 Partitions available to this account: `cpu_student`, `gpu_student` — **7-day**

@@ -108,6 +108,12 @@ def main() -> int:
     parser.add_argument("campaign", nargs="?", type=int)
     parser.add_argument("--table", action="store_true",
                         help="summarise every campaign instead of listing one")
+    # Sharding a campaign across several GPUs. A shard must own WHOLE tasks:
+    # 31_eval.py aggregates across the three seeds of a (task, tier), so
+    # splitting a task between jobs would leave neither able to evaluate it.
+    parser.add_argument("--tasks", nargs="*", default=None, metavar="TASK",
+                        help="only runs for these tasks (whole tasks only, so "
+                             "all three seeds stay in one shard)")
     args = parser.parse_args()
 
     if args.table:
@@ -138,7 +144,15 @@ def main() -> int:
 
     if args.campaign is None:
         parser.error("give a campaign number, or --table")
-    for task, tier, seed, config in runs_for(args.campaign):
+    runs = runs_for(args.campaign)
+    if args.tasks:
+        known = {task for task, _tier, _seed, _config in runs}
+        unknown = sorted(set(args.tasks) - known)
+        if unknown:
+            parser.error(f"campaign {args.campaign} has no runs for: "
+                         f"{', '.join(unknown)}. It has: {', '.join(sorted(known))}")
+        runs = [r for r in runs if r[0] in set(args.tasks)]
+    for task, tier, seed, config in runs:
         print(f"{task} {tier} {seed} {config}")
     return 0
 

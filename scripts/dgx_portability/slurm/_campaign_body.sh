@@ -90,11 +90,32 @@ fi
 
 # ---- stage ----------------------------------------------------------------
 # The refusal gate lives in stage_data.sh and runs before any byte moves.
+#
+# SHARDING. TRIMODAL_TASKS splits one campaign across several GPUs, each job
+# taking whole tasks (see campaign_runs.py --tasks). Concurrent shards would
+# otherwise fetch the same files into the same paths at the same time, so every
+# staging call takes an exclusive lock: the first shard stages and verifies,
+# the rest wait a few seconds and then find their data already resident and
+# checksum-clean. Nothing else in the campaign needs coordination -- runs are
+# disjoint, and push_results.sh only frees a checkpoint once its run has
+# predictions, so no shard can delete what another still needs.
+STAGE_LOCK="$PROJECT_ROOT/.campaign_state/stage.lock"
+mkdir -p "$(dirname "$STAGE_LOCK")"
+stage() {
+    if command -v flock >/dev/null 2>&1; then
+        flock "$STAGE_LOCK" "$HERE/stage_data.sh" "$@"
+    else
+        "$HERE/stage_data.sh" "$@"
+    fi
+}
+if [ -n "${TRIMODAL_TASKS:-}" ]; then
+    log "shard: this job runs only tasks -- $TRIMODAL_TASKS"
+fi
 if [ "$CHUNKED" = "yes" ]; then
     FIRST_PIECES="${PIECES:-0 1}"
-    "$HERE/stage_data.sh" "$CAMPAIGN" --pieces $FIRST_PIECES
+    stage "$CAMPAIGN" --pieces $FIRST_PIECES
 else
-    "$HERE/stage_data.sh" "$CAMPAIGN"
+    stage "$CAMPAIGN"
 fi
 
 # ---- point the loader at the staged data ----------------------------------
@@ -159,7 +180,7 @@ while read -r task tier seed config; do
         status=1
     fi
     evaluated["$task|$tier"]=1
-done < <(python3 "$PROJECT_ROOT/scripts/dgx_portability/campaign_runs.py" "$CAMPAIGN")
+done < <(python3 "$PROJECT_ROOT/scripts/dgx_portability/campaign_runs.py"              "$CAMPAIGN" ${TRIMODAL_TASKS:+--tasks $TRIMODAL_TASKS})
 
 # ---- swap to the EVAL phase ------------------------------------------------
 # Training held train+val; evaluation needs the test split, and on a chunked
@@ -169,7 +190,7 @@ if [ "$CHUNKED" = "yes" ]; then
     "$HERE/evict_data.sh" --pieces-all || log "piece eviction reported a problem, continuing"
 fi
 log "staging the eval phase (test split)"
-"$HERE/stage_data.sh" "$CAMPAIGN" --phase eval || status=1
+stage "$CAMPAIGN" --phase eval || status=1
 
 # 31_eval.py aggregates ACROSS seeds (mean +/- std over the three), so it runs
 # once per (task, arch tier) after all its seeds are done -- not once per seed.

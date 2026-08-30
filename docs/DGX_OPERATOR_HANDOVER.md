@@ -1,0 +1,252 @@
+# DGX operator handover — running the campaigns from the on-campus laptop
+
+Written 2026-08-30 (session 11). **Read `PHASE2_PROGRESS.md` first** — this file
+is the *operational* companion: which machine does what, how to drive Slurm, and
+what the rules are. The science lives in the progress doc and the spec.
+
+---
+
+## 1. Three machines, three jobs
+
+| machine | holds | does |
+| ------- | ----- | ---- |
+| **Owner's laptop** (Windows, `D:\Coding\MU\Tri-Modal_ECG`) | **all 355 GB of MIMIC-derived data**, the venv that built it, the R2 `laptop-full` token | builds datasets, uploads to R2. **Data never leaves it** except as processed artifacts. |
+| **On-campus laptop** | a git clone, Claude Code, SSH access to the DGX | drives the DGX. **No data, and it does not need any.** |
+| **MU DGX** (`dgx-login01`, 10.59.121.172) | `~/se23ucse027/` — the checkout, staged data, outputs | runs the training. Reachable only inside the MU network. |
+
+**The on-campus laptop cannot rebuild datasets and should never try.** Everything
+it needs is already in `r2:trimodal-data` (601 objects, 226.4 GiB). Its job is
+`git pull`, `ssh`, `sbatch`, and reading logs.
+
+### Setting it up
+
+```bash
+git clone https://github.com/rohith0110/Tri-modal_ECG.git
+cd Tri-modal_ECG
+ssh se23ucse027@10.59.121.172      # confirm the DGX is reachable from this machine
+```
+
+The repo is **private and must stay that way**: tracked reports under `outputs/`
+contain row-level MIMIC identifiers (study_id, subject_id, hadm_id, charttime),
+which the PhysioNet DUA forbids publishing. Making it public again requires
+scrubbing those files first — a deliberate job, not a toggle.
+
+---
+
+## 2. Where things are on the DGX
+
+```
+~/se23ucse027/          <- PROJECT_ROOT, and a git checkout of this repo
+├── bin/rclone          <- the binary (git-ignored). Config is in ~/.config/rclone/
+├── scripts/ config/ docs/    <- from git; `git pull` updates them
+├── data/processed/     <- DATA_ROOT, staged per campaign from R2 (git-ignored)
+├── outputs/            <- RESULTS_ROOT: checkpoints, metrics, logs (runs git-ignored)
+└── .campaign_state/    <- which campaign / phase / pieces are resident
+```
+
+`$HOME` is `/dgxa_home/se23ucse027` **on every node** — local ext4 on dgxa, NFS
+elsewhere. One copy serves everything, and a requeued job resumes wherever it
+lands.
+
+Two R2 remotes, least privilege:
+
+* `r2` → `dgx-read-data`, **read-only** on `trimodal-data`. A write is denied, so
+  nothing running on the cluster can damage the staged 226 GB.
+* `r2-results` → `dgx-write-results`, with `no_check_bucket = true` (without it
+  rclone issues `CreateBucket` first and a bucket-scoped token 403s).
+
+---
+
+## 3. The rules, and why each exists
+
+1. **Never run computation on `dgx-login01`.** The facility asks this directly.
+   Config edits, `git pull`, `sbatch`, `squeue` are fine; staging 40 GB or `du`
+   over the tree is not.
+2. **Everything pins `--nodelist=dgxa`.** Measured with `dd iflag=direct`: dgxa
+   2.9 GB/s on local ext4, dgxb 105 MB/s over NFS — **28x**. The loader does tens
+   of thousands of ~100 KB random reads per epoch, so a run on dgxb starves the
+   GPU for days without ever failing. Cost: dgxa holds 2 of the 7 full A100s.
+3. **`--mem` is mandatory.** These partitions default to the *whole node's*
+   1,031,800 MB, so a job without it waits for a completely empty node — which
+   never happens here — and Slurm blames the nodes: *"Nodes required for job are
+   DOWN, DRAINED or reserved"*. All 14 `.sbatch` files set `--mem=64G`.
+4. **`--gres=gpu:a100:1`, never `gpu:1`.** The A100s are MIG-partitioned into
+   `a100`, `a100_4g.20gb`, `a100_3g.20gb`, `a100_2g.10gb`, `a100_1g.5gb`; an
+   untyped request matches any of them, including a **5 GB** slice that OOMs
+   hours in. The full cards are **40 GB**, not 80.
+5. **50 GB, and not one byte more.** `quota -s` reports *no* quota — the limit is
+   policy on a 14 TB filesystem with 6.1 TB free. `used_gb()` / `require_fit()`
+   is the only thing enforcing it. `/tmp` was deliberately removed from the
+   `DATA_ROOT` candidate list for this reason; do not put it back.
+6. **Stage inside the job.** `_campaign_body.sh` stages, trains, evicts. Do not
+   pre-stage from the login node.
+
+---
+
+## 4. Slurm, practically
+
+Partitions available to this account: `cpu_student`, `gpu_student` — **7-day**
+limit. `*_faculty` and `*_scholar` get 30 days and outrank us; jobs of 15, 5 and
+4 days were running during the survey. **Queue wait, not GPU speed, is the
+binding constraint on 312 runs.**
+
+### An interactive shell (setup and debugging)
+
+```bash
+srun --partition=cpu_student --nodelist=dgxa --time=04:00:00 \
+     --ntasks=1 --cpus-per-task=4 --mem=8G --pty bash
+```
+
+Take the allocation **first**, then work inside it. `--time` is a hard kill: at
+the limit you get
+
+```
+slurmstepd: error: *** STEP 22327.0 ON dgxa CANCELLED AT ... DUE TO TIME LIMIT ***
+```
+
+and you are dropped back on the login node. Nothing is corrupted — every staging
+step is resumable and re-verifies checksums. Just re-allocate.
+
+### How much time is left on the current allocation
+
+```bash
+squeue -u $USER -o "%.8i %.12P %.9j %.2t %.10M %.10L %R"
+#                                         ^elapsed   ^TIME LEFT
+scontrol show job <JOBID> | grep -E "RunTime|TimeLimit|StartTime|EndTime"
+```
+
+`%L` is the answer; `scontrol` also gives a wall-clock `EndTime`.
+
+### Submitting a campaign
+
+```bash
+cd ~/se23ucse027
+sbatch --partition=gpu_student scripts/dgx_portability/slurm/campaign_01.sbatch
+```
+
+Partition is passed at submit time on purpose; everything else (`--mem`,
+`--gres=gpu:a100:1`, `--nodelist=dgxa`, `--time`, `--requeue`) lives in the file.
+Override without editing it:
+
+```bash
+sbatch --partition=gpu_student --gres=gpu:a100:2 --mem=128G \
+       scripts/dgx_portability/slurm/campaign_07.sbatch
+```
+
+### Watching it
+
+```bash
+squeue -u $USER                    # PD = pending, R = running
+squeue -u $USER --start            # estimated start time while pending
+tail -f trimodal_c1_<jobid>.out
+scancel <JOBID>
+sacct -u $USER --format=JobID,JobName%22,State,Elapsed,MaxRSS,ExitCode
+sinfo -o "%P %a %l %D %t %N %G"    # what the cluster looks like right now
+```
+
+`--requeue` with `--signal=B:TERM@300` is the resume path: the trainer gets five
+minutes' warning, writes `checkpoint_last.pt`, exits 0, and Slurm requeues it.
+
+### Storage check (compute node only, per the facility's own instruction)
+
+```bash
+du -sh ~/se23ucse027
+```
+
+---
+
+## 5. State as of 2026-08-30, 13:00 IST
+
+**Step 6 DONE** — 601 objects, 226.4 GiB in `r2:trimodal-data`.
+**Step 7 DONE** — environment surveyed; five launcher bugs found and fixed.
+**Step 8 IN PROGRESS.**
+
+Done:
+
+* rclone installed; both remotes verified from the DGX, including that a write to
+  the read-only data token is correctly denied.
+* `~/se23ucse027` is a clean git checkout **plus** staged data.
+* `stage_data.sh 1` run three times, every file checksum-verified, **zero
+  mismatches**: `campaign 1 staged. Used: 1.23 GB of 45 GB ceiling.`
+* Open question 4 **ANSWERED: ONLINE** — a compute node reaches the internet, so
+  §8.2 rule 2's mid-epoch piece fetch is available to campaigns 6, 8 and 9.
+
+Not done, in order:
+
+1. **The venv.** No `module`, no conda, no container runtime — plain
+   `python3 -m venv` against **Python 3.10.12** (the owner's laptop is 3.11).
+   Driver **550.144.03, CUDA 12.4** → the **cu124** torch build.
+
+   ```bash
+   python3 -m venv ~/se23ucse027/ecg_env
+   source ~/se23ucse027/ecg_env/bin/activate
+   python -m pip install -q --upgrade pip
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+   python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.device_count())"
+   ```
+
+   Then the project's own dependencies — read the imports in `30_train.py`,
+   `_dataset_lib`, `_model_lib`, `_train_lib` rather than guessing at a list.
+   Budget ~3 GB against the ceiling.
+2. **The 5-minute Slurm smoke job** (`_train_lib/smoke_test.py`).
+3. **Campaign 1 for real.**
+
+### Two loose ends
+
+* **8 code and 3 config files still transfer on a repeat `stage_data.sh 1`**,
+  where a git checkout and R2 should be byte-identical after the LF
+  normalisation. Harmless — every file verifies — but unexplained, and
+  `--checksum` meaning "nothing changed" is worth being able to trust. Find out
+  which they are before relying on it:
+
+  ```bash
+  cd ~/se23ucse027 && git status --short
+  rclone check r2:trimodal-data/code ~/se23ucse027 --checksum --one-way 2>&1 | head -20
+  ```
+
+* **Non-finite samples in `raw_12lead`** (~1.6 % of records). The cutter refuses
+  them under `--int16` and raw ships float32, but **nothing on the model path
+  sanitises them** — campaign 9 will train on them as they are. Known and
+  recorded, not yet decided.
+
+---
+
+## 6. Prompt to start a Claude Code session on the on-campus laptop
+
+Paste this:
+
+> I'm on the on-campus laptop that can reach the MU DGX. The Tri-Modal ECG repo
+> is cloned here; **the datasets are NOT on this machine and never will be** —
+> they live on the owner's laptop and in `r2:trimodal-data`. My job from here is
+> to drive the DGX over SSH.
+>
+> Read `docs/PHASE2_PROGRESS.md` first, then `docs/DGX_OPERATOR_HANDOVER.md`.
+> Run `git pull` before anything — and pull on the DGX too.
+>
+> We are mid-Step 8. Campaign 1 is staged and checksum-verified on the DGX at
+> `~/se23ucse027`; the venv does not exist yet. Next: build the venv (Python
+> 3.10.12, torch **cu124** for driver 550.144.03), install the project's real
+> dependencies by reading the imports rather than guessing, run the smoke test,
+> then submit campaign 1.
+>
+> Rules that are not negotiable — all measured, all explained in the handover:
+> work inside an `srun` allocation on **dgxa**, never on the login node; every
+> job needs `--mem` or it pends forever; `--gres=gpu:a100:1`, never `gpu:1`; stay
+> inside 50 GB even though no quota is enforced; the repo stays private because
+> tracked reports carry MIMIC identifiers.
+>
+> SSH: `ssh se23ucse027@10.59.121.172`. Tell me what you find before changing
+> anything on the DGX.
+
+**On the DGX, first thing every session:**
+
+```bash
+cd ~/se23ucse027 && git pull
+```
+
+**On the owner's laptop, whenever code changes:** re-upload so the R2 fallback
+matches git, or the next stage will overwrite the checkout again.
+
+```bash
+./ecg_env/Scripts/python.exe scripts/dgx_portability/upload_data.py --dataset code configs
+```

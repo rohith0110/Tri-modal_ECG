@@ -56,8 +56,13 @@ starting cold reads this first, works, then updates it before the session ends.
   the internet, so §8.2 rule 2's mid-epoch piece fetch is available to campaigns
   6, 8 and 9. The fetch itself still has to run once before 15a is called
   validated.
-- **Next action — `stage_data.sh 1` for real on dgxa, then the venv, then the
-  smoke job.** Exact commands and state in Step 8 below.
+- **Next action — the venv on dgxa, then the smoke job, then campaign 1.**
+  Campaign 1 is already staged and checksum-verified. Python **3.10.12**, driver
+  **550.144.03 / CUDA 12.4**, so the **cu124** torch build. Exact commands in
+  Step 8 below and in **`docs/DGX_OPERATOR_HANDOVER.md`**, which is the
+  operational companion to this file: which machine does what, the Slurm
+  cheat-sheet, the six non-negotiable rules, and the prompt for starting a
+  session on the on-campus laptop that drives the DGX.
 - **Two DGX-only bugs were caught on the laptop in session 10 and fixed.**
   (1) `used_gb()` summed `du` over `PROJECT_ROOT`, `DATA_ROOT` and
   `RESULTS_ROOT` without noticing that **`RESULTS_ROOT` defaults to
@@ -877,6 +882,14 @@ plan; this is the index of record.
         The round trip proved on the laptop in session 8 now holds on the real
         machine, with `code`/`configs` landing in `$PROJECT_ROOT` and everything
         else at its manifest path under `data/processed/`.
+  - [x] **The DGX checkout is git, not rclone (2026-08-30).** `~/se23ucse027` is
+        a clone of the private repo; `git pull` updates code and `stage_data.sh`
+        only pulls data. R2's `code`/`configs` datasets are now the fallback for
+        when GitHub is unreachable. This forced a second line-ending fix:
+        `upload_data.py` ships the *working tree*, and with `core.autocrlf` on
+        Windows 197 tracked text files were CRLF locally and LF in git, so
+        staging over a fresh clone overwrote 66 of git's files. `*.py`, `*.yaml`,
+        `*.yml`, `*.json`, `*.md` are now pinned `eol=lf`.
   - [ ] **NEXT: the venv.** No `module`, no conda, no container runtime, so it is
         plain `python3 -m venv` against **Python 3.10.12** (the laptop is 3.11).
         `python3 -m venv` works — verified. Torch build must match the driver on

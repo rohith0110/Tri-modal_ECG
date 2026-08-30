@@ -270,6 +270,11 @@ encoding moves every metric **0.42× as much as changing the training seed does*
   plain venv + pip. (The laptop's env is 3.11.)
 - A `cpu_student` allocation still **sees all 6 local GPUs** via `nvidia-smi`,
   so staging jobs can run there without consuming a contended `gpu:a100`.
+- **Claude Code is NOT installed on the DGX, deliberately (decided 2026-08-30).**
+  It runs on the on-campus laptop that already holds the owner's authenticated
+  session and can reach the cluster over SSH. That keeps the auth token off the
+  facility, and keeps ~300 MB of Node and CLI out of the 50 GB. Node is not
+  installed on the DGX and does not need to be.
 - Reachable **only inside the MU network**. Access is by remote-desktopping into
   a friend's on-campus laptop. No inbound route from outside campus, ever
   (hard constraint — do not propose tunnels, Tailscale, or reverse SSH).
@@ -864,9 +869,15 @@ plan; this is the index of record.
         `DATA_ROOT=/dgxa_home/se23ucse027/se23ucse027/data/processed`,
         `quota OK: 0.08 GB used + 1.1 GB` — the nested-root accounting fix
         confirmed on the real machine.
-  - [ ] **NEXT: `stage_data.sh 1` for real** (1.1 GB, six datasets, every file
-        checksum-verified on arrival).
-  - [ ] **Then the venv.** No `module`, no conda, no container runtime, so it is
+  - [x] **`stage_data.sh 1` ran for real on dgxa, 2026-08-30.** Six datasets,
+        ~1.12 GB pulled at 22-41 MiB/s, and **every staged file verified against
+        its `checksums_<dataset>.json`** — 124 code files, 128 configs, the 12
+        task directories, index, fiducials and text, all `ok`, zero mismatches.
+        Finished: *"campaign 1 staged. Used: 1.18 GB of 45 GB ceiling."*
+        The round trip proved on the laptop in session 8 now holds on the real
+        machine, with `code`/`configs` landing in `$PROJECT_ROOT` and everything
+        else at its manifest path under `data/processed/`.
+  - [ ] **NEXT: the venv.** No `module`, no conda, no container runtime, so it is
         plain `python3 -m venv` against **Python 3.10.12** (the laptop is 3.11).
         `python3 -m venv` works — verified. Torch build must match the driver on
         dgxa; check `nvidia-smi` there before choosing the CUDA wheel.

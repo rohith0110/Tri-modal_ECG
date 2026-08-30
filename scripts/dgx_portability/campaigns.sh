@@ -171,7 +171,14 @@ push() {
             cp -r "$src" "$TRIMODAL_RESULTS_DEST/$rel/"
             ;;
         rclone|rclone-offline)
-            rclone copy --progress --checksum "$src" "$R2_RESULTS/$rel" \
+            # --s3-no-check-bucket: a bucket-scoped token cannot list buckets, so
+            # rclone cannot confirm the target exists and issues CreateBucket
+            # first -- which the token refuses with 403, and the push then fails
+            # at the END of a multi-day run with the results still only local.
+            # The bucket always exists; skip the check. Set here rather than only
+            # in rclone.conf so it does not depend on a config someone may
+            # recreate differently later.
+            rclone copy --progress --checksum --s3-no-check-bucket "$src" "$R2_RESULTS/$rel" \
                 || { echo "ERROR: rclone push failed for $src" >&2; return 1; }
             ;;
         none)

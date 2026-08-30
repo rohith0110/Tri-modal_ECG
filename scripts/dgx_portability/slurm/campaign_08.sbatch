@@ -3,6 +3,7 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
+#SBATCH --nodelist=dgxa
 #SBATCH --time=48:00:00
 #SBATCH --requeue
 #SBATCH --signal=B:TERM@300
@@ -17,6 +18,14 @@
 #   * No --partition is set: `gpu_student` is confirmed (Step 7, 2026-08-30) but
 #     it is a submit-time choice, and cpu_student exists for jobs that need no
 #     GPU.  Pass it:  sbatch --partition=gpu_student campaign_08.sbatch
+#   * --nodelist=dgxa is a DATA decision, not a GPU one. $HOME is
+#     /dgxa_home/se23ucse027: local ext4 on dgxa, NFS on dgxb. Measured
+#     2026-08-30 with dd iflag=direct: dgxa 2.9 GB/s, dgxb 105 MB/s -- 28x.
+#     The loader does tens of thousands of ~100 KB random reads per epoch, so a
+#     run that lands on dgxb does not fail, it starves the GPU for days. dgxa
+#     has 2 of the 7 full A100s; the 20 GB MIG slices there (a100_3g.20gb,
+#     a100_4g.20gb) are the way to get more concurrency without leaving the
+#     fast disk. Drop the pin only for a job that reads almost nothing.
 #   * --mem is MANDATORY here and is the reason a job silently never starts.
 #     These partitions default to the whole node's memory (1,031,800 MB), so a
 #     job without --mem waits for a completely empty node -- which never happens

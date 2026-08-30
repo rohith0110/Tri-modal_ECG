@@ -244,6 +244,22 @@ encoding moves every metric **0.42× as much as changing the training seed does*
   decision 2026-08-30: everything lives inside the 50 GB.** `/tmp` was removed
   from the candidate list, so `DATA_ROOT` resolves to `$HOME/trimodal-data`,
   a sibling of `$PROJECT_ROOT` and therefore counted once.
+- **One home, seen from every node, but only fast on one.**
+  `$HOME=/dgxa_home/se23ucse027` everywhere — local ext4 on dgxa, NFS from dgxa
+  on dgxb, and the login node resolves there too (`/home/se23ucse027` does not
+  exist). So a single staged copy serves both nodes and the `--requeue` resume
+  path survives landing on either. **But measured 2026-08-30 with
+  `dd iflag=direct`: dgxa 2.9 GB/s, dgxb 105 MB/s — 28x.** The loader does tens
+  of thousands of ~100 KB random reads per epoch, so a run on dgxb does not
+  fail, it starves the GPU for days. **All 14 campaigns are pinned
+  `--nodelist=dgxa`**, which costs GPUs: dgxa holds 2 of the 7 full A100s. The
+  20 GB MIG slices on dgxa (`a100_3g.20gb`, `a100_4g.20gb`) are the way to buy
+  concurrency back without leaving the fast disk — worth costing once peak
+  memory per campaign is measured.
+- **The 50 GB is not enforced.** `quota -s` reports `none`; the filesystem is
+  14 TB with 6.1 TB free, and nothing would stop a run at 60 GB. The ceiling is
+  policy, so `used_gb()` / `require_fit` is the only thing holding it — which is
+  why the /tmp fallback removal above matters more, not less.
 - **Python 3.10.12**, system, no `module`, no conda, no container runtime —
   plain venv + pip. (The laptop's env is 3.11.)
 - A `cpu_student` allocation still **sees all 6 local GPUs** via `nvidia-smi`,

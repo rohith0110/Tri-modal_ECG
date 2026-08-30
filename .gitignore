@@ -70,3 +70,7 @@
 *.pt
 *.pth
 *.ckpt
+
+# stage_data.sh writes these beside whatever it stages, including inside
+# config/ and the repo root, and they are transport artifacts, not source.
+checksums_*.json

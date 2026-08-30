@@ -32,6 +32,8 @@ The agent drives the DGX over `ssh`, so it must never need a password typed at
 it. Use a key plus an alias — the same shape as a multi-account GitHub
 `~/.ssh/config`. **The password is entered exactly once, by a human, in step 2.**
 
+macOS / Linux:
+
 ```bash
 # 1. a key dedicated to this cluster -- not your GitHub key
 ssh-keygen -t ed25519 -f ~/.ssh/mudgx -C "mu-dgx se23ucse027"
@@ -40,13 +42,30 @@ ssh-keygen -t ed25519 -f ~/.ssh/mudgx -C "mu-dgx se23ucse027"
 ssh-copy-id -i ~/.ssh/mudgx.pub se23ucse027@10.59.121.172
 ```
 
-No `ssh-copy-id` (Windows, or a minimal box)? Same thing by hand:
+**Windows PowerShell** — `~` is NOT expanded in `ssh-keygen -f`, and `.ssh` may
+not exist yet, so it fails with
+`Saving key "~/.ssh/mudgx" failed: No such file or directory`. Use full paths,
+and there is no `ssh-copy-id`:
 
 ```powershell
-type $env:USERPROFILE\.ssh\mudgx.pub | ssh se23ucse027@10.59.121.172 "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.ssh" | Out-Null
+ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\mudgx" -C "mu-dgx se23ucse027"
+
+type "$env:USERPROFILE\.ssh\mudgx.pub" | ssh se23ucse027@10.59.121.172 "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
 ```
 
-Then the alias, in `~/.ssh/config` (`C:\Users\<you>\.ssh\config` on Windows):
+With a passphrase set, load the key into the agent once per boot, or every
+command prompts for it:
+
+```powershell
+Get-Service ssh-agent | Set-Service -StartupType Manual
+Start-Service ssh-agent
+ssh-add "$env:USERPROFILE\.ssh\mudgx"
+```
+
+Then the alias, in `~/.ssh/config` — on Windows that is
+`C:\Users\<you>\.ssh\config`. `~` inside the file IS understood, because
+ssh expands it rather than the shell:
 
 ```
 Host mudgx

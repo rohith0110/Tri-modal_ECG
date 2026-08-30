@@ -81,7 +81,28 @@ R2_RESULTS="${R2_RESULTS:-r2:trimodal-results}"
 # the courier-a-drive fallback needs one variable set, not two.
 TRIMODAL_RESULTS_DEST="${TRIMODAL_RESULTS_DEST:-${TRIMODAL_SOURCE:-}/../trimodal-results}"
 
-have_rclone() { command -v rclone >/dev/null 2>&1; }
+# rclone is resolved, not assumed to be on PATH. A Slurm batch job runs a
+# NON-interactive shell, which never sources ~/.bashrc -- so the `export
+# PATH=$HOME/se23ucse027/bin:$PATH` that makes `rclone` work in an ssh session
+# is simply absent inside a job, and `command -v rclone` fails there while
+# succeeding in every interactive test. That is how campaign 1 reached
+# `transport=none` on its first real submit (job 22335) after staging by hand
+# had worked three times.
+RCLONE="${RCLONE:-}"
+resolve_rclone() {
+    [ -n "$RCLONE" ] && [ -x "$RCLONE" ] && return 0
+    local candidate
+    for candidate in "$(command -v rclone 2>/dev/null || true)"                      "$PROJECT_ROOT/bin/rclone" "$HOME/bin/rclone"                      "$HOME/se23ucse027/bin/rclone" "/usr/local/bin/rclone"; do
+        if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+            RCLONE="$candidate"
+            export RCLONE
+            return 0
+        fi
+    done
+    return 1
+}
+
+have_rclone() { resolve_rclone; }
 
 have_internet() {
     # Cheap, bounded, and never fatal. Used to pick a transport, not to gate.
@@ -150,7 +171,8 @@ fetch() {
             fi
             ;;
         rclone|rclone-offline)
-            rclone copy --progress --transfers 4 --checksum "${excludes[@]}" \
+            resolve_rclone || { echo "ERROR: rclone not resolvable" >&2; return 1; }
+            "$RCLONE" copy --progress --transfers 4 --checksum "${excludes[@]}" \
                 "$R2_DATA/$rel" "$dest" \
                 || { echo "ERROR: rclone copy failed for $rel" >&2; return 1; }
             ;;
@@ -183,7 +205,8 @@ push() {
             # The bucket always exists; skip the check. Set here rather than only
             # in rclone.conf so it does not depend on a config someone may
             # recreate differently later.
-            rclone copy --progress --checksum --s3-no-check-bucket "$src" "$R2_RESULTS/$rel" \
+            resolve_rclone || { echo "ERROR: rclone not resolvable" >&2; return 1; }
+            "$RCLONE" copy --progress --checksum --s3-no-check-bucket "$src" "$R2_RESULTS/$rel" \
                 || { echo "ERROR: rclone push failed for $src" >&2; return 1; }
             ;;
         none)

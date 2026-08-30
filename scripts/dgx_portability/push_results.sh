@@ -74,7 +74,7 @@ for run_dir in "${TARGETS[@]}"; do
     verified=1
     case "$(transport)" in
         rclone|rclone-offline)
-            rclone check "$staged" "$R2_RESULTS/$rel" --one-way >/dev/null 2>&1 || verified=0 ;;
+            resolve_rclone && "$RCLONE" check "$staged" "$R2_RESULTS/$rel"                 --one-way >/dev/null 2>&1 || verified=0 ;;
         local)
             for artifact in "$staged"/*; do
                 remote="$TRIMODAL_RESULTS_DEST/$rel/$(basename "$artifact")"

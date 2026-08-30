@@ -6,3 +6,15 @@ processed/** filter=lfs diff=lfs merge=lfs -text
 # stray carriage return -- bash fails it at the shebang. Keep them LF anywhere.
 *.sh     text eol=lf
 *.sbatch text eol=lf
+
+# Same reason as the shell scripts, one step removed: upload_data.py ships the
+# WORKING TREE to R2, and stage_data.sh pulls it onto a Linux box that also has
+# a git checkout. With autocrlf on Windows the two disagree on every text file,
+# so staging overwrites git's LF copies with CRLF ones and leaves the checkout
+# permanently dirty. Pin the ones we ship.
+*.py     text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.json   text eol=lf
+*.md     text eol=lf
+

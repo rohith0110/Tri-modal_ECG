@@ -4,7 +4,7 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-30 (session 10)
+- **Last updated:** 2026-08-30 (session 11)
 - **Current stage:** Stages P2.1–P2.4 were complete at full scale. **Round 10 —
   the Plan A/B compliance audit — then reopened four of them on purpose.**
   A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`
@@ -48,10 +48,16 @@ starting cold reads this first, works, then updates it before the session ends.
   datasets, nothing extra chunked) and a piece reader plus in-epoch cycling —
   **15a is implemented but not validated: a mid-epoch fetch needs outbound
   internet on the DGX, which is open question 4.**
-- **Next action — Step 7, the first DGX session.** Nothing on the laptop blocks
-  it. Take the open-question-4 checklist below: one command on a compute node
-  (`rclone lsd r2:trimodal-data && echo ONLINE || echo OFFLINE`) decides whether
-  15a's mid-epoch piece fetch is validated or the run needs `TRIMODAL_SOURCE`.
+- **Step 7 is DONE and Step 8 is half done (2026-08-30, session 11). The DGX
+  account is live and reaches R2.** `rclone lsd r2:trimodal-data` lists all 17
+  directories from the DGX; `stage_data.sh 1 --dry-run` resolves the right roots
+  and passes the quota check on the real machine.
+  **Open question 4 is ANSWERED: ONLINE** — a `cpu_student` compute node reaches
+  the internet, so §8.2 rule 2's mid-epoch piece fetch is available to campaigns
+  6, 8 and 9. The fetch itself still has to run once before 15a is called
+  validated.
+- **Next action — `stage_data.sh 1` for real on dgxa, then the venv, then the
+  smoke job.** Exact commands and state in Step 8 below.
 - **Two DGX-only bugs were caught on the laptop in session 10 and fixed.**
   (1) `used_gb()` summed `du` over `PROJECT_ROOT`, `DATA_ROOT` and
   `RESULTS_ROOT` without noticing that **`RESULTS_ROOT` defaults to
@@ -830,7 +836,8 @@ plan; this is the index of record.
 
 ### Part 2 — First DGX session (~1 hour)
 
-- [ ] **Step 7 — Environment survey** (the 7 checks; answers → §5 questions 4–7)
+- [x] **Step 7 — Environment survey. DONE 2026-08-30.** Findings and the five
+      launcher fixes they forced are in §3 (MU DGX) and session 11 below.
   - [x] **Question 4 — ANSWERED 2026-08-30: ONLINE.** A `cpu_student` compute
         node (dgxa) reached `https://downloads.rclone.org/` with **HTTP 200**,
         so the chunked campaigns can fetch piece k+1 mid-epoch, which is what
@@ -844,7 +851,26 @@ plan; this is the index of record.
         `export TRIMODAL_SOURCE=/path/to/staged/data` (mounted drive or campus
         share); `_campaign_body.sh` already warns when it sees
         `transport() = rclone-offline`. Nothing else in the design changes.
-- [ ] **Step 8 — Set up rclone + folders, run a 5-minute Slurm smoke job**
+- [ ] **Step 8 — Set up rclone + folders, run a 5-minute Slurm smoke job.**
+      IN PROGRESS 2026-08-30.
+  - [x] rclone v1.75.0 installed at `~/se23ucse027/bin/rclone`, on PATH via
+        `.bashrc`. Two remotes, least privilege: **`r2`** = `dgx-read-data`
+        (read-only on `trimodal-data`, verified: a write is correctly denied) and
+        **`r2-results`** = `dgx-write-results`, with `no_check_bucket = true`.
+  - [x] `rclone lsd r2:trimodal-data` lists all **17** directories from the DGX,
+        and a 43-byte round trip to `r2-results` succeeded and was deleted.
+  - [x] Folder layout built: everything under `~/se23ucse027/` (see §3).
+  - [x] `stage_data.sh 1 --dry-run` on dgxa resolves
+        `DATA_ROOT=/dgxa_home/se23ucse027/se23ucse027/data/processed`,
+        `quota OK: 0.08 GB used + 1.1 GB` — the nested-root accounting fix
+        confirmed on the real machine.
+  - [ ] **NEXT: `stage_data.sh 1` for real** (1.1 GB, six datasets, every file
+        checksum-verified on arrival).
+  - [ ] **Then the venv.** No `module`, no conda, no container runtime, so it is
+        plain `python3 -m venv` against **Python 3.10.12** (the laptop is 3.11).
+        `python3 -m venv` works — verified. Torch build must match the driver on
+        dgxa; check `nvidia-smi` there before choosing the CUDA wheel.
+  - [ ] Then the 5-minute Slurm smoke job.
 
 ### Part 3 — Full-scale build + audits, **on the laptop** (~2 days of compute)
 
@@ -1734,4 +1760,68 @@ them).
 
 **Next:** Step 7, the first DGX session. Answer question 4 on a compute node
 before anything else — 15a's validation waits on it.
+
+### Session 11 — 2026-08-30 — the DGX account arrived; Step 7 done, Step 8 half
+
+Credentials landed by email and the account works. **Everything below was
+measured on the machine, not assumed**, and five launcher bugs came out of it —
+each of which would have failed a real submit, most of them silently.
+
+**Connecting.** `ssh se23ucse027@10.59.121.172` from a machine on the MU
+network. Storage is 50 GB, account expires 2026-12-31, portal at
+`http://10.59.121.175/dgx`. Login node is a PowerEdge R760xs and holds no GPUs.
+
+**The five fixes** (all in §3 and in commits 501d9b7, 430f621, 2ecf0aa,
+5ad6515):
+
+1. **`--mem` is mandatory.** These partitions default to the *whole node's*
+   memory, 1,031,800 MB, so a job without `--mem` waits for a completely empty
+   node — which never happens here — and Slurm blames the nodes:
+   *"Nodes required for job are DOWN, DRAINED or reserved"*. A 1-CPU test job
+   pended on exactly this. All 14 campaigns now set `--mem=64G`.
+2. **`--gres=gpu:1` could have grabbed a 5 GB MIG slice.** The A100s are
+   partitioned into `a100`, `a100_4g.20gb`, `a100_3g.20gb`, `a100_2g.10gb` and
+   `a100_1g.5gb`; an untyped request matches any of them. Now
+   `--gres=gpu:a100:1`. **Only 7 full cards exist campus-wide, and they are
+   40 GB, not 80.**
+3. **`resolve_data_root()` would have staged outside the quota.** Its candidate
+   list ended in `/tmp/$USER` — the one path that IS writable on these nodes.
+   Project decision, from the owner: *everything lives inside the 50 GB*. `/tmp`
+   is no longer a candidate.
+4. **One roll-numbered folder.** The account is shared, so all work lives in
+   `~/se23ucse027/` — checkout, data, outputs — via `PROJECT_FOLDER`.
+5. **The results push tried to create the bucket.** A bucket-scoped token cannot
+   list buckets, so rclone issues `CreateBucket` before the first object and the
+   token refuses it with 403. Reproduced with a 43-byte file. **That would have
+   surfaced at the end of a multi-day campaign, with the only copy of the results
+   on a node whose account expires.** `--s3-no-check-bucket` is now on the push
+   path itself, not just in `rclone.conf`.
+
+**One home, one fast node.** `$HOME=/dgxa_home/se23ucse027` on *every* node —
+local ext4 on dgxa, NFS on dgxb, and the login node resolves there too. So one
+staged copy serves both nodes and `--requeue` resume survives either. But
+`dd iflag=direct` measured **dgxa 2.9 GB/s against dgxb 105 MB/s — 28x**. The
+loader does tens of thousands of ~100 KB random reads per epoch, so a run on
+dgxb starves the GPU for days without failing. **All 14 campaigns are pinned
+`--nodelist=dgxa`, which costs GPUs: dgxa has 2 of the 7 full A100s.** The
+20 GB MIG slices on dgxa are how to buy concurrency back without leaving the
+fast disk — cost them once peak memory per campaign is known.
+
+**The 50 GB is not enforced.** `quota -s` returns `none` on a 14 TB filesystem
+with 6.1 TB free. `used_gb()` / `require_fit` is the only thing holding the
+line, which is why fix 3 matters more, not less.
+
+**Two least-privilege R2 tokens, both verified from the DGX.** `r2` =
+`dgx-read-data`, read-only on `trimodal-data` — a write to it is correctly
+denied, so nothing on a shared account can damage the 226 GB. `r2-results` =
+`dgx-write-results`, round-tripped a file and deleted it. `laptop-full` stays on
+the laptop.
+
+**`code` was re-uploaded twice**, because the first DGX dry run proved the
+bucket copy was stale — it still resolved `DATA_ROOT=/tmp/...`. Re-pulled, and
+the dry run then gave the right roots and `quota OK: 0.08 GB used + 1.1 GB`.
+
+**Next:** `stage_data.sh 1` for real, then the venv (plain `python3 -m venv`,
+**Python 3.10.12**, no conda/module/container — `venv` verified working; pick
+the torch CUDA wheel against dgxa's driver), then the 5-minute smoke job.
 

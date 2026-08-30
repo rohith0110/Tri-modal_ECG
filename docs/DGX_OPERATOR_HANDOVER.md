@@ -63,6 +63,22 @@ Start-Service ssh-agent
 ssh-add "$env:USERPROFILE\.ssh\mudgx"
 ```
 
+**Then use the Windows ssh binary, not git-bash's.** The key lives in the
+*Windows* `ssh-agent`, which is reached over a named pipe; git-bash's
+`/usr/bin/ssh` speaks the MSYS socket protocol and cannot see it. With a
+passphrase-protected key, git-bash therefore offers the public key, cannot sign
+with it, and dies with a message that looks exactly like the key was never
+installed:
+
+```
+se23ucse027@10.59.121.172: Permission denied (publickey,password).
+```
+
+`ssh -vv` shows `Offering public key: ... explicit` right before the denial —
+that combination means *this* problem, not a missing `authorized_keys`. Use
+`/c/WINDOWS/System32/OpenSSH/ssh.exe` (or run from PowerShell) and it works
+with no prompt.
+
 Then the alias, in `~/.ssh/config` — on Windows that is
 `C:\Users\<you>\.ssh\config`. `~` inside the file IS understood, because
 ssh expands it rather than the shell:
@@ -275,7 +291,15 @@ sbatch --partition=gpu_student scripts/dgx_portability/slurm/campaign_01.sbatch
 
 Partition is passed at submit time on purpose; everything else (`--mem`,
 `--gres=gpu:a100:1`, `--nodelist=dgxa`, `--time`, `--requeue`) lives in the file.
-Override without editing it:
+**The `--gres` in the file is the large-run default and is very often the wrong
+thing to wait for** — read §3a and override it with a MIG slice unless the run
+actually needs 40 GB:
+
+```bash
+sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1        scripts/dgx_portability/slurm/campaign_01.sbatch
+```
+
+Override without editing the file:
 
 ```bash
 sbatch --partition=gpu_student --gres=gpu:a100:2 --mem=128G \
@@ -304,11 +328,11 @@ du -sh ~/se23ucse027
 
 ---
 
-## 5. State as of 2026-08-30, 13:00 IST
+## 5. State as of 2026-08-30, 15:00 IST (session 12)
 
 **Step 6 DONE** — 601 objects, 226.4 GiB in `r2:trimodal-data`.
 **Step 7 DONE** — environment surveyed; five launcher bugs found and fixed.
-**Step 8 IN PROGRESS.**
+**Step 8 — venv and smoke done; campaign 1 is the next thing to submit.**
 
 Done:
 
@@ -316,29 +340,48 @@ Done:
   the read-only data token is correctly denied.
 * `~/se23ucse027` is a clean git checkout **plus** staged data.
 * `stage_data.sh 1` run three times, every file checksum-verified, **zero
-  mismatches**: `campaign 1 staged. Used: 1.23 GB of 45 GB ceiling.`
+  mismatches**: `campaign 1 staged. Used: 1.23 GB of 45 GB ceiling.` (The
+  ceiling is now 49 — see rule 5 and the note below.)
 * Open question 4 **ANSWERED: ONLINE** — a compute node reaches the internet, so
   §8.2 rule 2's mid-epoch piece fetch is available to campaigns 6, 8 and 9.
+  Re-confirmed on 2026-08-30 when BioClinicalBERT downloaded onto dgxa mid-run.
+* **The venv is built and verified** (job 22331). Python 3.10.12,
+  **torch 2.6.0+cu124** against driver 550.144.03, all 17 imports resolving.
+  Exact versions are in `PHASE2_PROGRESS.md`, session 12 — nothing in this repo
+  pins them, so that log is the only record.
+  `HF_HOME` is appended to `ecg_env/bin/activate` and points at
+  `PROJECT_ROOT/.cache/huggingface`, so the model cache is counted by
+  `used_gb()` instead of hiding in `$HOME`.
+* **The venv costs 5.7 GB**, not the ~3 GB budgeted, and `used_gb()` counts it.
+  That is why the ceiling moved **45 -> 49 GB**, in both `campaigns.sh` and
+  `decision_phase2.yaml`.
+* **The smoke test ran** (job 22333, on a `a100_4g.20gb` slice, 8m43s):
+  **26 PASS / 30 FAIL**, and all 30 failures are `FileNotFoundError` on signal
+  and image files that campaign 1 does not stage. All 12 text tiers train and
+  eval; `gates` and the preemption handler pass. Scope, not breakage — see
+  below.
 
 Not done, in order:
 
-1. **The venv.** No `module`, no conda, no container runtime — plain
-   `python3 -m venv` against **Python 3.10.12** (the owner's laptop is 3.11).
-   Driver **550.144.03, CUDA 12.4** → the **cu124** torch build.
+1. **Campaign 1 for real.** It is `text_models`, and its staged data is already
+   on the node.
 
    ```bash
-   python3 -m venv ~/se23ucse027/ecg_env
-   source ~/se23ucse027/ecg_env/bin/activate
-   python -m pip install -q --upgrade pip
-   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-   python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.device_count())"
+   cd ~/se23ucse027
+   sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1           scripts/dgx_portability/slurm/campaign_01.sbatch
    ```
 
-   Then the project's own dependencies — read the imports in `30_train.py`,
-   `_dataset_lib`, `_model_lib`, `_train_lib` rather than guessing at a list.
-   Budget ~3 GB against the ceiling.
-2. **The 5-minute Slurm smoke job** (`_train_lib/smoke_test.py`).
-3. **Campaign 1 for real.**
+   The `--gres` override is deliberate — see §3a. The `.sbatch` still says
+   `a100:1`, which is right for whichever campaigns turn out to need it, and
+   wrong to wait three weeks for when a text campaign does not.
+2. **Read `peak_gpu_gb`** out of `outputs/model_runs/<run>/training_log.jsonl`
+   once campaign 1 has an epoch on the board, and size every later campaign of
+   each family from a measured number rather than an estimate.
+3. **Smoke the other families in front of the campaign that stages their data.**
+   `smoke_test.py` defaults to all six; scope it with
+   `--tiers text_tfidf text_bert` for a text campaign, `--tiers signal` when
+   signals are resident, and so on. Running the default on a node staged for one
+   campaign will always fail the other five families on missing files.
 
 ### Two loose ends
 
@@ -373,16 +416,17 @@ Paste this:
 > Run `git pull` before anything — and pull on the DGX too.
 >
 > We are mid-Step 8. Campaign 1 is staged and checksum-verified on the DGX at
-> `~/se23ucse027`; the venv does not exist yet. Next: build the venv (Python
-> 3.10.12, torch **cu124** for driver 550.144.03), install the project's real
-> dependencies by reading the imports rather than guessing, run the smoke test,
-> then submit campaign 1.
+> `~/se23ucse027`, the venv is built (torch 2.6.0+cu124, Python 3.10.12) and the
+> smoke test has run. Next: submit campaign 1, then read `peak_gpu_gb` out of
+> its `training_log.jsonl` to size the later campaigns.
 >
 > Rules that are not negotiable — all measured, all explained in the handover:
 > work inside an `srun` allocation on **dgxa**, never on the login node; every
-> job needs `--mem` or it pends forever; `--gres=gpu:a100:1`, never `gpu:1`; stay
-> inside 50 GB even though no quota is enforced; the repo stays private because
-> tracked reports carry MIMIC identifiers.
+> job needs `--mem` or it pends forever; always name the GPU type, never
+> `gpu:1` — and read §3a before asking for a full `a100:1`, because both of
+> dgxa's are held by faculty for weeks and a MIG slice allocates in seconds;
+> stay inside 50 GB even though no quota is enforced; the repo stays private
+> because tracked reports carry MIMIC identifiers.
 >
 > SSH is key-based and aliased: `ssh mudgx '<command>'` — no password, no
 > prompts. If anything asks for a password, stop and tell me rather than

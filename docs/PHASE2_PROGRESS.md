@@ -4,7 +4,7 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-30 (session 11)
+- **Last updated:** 2026-08-30 (session 12)
 - **Current stage:** Stages P2.1–P2.4 were complete at full scale. **Round 10 —
   the Plan A/B compliance audit — then reopened four of them on purpose.**
   A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`
@@ -56,13 +56,39 @@ starting cold reads this first, works, then updates it before the session ends.
   the internet, so §8.2 rule 2's mid-epoch piece fetch is available to campaigns
   6, 8 and 9. The fetch itself still has to run once before 15a is called
   validated.
-- **Next action — the venv on dgxa, then the smoke job, then campaign 1.**
-  Campaign 1 is already staged and checksum-verified. Python **3.10.12**, driver
-  **550.144.03 / CUDA 12.4**, so the **cu124** torch build. Exact commands in
-  Step 8 below and in **`docs/DGX_OPERATOR_HANDOVER.md`**, which is the
-  operational companion to this file: which machine does what, the Slurm
-  cheat-sheet, the six non-negotiable rules, and the prompt for starting a
-  session on the on-campus laptop that drives the DGX.
+- **The venv on dgxa is BUILT and verified (2026-08-30, session 12).** Python
+  **3.10.12**, **torch 2.6.0+cu124** against driver **550.144.03**, all 17
+  third-party imports resolving, `torch.cuda.is_available()` True on a real
+  allocation. The dependency list was read off the imports of `30_train.py`,
+  `_dataset_lib`, `_model_lib` and `_train_lib` — there is no
+  `requirements.txt` in this repo — and the resolved versions are recorded in
+  session 12 below. `HF_HOME` is pinned inside `PROJECT_ROOT` so the
+  HuggingFace cache is counted by `used_gb()` rather than hiding in `$HOME`.
+- **THE FULL 40 GB A100s ARE THE BINDING CONSTRAINT, not the queue in general
+  (2026-08-30).** dgxa has exactly two, and on this date both were held by
+  `gpu_faculty` jobs with **14 and 19 days** left; all five of dgxb's were also
+  taken. Slurm's estimate for `--gres=gpu:a100:1 --nodelist=dgxa` was **three
+  weeks out**. A `a100_4g.20gb` MIG slice on dgxa allocated in ~20 seconds.
+  **Rule 4 is amended: fit first, card second** — a slice on dgxa by default, a
+  full card on dgxb when a run truly needs >20 GB (paying the measured 28x I/O
+  penalty), and waiting for a full dgxa card only when a run needs both 40 GB
+  and the fast disk. See `DGX_OPERATOR_HANDOVER.md` §3a. To make that decision
+  measurable rather than guessed, `trainer.py` now records **`peak_gpu_gb`** in
+  every epoch row of `training_log.jsonl`; nothing recorded GPU memory before.
+- **The quota ceiling is 45 -> 49 GB.** `used_gb()` sums `du` over
+  `PROJECT_ROOT`, which now also holds the 5.7 GB venv and the HF cache — fixed
+  costs, not staged data. Campaign 7 stages 37.7 GB, which left ~1 GB of margin
+  under the old ceiling. Changed in both places it is written:
+  `campaigns.sh` and `decision_phase2.yaml`.
+- **Next action — the scoped smoke test, then campaign 1.**
+  `smoke_test.py` defaults to all six families, but campaign 1 is `text_models`
+  and stages `code configs tasks fiducials index text` — no signals, no images.
+  The signal/image/fusion tiers therefore cannot smoke until their data is
+  staged, and they should smoke in front of the campaign that needs them.
+  Exact commands in Step 8 below and in **`docs/DGX_OPERATOR_HANDOVER.md`**,
+  which is the operational companion to this file: which machine does what, the
+  Slurm cheat-sheet, the rules (now with §3a on GPU selection), and the prompt
+  for starting a session on the on-campus laptop that drives the DGX.
 - **Two DGX-only bugs were caught on the laptop in session 10 and fixed.**
   (1) `used_gb()` summed `du` over `PROJECT_ROOT`, `DATA_ROOT` and
   `RESULTS_ROOT` without noticing that **`RESULTS_ROOT` defaults to
@@ -890,11 +916,50 @@ plan; this is the index of record.
         Windows 197 tracked text files were CRLF locally and LF in git, so
         staging over a fresh clone overwrote 66 of git's files. `*.py`, `*.yaml`,
         `*.yml`, `*.json`, `*.md` are now pinned `eol=lf`.
-  - [ ] **NEXT: the venv.** No `module`, no conda, no container runtime, so it is
-        plain `python3 -m venv` against **Python 3.10.12** (the laptop is 3.11).
-        `python3 -m venv` works — verified. Torch build must match the driver on
-        dgxa; check `nvidia-smi` there before choosing the CUDA wheel.
-  - [ ] Then the 5-minute Slurm smoke job.
+  - [x] **The venv is BUILT (2026-08-30, session 12).** No `module`, no conda, no
+        container runtime, so plain `python3 -m venv` against **Python 3.10.12**
+        (the laptop is 3.11), inside an `srun` allocation on dgxa — job 22331,
+        `cpu_student`, granted in ~4 s. `nvidia-smi` from that allocation gave
+        **550.144.03 / 6x A100-SXM4-40GB**, so the **cu124** wheel.
+        Result: **torch 2.6.0+cu124**, torchvision 0.21.0+cu124, and all 17
+        third-party imports resolving with `FAILED: none`. The list came from
+        the imports of `30_train.py`, `_dataset_lib`, `_model_lib` and
+        `_train_lib` — there is no `requirements.txt` in this repo — and is
+        recorded in session 12 below. `HF_HOME` is appended to
+        `ecg_env/bin/activate`, which `activate_python()` sources, so the
+        HuggingFace cache lands in `PROJECT_ROOT/.cache/huggingface` and
+        `used_gb()` counts it. The venv costs **5.7 GB**, not the ~3 GB budgeted,
+        which is why the ceiling moved to 49.
+  - [x] **The smoke job RAN on a MIG slice, 2026-08-30 — 26 PASS / 30 FAIL, and
+        every one of the 30 is missing data, not broken code.** Job 22333,
+        `--gres=gpu:a100_4g.20gb:1` on dgxa, 8m43s.
+        `torch.cuda.is_available()` True on `A100-SXM4-40GB MIG 4g.20gb`.
+        **PASS:** all 12 text tiers train and eval (`text_tfidf` and
+        `text_bioclinicalbert` across A1/A3/A5/A6/B4/B5 — BioClinicalBERT
+        downloaded through `HF_HOME` on the node, which re-confirms open
+        question 4's ONLINE), plus `gates` and the preemption handler.
+        **FAIL:** all 30 signal / image / fusion tiers, every one of them
+        `FileNotFoundError` — 25 on `signals/lead2_preprocessed.h5`, 5 on image
+        files. **No other error type appears in the log.**
+        The cause is scope, not a bug: `smoke_test.py` defaults to all six
+        families, while campaign 1 is `text_models` and stages
+        `code configs tasks fiducials index text` (`campaigns.sh:233`) — no
+        signals, no images. `--tiers` scopes it. The signal/image/fusion tiers
+        smoke in front of the campaign that stages their data, not before.
+  - [x] **Two code fixes the DGX forced (commits f13be9a, 859cd8a).**
+        (1) `smoke_test.py` spawned `30_train.py` / `31_eval.py` through a
+        hard-coded `ecg_env/Scripts/python.exe`, which does not exist on Linux;
+        it is now `Path(sys.executable)`. It was the only live occurrence — the
+        other `Scripts/python.exe` hits in the tree are usage docstrings.
+        (2) `trainer.py` now records **`peak_gpu_gb`** per epoch in
+        `training_log.jsonl`. Nothing measured GPU memory before, and on this
+        cluster that number decides between a slice available now and a full
+        card three weeks out.
+  - [ ] **NEXT: campaign 1 for real**, submitted against a MIG slice rather than
+        a full card — `sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1`
+        overrides the `.sbatch`'s `a100:1` without editing it. Read
+        `peak_gpu_gb` from its `training_log.jsonl` to size every later
+        campaign of the same family.
 
 ### Part 3 — Full-scale build + audits, **on the laptop** (~2 days of compute)
 
@@ -1849,3 +1914,76 @@ the dry run then gave the right roots and `quota OK: 0.08 GB used + 1.1 GB`.
 **Python 3.10.12**, no conda/module/container — `venv` verified working; pick
 the torch CUDA wheel against dgxa's driver), then the 5-minute smoke job.
 
+### Session 12 — 2026-08-30 — the venv on dgxa, and the GPU that is not there
+
+Driven from the **on-campus laptop** over `ssh mudgx`, per
+`DGX_OPERATOR_HANDOVER.md`. No data on that machine and none needed.
+
+**SSH, first.** Key auth failed from git-bash with
+`Permission denied (publickey,password)` even though the key was offered. The
+key was fine and `authorized_keys` on the DGX was fine: the key carries a
+passphrase and lives in the **Windows** `ssh-agent`, which git-bash's
+`/usr/bin/ssh` cannot reach (named pipe vs MSYS socket). Calling
+`/c/WINDOWS/System32/OpenSSH/ssh.exe` uses the agent and never prompts. If a
+future session sees that error, check *which* ssh binary is running before
+touching the key.
+
+**Cancelling an `ssh` does not cancel the `srun` it started.** A killed
+`nvidia-smi` allocation was still sitting in the queue minutes later as job
+22330. `scancel` it — a pending job holds a scheduling slot.
+
+**The venv** (job 22331, `cpu_student --nodelist=dgxa --mem=8G`, allocated in
+~4 s). Python 3.10.12, driver 550.144.03, 6x A100-SXM4-40GB, so cu124:
+
+```
+torch==2.6.0+cu124  torchvision==0.21.0+cu124  numpy==2.2.6  pandas==2.3.3
+pyarrow==25.0.1  scipy==1.15.3  scikit-learn==1.7.2  transformers==5.16.1
+tokenizers==0.23.1  huggingface_hub==1.29.0  h5py==3.16.0  pydantic==2.13.5
+psutil==7.2.2  pillow==12.3.0  matplotlib==3.10.9  tqdm==4.70.0  PyYAML==6.0.3
+neurokit2==0.2.13  lifelines==0.30.0
+```
+
+Nothing is pinned anywhere in this repo, so these are what pip resolved on this
+date and they are recorded here because nothing else records them. Note
+**transformers 5.x**, a major version ahead of what the code was written
+against; the usage is core (`AutoModel` / `AutoConfig` / `AutoTokenizer`,
+`.from_pretrained`, `bert.embeddings.parameters()`) and all 12 text tiers
+smoke-passed on it. The venv is **5.7 GB**, against the ~3 GB budgeted.
+
+**The finding that matters: the full 40 GB A100s are the scarce resource.**
+A `--gres=gpu:a100:1 --nodelist=dgxa` smoke job pended on `Priority` with
+`StartTime=2026-09-21` — three weeks. dgxa has two full cards and both were
+held by `gpu_faculty` jobs with 14 d 04 h and 19 d 02 h left; all five of
+dgxb's were taken as well, and `gpu_student` job 22313 was already pending
+ahead of us for the first one to free. Free on dgxa the same minute:
+one `a100_4g.20gb`, five `a100_2g.10gb`, sixteen `a100_1g.5gb`.
+
+The slice allocated in about twenty seconds. **Rule 4 is amended to "fit first,
+card second"** — `DGX_OPERATOR_HANDOVER.md` §3a. dgxb becomes the real answer
+when a run needs more than 20 GB, accepting the measured 28x NFS penalty, which
+is a per-campaign judgement: memory-bound runs yes, I/O-bound runs no. And
+because that judgement had no measured basis at all, `trainer.py` now writes
+`peak_gpu_gb` into each epoch row of `training_log.jsonl`.
+
+**The smoke test** (job 22333, `a100_4g.20gb`, 8m43s): **26 PASS, 30 FAIL, and
+all 30 failures are `FileNotFoundError`** — 25 on `signals/lead2_preprocessed.h5`
+and 5 on image files. No other error type in the log. All 12 text tiers train
+and eval; `gates` and the preemption handler pass. BioClinicalBERT downloaded
+onto the node through `HF_HOME`, which re-confirms question 4's ONLINE.
+
+The failures are scope, not breakage: the smoke test defaults to all six
+families while campaign 1 (`text_models`) stages only
+`code configs tasks fiducials index text`. `--tiers text_tfidf text_bert` is
+the honest run for campaign 1's scope; the other families smoke in front of the
+campaign that stages their data.
+
+**Two fixes** (f13be9a, 859cd8a): `smoke_test.py`'s hard-coded
+`ecg_env/Scripts/python.exe` became `Path(sys.executable)` — it does not exist
+on Linux and was the only live occurrence; and the ceiling moved 45 -> 49 GB in
+**both** places it is written, `campaigns.sh` and `decision_phase2.yaml`,
+because `used_gb()` now also counts the 5.7 GB venv and the HF cache against a
+campaign that stages 37.7 GB.
+
+**Next:** campaign 1 for real, submitted with
+`--gres=gpu:a100_4g.20gb:1` overriding the `.sbatch`'s `a100:1`, then read
+`peak_gpu_gb` off its log to size the rest.

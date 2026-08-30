@@ -228,11 +228,11 @@ So the rule is **fit first, card second**:
    queue wait is part of the cost of the run.
 
 **How to know which one a run needs.** As of 2026-08-30 the trainer records
-`peak_gpu_gb` in every epoch's row of `training_log.jsonl`, so the answer is
+`peak_gpu_gb` in every epoch's row of `train_log.jsonl`, so the answer is
 measured rather than guessed:
 
 ```bash
-grep -o '"peak_gpu_gb": [0-9.]*' outputs/model_runs/<run>/training_log.jsonl | sort -u
+grep -o '"peak_gpu_gb": [0-9.]*' outputs/model_runs/<run>/train_log.jsonl | sort -u
 ```
 
 Read it off the first campaign of each family, then size every sibling run from
@@ -374,10 +374,25 @@ Not done, in order:
    The `--gres` override is deliberate — see §3a. The `.sbatch` still says
    `a100:1`, which is right for whichever campaigns turn out to need it, and
    wrong to wait three weeks for when a text campaign does not.
-2. **Read `peak_gpu_gb`** out of `outputs/model_runs/<run>/training_log.jsonl`
+2. **Read `peak_gpu_gb`** out of `outputs/model_runs/<run>/train_log.jsonl`
    once campaign 1 has an epoch on the board, and size every later campaign of
    each family from a measured number rather than an estimate.
-3. **Smoke the other families in front of the campaign that stages their data.**
+3. **Clean up after a smoke run.** `smoke_test.py` never calls
+   `push_results.sh`, so it leaves every checkpoint it wrote on disk:
+   **~20 GB under `outputs/model_runs/_dev/`** after a full-matrix run (each
+   text run writes `checkpoint_best.pt` + `checkpoint_last.pt` at ~1.2 GB
+   each). `used_gb()` counts all of it. Delete it once the run's PASS/FAIL
+   record is in hand -- it is regenerable and, by the smoke test's own
+   docstring, proves nothing about the numbers:
+
+   ```bash
+   rm -rf ~/se23ucse027/outputs/model_runs/_dev
+   ```
+
+   A real campaign does not have this problem: `_campaign_body.sh` calls
+   `push_results.sh` after every run, which pushes `checkpoint_best.pt` and
+   deletes both local checkpoints once the push verifies (§8.1).
+4. **Smoke the other families in front of the campaign that stages their data.**
    `smoke_test.py` defaults to all six; scope it with
    `--tiers text_tfidf text_bert` for a text campaign, `--tiers signal` when
    signals are resident, and so on. Running the default on a node staged for one
@@ -418,7 +433,7 @@ Paste this:
 > We are mid-Step 8. Campaign 1 is staged and checksum-verified on the DGX at
 > `~/se23ucse027`, the venv is built (torch 2.6.0+cu124, Python 3.10.12) and the
 > smoke test has run. Next: submit campaign 1, then read `peak_gpu_gb` out of
-> its `training_log.jsonl` to size the later campaigns.
+> its `train_log.jsonl` to size the later campaigns.
 >
 > Rules that are not negotiable — all measured, all explained in the handover:
 > work inside an `srun` allocation on **dgxa**, never on the login node; every

@@ -74,7 +74,7 @@ starting cold reads this first, works, then updates it before the session ends.
   penalty), and waiting for a full dgxa card only when a run needs both 40 GB
   and the fast disk. See `DGX_OPERATOR_HANDOVER.md` §3a. To make that decision
   measurable rather than guessed, `trainer.py` now records **`peak_gpu_gb`** in
-  every epoch row of `training_log.jsonl`; nothing recorded GPU memory before.
+  every epoch row of `train_log.jsonl`; nothing recorded GPU memory before.
 - **The quota ceiling is 45 -> 49 GB.** `used_gb()` sums `du` over
   `PROJECT_ROOT`, which now also holds the 5.7 GB venv and the HF cache — fixed
   costs, not staged data. Campaign 7 stages 37.7 GB, which left ~1 GB of margin
@@ -952,13 +952,13 @@ plan; this is the index of record.
         it is now `Path(sys.executable)`. It was the only live occurrence — the
         other `Scripts/python.exe` hits in the tree are usage docstrings.
         (2) `trainer.py` now records **`peak_gpu_gb`** per epoch in
-        `training_log.jsonl`. Nothing measured GPU memory before, and on this
+        `train_log.jsonl`. Nothing measured GPU memory before, and on this
         cluster that number decides between a slice available now and a full
         card three weeks out.
   - [ ] **NEXT: campaign 1 for real**, submitted against a MIG slice rather than
         a full card — `sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1`
         overrides the `.sbatch`'s `a100:1` without editing it. Read
-        `peak_gpu_gb` from its `training_log.jsonl` to size every later
+        `peak_gpu_gb` from its `train_log.jsonl` to size every later
         campaign of the same family.
 
 ### Part 3 — Full-scale build + audits, **on the laptop** (~2 days of compute)
@@ -1963,7 +1963,7 @@ card second"** — `DGX_OPERATOR_HANDOVER.md` §3a. dgxb becomes the real answer
 when a run needs more than 20 GB, accepting the measured 28x NFS penalty, which
 is a per-campaign judgement: memory-bound runs yes, I/O-bound runs no. And
 because that judgement had no measured basis at all, `trainer.py` now writes
-`peak_gpu_gb` into each epoch row of `training_log.jsonl`.
+`peak_gpu_gb` into each epoch row of `train_log.jsonl`.
 
 **The smoke test** (job 22333, `a100_4g.20gb`, 8m43s): **26 PASS, 30 FAIL, and
 all 30 failures are `FileNotFoundError`** — 25 on `signals/lead2_preprocessed.h5`

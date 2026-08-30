@@ -48,6 +48,7 @@ NAME="$(campaign_name "$CAMPAIGN")"
 RESIDENT="$(campaign_phase_gb "$CAMPAIGN" "$PHASE")"
 CHUNKED="$(campaign_chunked "$CAMPAIGN")"
 DATASETS="$(campaign_datasets "$CAMPAIGN")"
+SKIP_CODE_VERIFY=""
 
 log "campaign $CAMPAIGN ($NAME) phase=$PHASE: resident ~${RESIDENT} GB, chunked=$CHUNKED"
 log "transport=$(transport)  DATA_ROOT=$DATA_ROOT"
@@ -99,6 +100,26 @@ for dataset in $DATASETS; do
             # the loader resolves them under PROJECT_ROOT. Everything else keeps
             # its path relative to data/processed and unpacks into DATA_ROOT,
             # which _campaign_body.sh links to $PROJECT_ROOT/data/processed.
+            #
+            # A GIT CHECKOUT WINS OVER R2. `code`/`configs` in the bucket are the
+            # fallback for when GitHub is unreachable, not the source of truth --
+            # the DGX checkout is git (2026-08-30). Staging them over a checkout
+            # silently reverts whatever git has that the last upload does not: on
+            # 2026-08-30 job 22336 rolled back five files mid-session, including
+            # the quota ceiling and the rclone resolver this very script needs,
+            # and the next job then failed on the reverted copy. rclone --checksum
+            # cannot save us here, because the bucket copy is genuinely different,
+            # just older.
+            if [ -z "${TRIMODAL_FORCE_CODE_STAGE:-}" ]                && git -C "$PROJECT_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+                log "skipping $dataset: $PROJECT_ROOT is a git checkout, and git is"
+                log "  the source of truth for code. Set TRIMODAL_FORCE_CODE_STAGE=1"
+                log "  to restore from R2 anyway (do that only when git is unreachable)."
+                # The bucket's manifest describes the bucket's copy, so it must
+                # not be used to judge git's copy -- every commit made since the
+                # last upload would read as corruption.
+                SKIP_CODE_VERIFY=1
+                continue
+            fi
             log "staging $dataset into $PROJECT_ROOT"
             fetch "$dataset" "$PROJECT_ROOT" "$PHASE"
             ;;
@@ -117,7 +138,17 @@ done
 
 # ---- verify what landed ---------------------------------------------------
 verify_failed=0
+SKIP_CODE_VERIFY="${SKIP_CODE_VERIFY:-}"
 while IFS= read -r manifest; do
+    case "$(basename "$manifest")" in
+        checksums_code.json|checksums_configs.json)
+            if [ -n "$SKIP_CODE_VERIFY" ]; then
+                log "skipping $(basename "$manifest"): it describes R2's copy of the"
+                log "  code, and this checkout is git's. Verified by git, not by sha."
+                continue
+            fi
+            ;;
+    esac
     dir="$(dirname "$manifest")"
     log "verifying $(basename "$dir") against $(basename "$manifest")"
     python3 - "$manifest" "$dir" <<'PY' || verify_failed=1

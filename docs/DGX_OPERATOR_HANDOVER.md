@@ -26,6 +26,75 @@ cd Tri-modal_ECG
 ssh se23ucse027@10.59.121.172      # confirm the DGX is reachable from this machine
 ```
 
+### SSH without a password — do this before starting Claude Code
+
+The agent drives the DGX over `ssh`, so it must never need a password typed at
+it. Use a key plus an alias — the same shape as a multi-account GitHub
+`~/.ssh/config`. **The password is entered exactly once, by a human, in step 2.**
+
+```bash
+# 1. a key dedicated to this cluster -- not your GitHub key
+ssh-keygen -t ed25519 -f ~/.ssh/mudgx -C "mu-dgx se23ucse027"
+
+# 2. install the PUBLIC half on the DGX. The one and only password prompt.
+ssh-copy-id -i ~/.ssh/mudgx.pub se23ucse027@10.59.121.172
+```
+
+No `ssh-copy-id` (Windows, or a minimal box)? Same thing by hand:
+
+```powershell
+type $env:USERPROFILE\.ssh\mudgx.pub | ssh se23ucse027@10.59.121.172 "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+```
+
+Then the alias, in `~/.ssh/config` (`C:\Users\<you>\.ssh\config` on Windows):
+
+```
+Host mudgx
+    HostName 10.59.121.172
+    User se23ucse027
+    IdentityFile ~/.ssh/mudgx
+    IdentitiesOnly yes
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    # Reuse one authenticated connection for many short commands. An agent makes
+    # dozens, and this turns each into a channel on an existing socket instead
+    # of a fresh TCP + auth handshake. (Not supported on Windows -- omit there.)
+    ControlMaster auto
+    ControlPath ~/.ssh/cm-%r@%h:%p
+    ControlPersist 10m
+```
+
+`ControlPath` needs `~/.ssh` to exist and be private: `chmod 700 ~/.ssh`.
+
+Verify, then it is `mudgx` everywhere:
+
+```bash
+ssh mudgx 'hostname; whoami'      # must NOT prompt for anything
+```
+
+How the agent then works:
+
+```bash
+ssh mudgx 'cd ~/se23ucse027 && git pull'
+ssh mudgx 'squeue -u $USER -o "%.8i %.12P %.2t %.10M %.10L %R"'
+ssh mudgx 'sbatch --partition=gpu_student ~/se23ucse027/scripts/dgx_portability/slurm/campaign_01.sbatch'
+```
+
+**Rules for the key:**
+
+* **Never** commit a private key. `~/.ssh/` is outside the repo; keep it there.
+* If the laptop is not yours, give the key a passphrase and load it into
+  `ssh-agent` for the session, so a copied key file is useless on its own.
+* When the work is done, revoke it and delete both halves:
+
+  ```bash
+  ssh mudgx "sed -i '/mu-dgx se23ucse027/d' ~/.ssh/authorized_keys"
+  rm ~/.ssh/mudgx ~/.ssh/mudgx.pub
+  ```
+
+* The account password stays in the password manager. If a command ever prompts
+  for it, something is misconfigured — fix the key, do not type it.
+
 The repo is **private and must stay that way**: tracked reports under `outputs/`
 contain row-level MIMIC identifiers (study_id, subject_id, hadm_id, charttime),
 which the PhysioNet DUA forbids publishing. Making it public again requires
@@ -235,8 +304,9 @@ Paste this:
 > inside 50 GB even though no quota is enforced; the repo stays private because
 > tracked reports carry MIMIC identifiers.
 >
-> SSH: `ssh se23ucse027@10.59.121.172`. Tell me what you find before changing
-> anything on the DGX.
+> SSH is key-based and aliased: `ssh mudgx '<command>'` — no password, no
+> prompts. If anything asks for a password, stop and tell me rather than
+> working around it. Tell me what you find before changing anything on the DGX.
 
 **On the DGX, first thing every session:**
 

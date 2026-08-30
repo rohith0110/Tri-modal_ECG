@@ -63,6 +63,31 @@ activate_python
 
 log "torch: $(python3 -c 'import torch; print(torch.__version__, torch.cuda.is_available())')"
 
+# ---- HuggingFace: no forked parallelism, no Hub calls once cached ----------
+# Campaign 1's first run (job 22336) hung dead at batch 1 of 8218: the main
+# process and all four DataLoader workers sat in futex_wait with 15 seconds of
+# CPU between them across ten minutes. The last thing in the log is the Hub
+# being called -- transformers 5.x asks for /discussions and /commits/refs
+# while resolving a model, and each forked worker then re-resolves the
+# tokenizer itself.
+#
+# TOKENIZERS_PARALLELISM=false: the Rust tokenizer's thread pool does not
+# survive a fork, and a tokenizer touched before the fork deadlocks the child.
+# The DataLoader forks its workers, so this must be set before python starts.
+#
+# HF_HUB_OFFLINE=1, but only once the model is actually in the cache: a warm
+# cache needs no network at all, and every Hub round trip inside a worker is a
+# chance to hang on a box whose outbound path is not guaranteed. If the model
+# is not cached yet, stay online so the first run can fetch it.
+export TOKENIZERS_PARALLELISM=false
+HF_MODEL_CACHE="${HF_HOME:-$HOME/.cache/huggingface}/hub/models--emilyalsentzer--Bio_ClinicalBERT"
+if [ -d "$HF_MODEL_CACHE" ]; then
+    export HF_HUB_OFFLINE=1
+    log "huggingface: cache warm, HF_HUB_OFFLINE=1"
+else
+    log "huggingface: cache cold, staying online for the first fetch"
+fi
+
 # ---- stage ----------------------------------------------------------------
 # The refusal gate lives in stage_data.sh and runs before any byte moves.
 if [ "$CHUNKED" = "yes" ]; then

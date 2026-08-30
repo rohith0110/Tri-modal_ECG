@@ -29,9 +29,15 @@ resolve_data_root() {
         printf '%s\n' "$DATA_ROOT"
         return
     fi
+    # NOT /tmp. It is writable on these nodes, so it would be picked
+    # automatically, and it would hold staged data OUTSIDE the 50 GB the
+    # facility allocated us: space that is not ours, that `used_gb` cannot
+    # see, that differs between dgxa and dgxb, and that a reboot empties
+    # mid-campaign. Project decision 2026-08-30 -- everything lives inside
+    # the quota. Export DATA_ROOT to override, deliberately, per run.
     local candidate
-    for candidate in "${SCRATCH:-}" "/scratch/${USER:-}" "/raid/${USER:-}" "/work/${USER:-}" \
-                     "/tmp/${USER:-}"; do
+    for candidate in "${SCRATCH:-}" "/scratch/${USER:-}" "/raid/${USER:-}" \
+                     "/work/${USER:-}"; do
         [ -n "$candidate" ] || continue
         if mkdir -p "$candidate/trimodal-data" 2>/dev/null \
            && [ -w "$candidate/trimodal-data" ]; then

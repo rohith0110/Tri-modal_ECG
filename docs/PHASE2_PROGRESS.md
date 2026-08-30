@@ -216,9 +216,38 @@ encoding moves every metric **0.42× as much as changing the training seed does*
 
 ### MU DGX (primary compute)
 
-- NVIDIA **DGX A100**, nodes `dgxa` / `dgxb`, login `dgx-login01` (10.59.121.172)
-- **Slurm**, partitions `cpu_student` and `gpu_student`
-- **50 GB** storage quota — the constraint the whole execution plan is built around
+- NVIDIA **DGX A100**, nodes `dgxa` / `dgxb`, login `dgx-login01` (10.59.121.172),
+  Ubuntu 22.04.5. **Surveyed 2026-08-30 (Step 7) — the numbers below are measured.**
+- **Slurm**, partitions `cpu_student` / `gpu_student` (**MaxTime 7 days**);
+  `*_faculty` and `*_scholar` exist at **30 days** and outrank us. Jobs of 15, 5
+  and 4 days were running during the survey — **queue wait, not GPU speed, sets
+  throughput for the 312 runs.**
+- **GPUs are MIG-partitioned and the cards are 40 GB, not 80.** Full cards:
+  `gpu:a100` ×2 on dgxa, ×5 on dgxb — **7 in total, campus-wide**. The rest are
+  slices: `a100_4g.20gb`, `a100_3g.20gb`, `a100_2g.10gb`, `a100_1g.5gb` (24 of
+  the smallest). **An untyped `--gres=gpu:1` matches any of them, including a
+  5 GB slice**, so every `.sbatch` now says `--gres=gpu:a100:1`. The slices are
+  far less contended and worth costing once peak memory per campaign is known.
+- **`--mem` is mandatory.** These partitions default to the whole node's memory
+  (1,031,800 MB), so a job without `--mem` waits for a completely empty node —
+  forever, on a shared box — and Slurm reports it as *"Nodes required for job
+  are DOWN, DRAINED or reserved"*, blaming the nodes rather than the request.
+  All 14 `.sbatch` files now carry `--mem=64G`.
+- **50 GB storage quota** — the constraint the whole execution plan is built
+  around. `/home` shows 238 GB in `df`; that is the filesystem, not the quota,
+  and there is no `quota` command, so **`du` is the only measure** — which is
+  what `used_gb()` does.
+- **No writable scratch.** `/scratch`, `/raid`, `/work` exist but are not
+  writable; only `/tmp/$USER` is. `resolve_data_root()` used to fall through to
+  `/tmp`, which would have staged 30 GB outside the quota — node-local, invisible
+  to `used_gb`, different on dgxa and dgxb, emptied by a reboot. **Project
+  decision 2026-08-30: everything lives inside the 50 GB.** `/tmp` was removed
+  from the candidate list, so `DATA_ROOT` resolves to `$HOME/trimodal-data`,
+  a sibling of `$PROJECT_ROOT` and therefore counted once.
+- **Python 3.10.12**, system, no `module`, no conda, no container runtime —
+  plain venv + pip. (The laptop's env is 3.11.)
+- A `cpu_student` allocation still **sees all 6 local GPUs** via `nvidia-smi`,
+  so staging jobs can run there without consuming a contended `gpu:a100`.
 - Reachable **only inside the MU network**. Access is by remote-desktopping into
   a friend's on-campus laptop. No inbound route from outside campus, ever
   (hard constraint — do not propose tunnels, Tailscale, or reverse SSH).
@@ -786,8 +815,12 @@ plan; this is the index of record.
 ### Part 2 — First DGX session (~1 hour)
 
 - [ ] **Step 7 — Environment survey** (the 7 checks; answers → §5 questions 4–7)
-  - [ ] **Question 4 is now on the critical path and answers in one command.**
-        Run it on a COMPUTE node, not the login node:
+  - [x] **Question 4 — ANSWERED 2026-08-30: ONLINE.** A `cpu_student` compute
+        node (dgxa) reached `https://downloads.rclone.org/` with **HTTP 200**,
+        so the chunked campaigns can fetch piece k+1 mid-epoch, which is what
+        §8.2 rule 2's cycling does. **15a's design is validated in principle;
+        the mid-epoch fetch itself still has to run once against R2.**
+        Original wording:
         `rclone lsd r2:trimodal-data && echo ONLINE || echo OFFLINE`.
         ONLINE means the chunked campaigns (6, 8, 9) can fetch piece k+1
         mid-epoch, which is what §8.2 rule 2's cycling does. OFFLINE means they

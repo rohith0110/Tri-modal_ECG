@@ -291,6 +291,42 @@ actually stream bytes per sample.
 
 ---
 
+## 3c. Nothing may depend on the operator's laptop
+
+Slurm jobs survive everything on this end: closing Claude Code, closing the
+terminal, shutting the campus laptop, leaving the network. Jobs run, queued
+jobs start, and with `gres/gpu=1` each shard begins as the previous one ends,
+unattended.
+
+**Anything the agent runs locally does not.** A polling loop on the laptop that
+watches a job and reacts to it dies with the session, silently. If a piece of
+automation has to outlive the session, it belongs on the cluster as a batch
+job.
+
+`slurm/swap_watcher.sbatch` is the worked example. It moves the running A1
+shard from a dgxa MIG slice to a full A100 on dgxb, at an epoch boundary, once
+a card frees:
+
+```bash
+cd ~/se23ucse027 && sbatch scripts/dgx_portability/slurm/swap_watcher.sbatch
+```
+
+Two properties make it safe to leave running:
+
+* **It requests no GPU** — `cpu_student`, 1 CPU, 1 GB. The account's cap is one
+  GPU total, so a watcher that asked for one would compete with the training it
+  is supposed to be helping.
+* **It fails back.** The cap also means the old job must be cancelled before the
+  new one can start, so there is a window where another user can take the card.
+  `swap_to_dgxb.sh` resubmits to a dgxa slice if the dgxb submit does not take,
+  so the worst case is where we started, minus one partial epoch. It never
+  leaves the campaign holding no GPU.
+
+The same shape applies to any future "watch for X then do Y": no GPU, a real
+fallback, and a batch job rather than a laptop.
+
+---
+
 ## 4. Slurm, practically
 
 Partitions available to this account: `cpu_student`, `gpu_student` — **7-day**

@@ -396,6 +396,19 @@ class Trainer:
         n = max(1, len(losses))
         return mean_loss, {k: v / n for k, v in head_totals.items()}
 
+    def _peak_gpu_gb(self) -> float | None:
+        """Peak CUDA memory since the last reset, in GB; None on CPU.
+
+        Reset after each read so the number describes one epoch rather than the
+        whole run -- the first epoch is usually the high-water mark, but a
+        chunked campaign's later pieces can be wider.
+        """
+        if not torch.cuda.is_available():
+            return None
+        peak = torch.cuda.max_memory_allocated() / (1024 ** 3)
+        torch.cuda.reset_peak_memory_stats()
+        return round(peak, 3)
+
     def train(self) -> dict[str, Any]:
         config = self.config
         history: list[dict[str, Any]] = []
@@ -453,6 +466,11 @@ class Trainer:
                 "epochs_without_improvement": self.epochs_without_improvement,
                 "seconds": round(time.time() - epoch_start, 2),
                 "amp": self.amp_tag,
+                # Peak device memory for the epoch, in GB. This is what decides
+                # whether a run needs a full 40 GB A100 or fits a MIG slice --
+                # measured per run rather than assumed, because on this cluster
+                # the full cards are the scarce resource and the slices are not.
+                "peak_gpu_gb": self._peak_gpu_gb(),
                 "timestamp": bc.utc_now_iso(),
             }
             history.append(row)

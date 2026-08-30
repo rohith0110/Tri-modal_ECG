@@ -370,7 +370,9 @@ data_residency:
   results_bucket: "r2:trimodal-results (private, DGX read-write)"
   never_on_dgx_only: "no Phase 2 artifact may exist only on the DGX; results are pushed off-node as they are produced"
   raw_mimic_never_leaves_laptop: true
-  refuse_campaign_if_over_gb: 45
+  refuse_campaign_if_over_gb: 49   # raised 45 -> 49 on 2026-08-30: PROJECT_ROOT now also
+                                   # holds the 5.7 GB venv and the HuggingFace cache, both
+                                   # fixed costs that used_gb() counts. Policy total is 50.
   signal_storage_format:
     on_laptop: "float32 + gzip-4 (Phase 1 materialisation, unchanged)"
     staged_to_dgx: "int16 + per-record scale factor + shuffle + gzip-4"

@@ -158,16 +158,77 @@ Two R2 remotes, least privilege:
    1,031,800 MB, so a job without it waits for a completely empty node — which
    never happens here — and Slurm blames the nodes: *"Nodes required for job are
    DOWN, DRAINED or reserved"*. All 14 `.sbatch` files set `--mem=64G`.
-4. **`--gres=gpu:a100:1`, never `gpu:1`.** The A100s are MIG-partitioned into
-   `a100`, `a100_4g.20gb`, `a100_3g.20gb`, `a100_2g.10gb`, `a100_1g.5gb`; an
-   untyped request matches any of them, including a **5 GB** slice that OOMs
-   hours in. The full cards are **40 GB**, not 80.
+4. **Always name the GPU type; never `--gres=gpu:1`.** The A100s are
+   MIG-partitioned into `a100`, `a100_4g.20gb`, `a100_3g.20gb`,
+   `a100_2g.10gb`, `a100_1g.5gb`. An untyped request matches any of them,
+   including a **5 GB** slice that OOMs hours in. The full cards are **40 GB**,
+   not 80. **But a full card is not always what a run needs** — see §3a.
+
+   Amended 2026-08-30 (session 12). The original rule said `a100:1` always.
+   That is what a *large* run needs, and asking for it unconditionally is what
+   put a 5-minute smoke job three weeks deep in the queue.
 5. **50 GB, and not one byte more.** `quota -s` reports *no* quota — the limit is
    policy on a 14 TB filesystem with 6.1 TB free. `used_gb()` / `require_fit()`
    is the only thing enforcing it. `/tmp` was deliberately removed from the
    `DATA_ROOT` candidate list for this reason; do not put it back.
 6. **Stage inside the job.** `_campaign_body.sh` stages, trains, evicts. Do not
    pre-stage from the login node.
+
+---
+
+## 3a. Which GPU to ask for — measured 2026-08-30
+
+**The full 40 GB A100s are the scarce resource on this cluster; the MIG slices
+are not.** On 2026-08-30 dgxa's two full cards were both held by `gpu_faculty`
+jobs with **14 and 19 days** left, and every one of dgxb's five was taken too.
+Slurm's own estimate for a `--gres=gpu:a100:1 --nodelist=dgxa` request was
+**three weeks out**. In the same minute, a `a100_4g.20gb` slice on dgxa
+allocated in about twenty seconds.
+
+What dgxa held free that day:
+
+| slice | free / total |
+| ----- | ------------ |
+| `a100` (40 GB) | **0 / 2** |
+| `a100_3g.20gb` | 0 / 2 |
+| `a100_4g.20gb` | 1 / 2 |
+| `a100_2g.10gb` | 5 / 5 |
+| `a100_1g.5gb`  | 16 / 16 |
+
+So the rule is **fit first, card second**:
+
+1. **Default: a MIG slice on dgxa.** `--gres=gpu:a100_4g.20gb:1` (20 GB) or
+   `a100_3g.20gb:1`. Keeps rule 2's 2.9 GB/s local ext4, which is the thing
+   that actually decides whether the loader starves the GPU. Available today.
+2. **If the run genuinely needs more than 20 GB: a full card on dgxb.**
+   `--nodelist=dgxb --gres=gpu:a100:1`. dgxb is the *only* place a full card
+   is realistically obtainable while faculty hold dgxa's two for weeks. The
+   cost is real and measured — 105 MB/s NFS against dgxa's 2.9 GB/s, **28x** —
+   so this is for runs that are memory-bound, not I/O-bound: small dataset,
+   large model. Weigh it per campaign; a big-data campaign on dgxb starves for
+   days without ever failing.
+3. **Waiting for a full card on dgxa** is the third option, not the first. It
+   is right only when a run needs both 40 GB and the fast disk, and then the
+   queue wait is part of the cost of the run.
+
+**How to know which one a run needs.** As of 2026-08-30 the trainer records
+`peak_gpu_gb` in every epoch's row of `training_log.jsonl`, so the answer is
+measured rather than guessed:
+
+```bash
+grep -o '"peak_gpu_gb": [0-9.]*' outputs/model_runs/<run>/training_log.jsonl | sort -u
+```
+
+Read it off the first campaign of each family, then size every sibling run from
+it. Config batch sizes as they stand: signal resnet18_1d 256 (128 for A4/A6),
+image resnet50 64 at 224x672 / 384x512, text BERT 32 at 512 tokens, fusion and
+cosine 16. Precision is `bf16` on A100 (`decision_phase2.yaml` §5), and MIG
+slices support bf16 exactly as the full card does. The tier to watch is
+`image_resnet50` at 384x512 x 64 -- that is the one nobody should assert fits
+20 GB without reading `peak_gpu_gb` first.
+
+**`--mem` is unrelated to all of this.** That is host RAM, and rule 3 still
+stands: always pass it, on every job, whatever GPU you asked for.
 
 ---
 

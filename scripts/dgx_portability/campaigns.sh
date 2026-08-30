@@ -24,6 +24,8 @@ QUOTA_CEILING_GB="${QUOTA_CEILING_GB:-45}"
 # exists. If it does, data goes there and the 50 GB home quota only holds code,
 # checkpoints and logs; if it does not, everything shares the quota. Override
 # by exporting DATA_ROOT before calling.
+PROJECT_FOLDER="${PROJECT_FOLDER:-se23ucse027}"
+
 resolve_data_root() {
     if [ -n "${DATA_ROOT:-}" ]; then
         printf '%s\n' "$DATA_ROOT"
@@ -39,16 +41,24 @@ resolve_data_root() {
     for candidate in "${SCRATCH:-}" "/scratch/${USER:-}" "/raid/${USER:-}" \
                      "/work/${USER:-}"; do
         [ -n "$candidate" ] || continue
-        if mkdir -p "$candidate/trimodal-data" 2>/dev/null \
-           && [ -w "$candidate/trimodal-data" ]; then
-            printf '%s\n' "$candidate/trimodal-data"
+        if mkdir -p "$candidate/$PROJECT_FOLDER/data/processed" 2>/dev/null \
+           && [ -w "$candidate/$PROJECT_FOLDER/data/processed" ]; then
+            printf '%s\n' "$candidate/$PROJECT_FOLDER/data/processed"
             return
         fi
     done
-    printf '%s\n' "$HOME/trimodal-data"
+    # No writable scratch here (measured 2026-08-30), so data lives inside the
+    # project folder: one roll-numbered directory holds checkout, data and
+    # outputs. used_gb counts a nested root once, and _campaign_body.sh skips
+    # its symlink when DATA_ROOT already IS $PROJECT_ROOT/data/processed.
+    printf '%s\n' "$HOME/$PROJECT_FOLDER/data/processed"
 }
 
-PROJECT_ROOT="${PROJECT_ROOT:-$HOME/trimodal}"
+# The DGX account is shared, so everything this project writes goes in ONE
+# folder named after the roll number -- nobody has to guess whose files these
+# are. Override PROJECT_FOLDER (or PROJECT_ROOT outright) for another account.
+PROJECT_FOLDER="${PROJECT_FOLDER:-se23ucse027}"
+PROJECT_ROOT="${PROJECT_ROOT:-$HOME/$PROJECT_FOLDER}"
 DATA_ROOT="$(resolve_data_root)"
 RESULTS_ROOT="${RESULTS_ROOT:-$PROJECT_ROOT/outputs}"
 STATE_DIR="${STATE_DIR:-$PROJECT_ROOT/.campaign_state}"

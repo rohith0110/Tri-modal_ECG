@@ -34,10 +34,12 @@
 #     path real: the trainer gets 5 minutes' warning, writes checkpoint_last.pt
 #     and exits 0, so Slurm requeues it and it continues mid-epoch.
 #
-# TRIMODAL_HOME defaults to ~/trimodal; set it if the checkout lives elsewhere.
+# TRIMODAL_HOME defaults to ~/se23ucse027 -- the roll number, because the DGX
+# account is shared and one named folder means nobody confuses whose files
+# these are. Set it if the checkout lives elsewhere.
 
 set -euo pipefail
 export CAMPAIGN=3
-export PROJECT_ROOT="${TRIMODAL_HOME:-$HOME/trimodal}"
+export PROJECT_ROOT="${TRIMODAL_HOME:-$HOME/se23ucse027}"
 
 . "$PROJECT_ROOT/scripts/dgx_portability/slurm/_campaign_body.sh"

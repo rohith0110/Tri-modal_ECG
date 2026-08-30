@@ -13,7 +13,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # The DGX holds two least-privilege tokens, not one all-buckets token: reading
-# trimodal-data is READ-ONLY there, so nothing running on a shared account can
+# trimodal-data is READ-ONLY there, so no script running on the cluster can
 # damage the staged data, and writing results needs a separate remote. The
 # laptop keeps a single all-buckets remote, so this default only moves here --
 # campaigns.sh still defaults R2_RESULTS to r2:trimodal-results for the laptop.

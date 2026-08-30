@@ -1788,7 +1788,7 @@ network. Storage is 50 GB, account expires 2026-12-31, portal at
    list ended in `/tmp/$USER` — the one path that IS writable on these nodes.
    Project decision, from the owner: *everything lives inside the 50 GB*. `/tmp`
    is no longer a candidate.
-4. **One roll-numbered folder.** The account is shared, so all work lives in
+4. **One roll-numbered folder.** All work lives in
    `~/se23ucse027/` — checkout, data, outputs — via `PROJECT_FOLDER`.
 5. **The results push tried to create the bucket.** A bucket-scoped token cannot
    list buckets, so rclone issues `CreateBucket` before the first object and the
@@ -1813,7 +1813,7 @@ line, which is why fix 3 matters more, not less.
 
 **Two least-privilege R2 tokens, both verified from the DGX.** `r2` =
 `dgx-read-data`, read-only on `trimodal-data` — a write to it is correctly
-denied, so nothing on a shared account can damage the 226 GB. `r2-results` =
+denied, so no script running on the cluster can damage the 226 GB. `r2-results` =
 `dgx-write-results`, round-tripped a file and deleted it. `laptop-full` stays on
 the laptop.
 

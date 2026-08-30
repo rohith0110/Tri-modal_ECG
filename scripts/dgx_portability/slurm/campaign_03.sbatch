@@ -43,9 +43,9 @@
 #     path real: the trainer gets 5 minutes' warning, writes checkpoint_last.pt
 #     and exits 0, so Slurm requeues it and it continues mid-epoch.
 #
-# TRIMODAL_HOME defaults to ~/se23ucse027 -- the roll number, because the DGX
-# account is shared and one named folder means nobody confuses whose files
-# these are. Set it if the checkout lives elsewhere.
+# TRIMODAL_HOME defaults to ~/se23ucse027 -- the roll number, so this project's
+# files stay identifiable on a facility-wide filesystem. Set it if the checkout
+# lives elsewhere.
 
 set -euo pipefail
 export CAMPAIGN=3

@@ -54,9 +54,11 @@ resolve_data_root() {
     printf '%s\n' "$HOME/$PROJECT_FOLDER/data/processed"
 }
 
-# The DGX account is shared, so everything this project writes goes in ONE
-# folder named after the roll number -- nobody has to guess whose files these
-# are. Override PROJECT_FOLDER (or PROJECT_ROOT outright) for another account.
+# Everything this project writes goes in ONE folder named after the roll
+# number. Homes sit side by side on a facility-wide filesystem, so a named
+# folder keeps this project's files identifiable and keeps the account's home
+# from filling with loose directories. Override PROJECT_FOLDER (or
+# PROJECT_ROOT outright) for another account.
 PROJECT_FOLDER="${PROJECT_FOLDER:-se23ucse027}"
 PROJECT_ROOT="${PROJECT_ROOT:-$HOME/$PROJECT_FOLDER}"
 DATA_ROOT="$(resolve_data_root)"

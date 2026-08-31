@@ -160,7 +160,77 @@ def plan_from_config(config: dict[str, Any]) -> ModalityPlan:
         block = config["text"]
         plan.text_encoder = _canonical_text_encoder(block["encoder"])
         plan.text_max_length = int(block.get("max_length", 512))
+    _check_plan_matches_tier(plan, config)
     return plan
+
+
+# The three modality blocks this function reads. Anything that looks like a
+# modality block but is not one of these would be silently ignored -- the run
+# would train without that input and say nothing, which is the same failure
+# shape as the tf-idf collision.
+_MODALITY_KEYS = {"signal", "image", "text"}
+_MODALITY_TYPOS = {"signals", "images", "texts", "ecg", "waveform", "report",
+                   "report_text", "text_encoder", "img"}
+
+
+def _check_plan_matches_tier(plan: "ModalityPlan", config: dict[str, Any]) -> None:
+    """Assert the realised plan is what the config's `arch_tier` name promises.
+
+    The tier name is the run's identity: it names the directory results land in,
+    it is the column the paper compares across, and it is what a reader believes
+    was trained. Nothing checked that the plan actually matched it, which is how
+    `text_tfidf` runs trained BioClinicalBERT for a day and a half and wrote
+    results under `text_tfidf/`.
+
+    Deliberately policy-aware: a task whose input policy forbids images gets a
+    `multimodal_fusion` config with no image block (B5 is the real case), and
+    that is correct. So this checks the things the tier name genuinely fixes --
+    which encoder, and that a named modality was actually wired -- not a modality
+    count.
+    """
+    tier = str(config.get("arch_tier", "")).lower()
+    if not tier:
+        return
+
+    for key in config:
+        if str(key).lower() in _MODALITY_TYPOS - _MODALITY_KEYS:
+            raise ValueError(
+                f"config for tier {tier!r} has a top-level {key!r} block. "
+                f"plan_from_config only reads {sorted(_MODALITY_KEYS)}, so this "
+                "block would be silently ignored and the run would train "
+                "without it."
+            )
+
+    expectations: list[tuple[bool, bool, str]] = [
+        ("tfidf" in tier,        plan.text_encoder == "tfidf",
+         "tier names tf-idf, so the plan must use the tf-idf encoder"),
+        ("bioclinicalbert" in tier, plan.text_encoder == "bioclinicalbert",
+         "tier names BioClinicalBERT, so the plan must use that encoder"),
+        ("notext" in tier,       not plan.uses_text,
+         "tier says notext, so no text encoder may be wired"),
+        (tier.startswith("text_"),  plan.uses_text,
+         "tier is a text tier, so text must be wired"),
+        (tier.startswith("signal_"), plan.uses_signal,
+         "tier is a signal tier, so signal must be wired"),
+        (tier.startswith("image_"),  plan.uses_image,
+         "tier is an image tier, so image must be wired"),
+    ]
+    for applies, holds, why in expectations:
+        if applies and not holds:
+            raise ValueError(
+                f"arch_tier {tier!r} does not match the modality plan it "
+                f"produced ({why}). Realised plan: signal={plan.signal_kind!r} "
+                f"image={plan.image_kind!r} text_encoder={plan.text_encoder!r}. "
+                "Refusing to train a model the tier name misdescribes."
+            )
+
+    # A declared block that produced nothing means an inner key was misspelt.
+    for key in _MODALITY_KEYS:
+        if config.get(key) and not getattr(plan, f"uses_{key}"):
+            raise ValueError(
+                f"config for tier {tier!r} declares a {key!r} block, but the "
+                f"plan did not enable {key}. An inner key is probably misspelt."
+            )
 
 
 # -----------------------------------------------------------------------------

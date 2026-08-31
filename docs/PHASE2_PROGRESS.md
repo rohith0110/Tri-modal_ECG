@@ -152,6 +152,32 @@ starting cold reads this first, works, then updates it before the session ends.
     other four swallowed exceptions are a read-only cache write, handle
     teardown, stdout reconfiguration, and an expected-exception gate. No bare
     `except:` anywhere outside `_legacy_phase1_pre_regen/`.
+- **The 12 task builders were audited too (2026-09-01) — no bugs found.**
+  Checked against their own staged outputs rather than argued from the code:
+  - **zero duplicate `study_id`** in every one-row-per-study task and split
+    (A1, A2, A3, A4, A6, B1, B5), so none of the **39 merges that carry no
+    `validate=`** has multiplied rows;
+  - **zero null label columns** anywhere, in any task or split;
+  - the tasks that do repeat `study_id` do so by design and the numbers
+    reconcile — B3 is exactly 4 rows per study (temporal bins, uniform), and B2
+    is one natural row for each of 149,546 studies plus a full corruption sweep
+    (`corruption_type` x `snr_db`, ~41 per regime) for 1,871 anchors,
+    distinguished by `row_role` / `is_anchor`.
+  - **A6's `errors="coerce"` is safe**: NaT rows are dropped explicitly for ED
+    disposition, and mortality falls back `dod -> admissions.deathtime` with
+    **`mortality_observable` carried as its own column** — "known alive" stays
+    distinguishable from "unobservable". Same discipline as `delineate_ok`.
+    Every other `fillna(False)`/`fillna(0)` is a flag or count where absence
+    genuinely means False or zero.
+  - **One tripwire added** (`01_build_A1`): `aggregate_by_encounter` merges rows
+    against a group table built from those same rows' codes, so its
+    `fillna(False)` is a no-op — it now asserts that, because an unmatched ICD
+    code would become a confidently NEGATIVE label rather than a missing one.
+    `validate="many_to_one"` guards the other direction.
+  - **Follow-up, deliberately not done:** adding `validate=` to the other 38
+    merges. The outputs prove they are correct today, so it is hardening for
+    future re-runs, not a fix — and editing scripts whose outputs are already
+    audited carries its own risk.
   - **Noted, not a bug:** B5's `multimodal_fusion` tier is two modalities
     (signal+text) where every other task's is three, because B5's input policy
     forbids images. Correct, but it means cross-task fusion comparisons are not

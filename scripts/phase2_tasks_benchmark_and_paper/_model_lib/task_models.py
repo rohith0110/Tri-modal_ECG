@@ -62,8 +62,19 @@ class TaskModel(nn.Module):
         self.image_encoder = (ImageResNet50(pretrained=pretrained)
                               if plan.uses_image else None)
         if plan.uses_text:
-            self.text_encoder = (TfidfPassthrough() if plan.text_encoder == "tfidf"
-                                 else BioClinicalBertEncoder(pretrained=pretrained))
+            # No default branch: an unrecognised name must fail loudly. Choosing
+            # BERT for "anything that is not tfidf" is what let every tf-idf run
+            # train BioClinicalBERT for a day and a half without a single sign.
+            if plan.text_encoder == "tfidf":
+                self.text_encoder = TfidfPassthrough()
+            elif plan.text_encoder == "bioclinicalbert":
+                self.text_encoder = BioClinicalBertEncoder(pretrained=pretrained)
+            else:
+                raise ValueError(
+                    f"unknown text encoder {plan.text_encoder!r}; expected "
+                    "'tfidf' or 'bioclinicalbert'. plan_from_config canonicalises "
+                    "these -- if you got here, it was bypassed."
+                )
         else:
             self.text_encoder = None
 

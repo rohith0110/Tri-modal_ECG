@@ -158,7 +158,7 @@ def plan_from_config(config: dict[str, Any]) -> ModalityPlan:
         plan.image_augment = bool(block.get("augmentation", False))
     if config.get("text"):
         block = config["text"]
-        plan.text_encoder = str(block["encoder"]).lower()
+        plan.text_encoder = _canonical_text_encoder(block["encoder"])
         plan.text_max_length = int(block.get("max_length", 512))
     return plan
 
@@ -166,6 +166,40 @@ def plan_from_config(config: dict[str, Any]) -> ModalityPlan:
 # -----------------------------------------------------------------------------
 # image transforms (§5.3)
 # -----------------------------------------------------------------------------
+# The emitted configs name encoder CLASSES (`TfidfTextEncoder`,
+# `BioClinicalBert`), while the model builder switches on the SHORT names this
+# module documents on ModalityPlan.text_encoder ("tfidf" | "bioclinicalbert").
+# A plain `.lower()` produced "tfidftextencoder", which matched neither -- and
+# because `task_models.py` chose BERT for anything that was not exactly
+# "tfidf", every tf-idf run silently trained BioClinicalBERT instead. It could
+# not be seen from the outside: no crash, no warning, and the run wrote a
+# config saying `encoder: TfidfTextEncoder`. It was caught on 2026-08-31 only
+# because campaign 1's tf-idf and BERT runs returned identical macro_AUPRC to
+# four decimals with identical 7.8 GB peak memory.
+#
+# Unknown names now raise rather than defaulting to anything.
+_TEXT_ENCODER_ALIASES = {
+    "tfidf": "tfidf",
+    "tfidftextencoder": "tfidf",
+    "tfidfpassthrough": "tfidf",
+    "bioclinicalbert": "bioclinicalbert",
+    "bioclinicalbertencoder": "bioclinicalbert",
+}
+
+
+def _canonical_text_encoder(name: "Any") -> str:
+    key = str(name).strip().lower()
+    try:
+        return _TEXT_ENCODER_ALIASES[key]
+    except KeyError:
+        raise ValueError(
+            f"unknown text encoder {name!r}. Known: "
+            f"{sorted(set(_TEXT_ENCODER_ALIASES.values()))}. "
+            "Add an alias in _TEXT_ENCODER_ALIASES rather than letting the "
+            "model builder fall back to a default."
+        ) from None
+
+
 def _decode_image(raw: bytes) -> "Any":
     from PIL import Image
 

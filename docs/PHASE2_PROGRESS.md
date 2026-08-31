@@ -174,10 +174,24 @@ starting cold reads this first, works, then updates it before the session ends.
     `fillna(False)` is a no-op — it now asserts that, because an unmatched ICD
     code would become a confidently NEGATIVE label rather than a missing one.
     `validate="many_to_one"` guards the other direction.
-  - **Follow-up, deliberately not done:** adding `validate=` to the other 38
-    merges. The outputs prove they are correct today, so it is hardening for
-    future re-runs, not a fix — and editing scripts whose outputs are already
-    audited carries its own risk.
+  - **DONE 2026-09-01 — `validate=` is now on all 42 merge calls** (verified by
+    AST walk, not grep: 42 calls, 0 without). Each was classified from its
+    right-hand table, not blanket-applied: **`many_to_one` on 39** where the
+    right side is unique on the join key (per-study metadata, per-hadm
+    admissions, per-subject patients, group tables built from the same rows'
+    distinct codes, groupby/drop_duplicates results), and **`many_to_many` on
+    3** — A6's `prior_history` and `ed_disposition_before_ecg`, where a
+    subject's studies are deliberately crossed with that subject's admissions
+    and filtered by time straight after. That performs no check; it records
+    that the fan-out is intended, beside the ones where it is not.
+    **Tested before it reached the queued shards:** constructing every
+    campaign-1 task x split on the staged data exercises the live data-path
+    merges — **18/18 ok, 0 fail**. Not exercised by that test, and therefore
+    unproven until their next run: the 12 builders' own merges (they need raw
+    MIMIC, which is on the owner's laptop only), `50_run_baselines`,
+    `31_eval.attach_b6_tiers` (B6 only), and `chunk_pieces` (chunked campaigns
+    only). A wrong classification there fails loudly on the next run rather
+    than corrupting anything.
   - **Noted, not a bug:** B5's `multimodal_fusion` tier is two modalities
     (signal+text) where every other task's is three, because B5's input policy
     forbids images. Correct, but it means cross-task fusion comparisons are not

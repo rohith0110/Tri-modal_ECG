@@ -95,7 +95,13 @@ starting cold reads this first, works, then updates it before the session ends.
   tf-idf was wrong. Fixed in **1e266f2**: names canonicalise in one place
   (`_TEXT_ENCODER_ALIASES`) and both switch points now raise on anything
   unknown rather than defaulting.
-  **Consequences, still open:**
+  **RESOLVED 2026-09-01:** the fix is proven on the machine. The scoped smoke
+  test (`--tiers text_tfidf text_bert`, job 22484) passed all 24 text
+  train/eval checks with tf-idf now visibly a different model
+  (`train A1_text_tfidf 8.4s` vs `text_bioclinicalbert 13.9s`), and the live
+  re-run trains at **148.84 it/s against BERT's 4.9** — ~55 s per epoch instead
+  of 29 minutes. The tf-idf path had never executed once before this.
+  **Consequences, now handled:**
   - **6 configs / 18 runs affected** (one tf-idf config per text task x 3 seeds).
   - A1's three tf-idf runs are **invalid, and already pushed to `r2-results`**
     with their checkpoints deleted locally. They must be re-run and the pushed
@@ -104,6 +110,52 @@ starting cold reads this first, works, then updates it before the session ends.
     burn ~75 GPU-hours producing more of the same. Nothing else was lost — they
     had not started.
   - **The A1 BERT results stand** and do not need re-running.
+  - **DONE:** the three invalid runs were purged from `r2-results` and locally;
+    campaign 1 was resubmitted as six per-task shards on dgxa `a100_4g.20gb`
+    (jobs 22485–22490), and the A1 shard correctly **skipped the three finished
+    BERT runs** and re-ran only tf-idf.
+
+- **Guards added after the tf-idf collision (2026-09-01).** All three are
+  proven, not just written:
+  1. **`plan_from_config` asserts the plan matches the `arch_tier` name.** A
+     tfidf tier must produce the tfidf encoder, a `notext` tier no text, a
+     `text_`/`signal_`/`image_` tier that modality; a declared block that
+     produced nothing (misspelt inner key) and a modality-ish top-level key the
+     function does not read (misspelt outer key) both raise. Deliberately
+     policy-aware — B5 forbids images, so its `multimodal_fusion` configs
+     legitimately have no image block. **Validated against all 104 configs:
+     104 accepted, 0 rejected**, and re-injecting the original bug is caught.
+  2. **`31_eval.py` refuses to write results when two arch tiers produce
+     bit-identical headline metrics** (`--allow-identical-tiers` to override).
+     That comparison was the only thing that caught this bug.
+  3. **`_campaign_body.sh` skips runs whose `run_summary.json` says
+     `complete`.** push_results deletes both checkpoints once a run is in R2, so
+     `try_resume()` found nothing and the loop retrained finished work — which
+     also meant **every wall-clock requeue silently retrained every completed
+     run** before reaching the unfinished one. `TRIMODAL_FORCE_RERUN=1`
+     overrides.
+
+- **Audit sweep for the same failure shape (2026-09-01).** Two more found and
+  fixed:
+  - **`stage_data.sh` verified nothing when nothing was staged.** A manifest
+    entry absent from disk was skipped as neither ok nor bad, so a fetch that
+    pulled *zero* files still printed a clean verification. It now counts
+    absences, prints `verified N, absent M of T`, and fails when a manifest
+    lists files and none are present.
+  - **`smoke_test.py`'s recovery checks were hard-wired to a signal tier**, so a
+    scoped text run reported three FAILs about missing `signals/*.h5`. Spurious
+    FAILs teach you to skim past FAIL lines. The recovery target now follows
+    `--tiers`; `test_gates` stays pinned to B1 because it needs a task whose
+    policy genuinely forbids images.
+  - **Audited and sound:** `delineate_ok` is carried as a real column into the
+    parquet and stage stats, so a NeuroKit failure is recorded not silent; the
+    other four swallowed exceptions are a read-only cache write, handle
+    teardown, stdout reconfiguration, and an expected-exception gate. No bare
+    `except:` anywhere outside `_legacy_phase1_pre_regen/`.
+  - **Noted, not a bug:** B5's `multimodal_fusion` tier is two modalities
+    (signal+text) where every other task's is three, because B5's input policy
+    forbids images. Correct, but it means cross-task fusion comparisons are not
+    like-for-like — worth a line in the paper.
 - **Next action — the scoped smoke test, then campaign 1.**
   `smoke_test.py` defaults to all six families, but campaign 1 is `text_models`
   and stages `code configs tasks fiducials index text` — no signals, no images.

@@ -214,7 +214,7 @@ def main() -> int:
     text = bc.report_text_series(dev=args.dev)
     masked = labels[["study_id", "subject_id", "split", "hr_label", "qrs_label", "qtc_label"]].merge(
         text, on="study_id", how="inner"
-    )
+    , validate="many_to_one")
     log.info("masked-attribute rows (all three measurements valid): %d", len(masked))
 
     results = [mask_report(t, masker) for t in masked.report_text.tolist()]

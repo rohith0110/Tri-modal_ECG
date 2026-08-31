@@ -135,7 +135,7 @@ def main() -> int:
     cohort = bc.load_clean_cohort(dev=args.dev)
     meas = bc.machine_measurements(dev=args.dev)
     text = bc.report_text_series(dev=args.dev)
-    df = cohort.merge(meas, on="study_id", how="left").merge(text, on="study_id", how="left")
+    df = cohort.merge(meas, on="study_id", how="left", validate="many_to_one").merge(text, on="study_id", how="left", validate="many_to_one")
     log.info("clean cohort: %d studies", len(df))
 
     lowered = df.report_text.fillna("").str.lower()

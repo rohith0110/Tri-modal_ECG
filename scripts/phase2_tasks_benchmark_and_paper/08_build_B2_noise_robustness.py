@@ -122,7 +122,7 @@ def main() -> int:
 
     # An anchor without valid machine measurements has no B1 label to inherit.
     anchors = corrupted[["study_id"]].drop_duplicates()
-    anchor_labels = anchors.merge(labels, on="study_id", how="inner")
+    anchor_labels = anchors.merge(labels, on="study_id", how="inner", validate="many_to_one")
     log.info("anchors with usable B1 labels: %d of %d", len(anchor_labels), len(anchors))
 
     frames: list[pd.DataFrame] = []
@@ -130,7 +130,7 @@ def main() -> int:
     # regime_1 -- the frozen corrupted test set, and its paired clean reference.
     corrupt_rows = corrupted.drop(columns=["split", "subject_id", "corruption_status"]).merge(
         anchor_labels, on="study_id", how="inner"
-    )
+    , validate="many_to_one")
     corrupt_rows = corrupt_rows.assign(
         clean_signal_kind="raw_lead2", corrupted_signal_kind="signal_corrupted",
         regime="regime_1", row_role="corrupted", is_anchor=True,

@@ -159,7 +159,7 @@ def main() -> int:
 
     cohort = bc.load_clean_cohort(dev=args.dev)
     fid = pd.read_parquet(fiducials)
-    df = cohort.merge(fid, on="study_id", how="inner")
+    df = cohort.merge(fid, on="study_id", how="inner", validate="many_to_one")
     if len(df) != len(cohort):
         raise RuntimeError(
             f"{len(cohort) - len(df)} clean-cohort studies have no fiducial row -- "

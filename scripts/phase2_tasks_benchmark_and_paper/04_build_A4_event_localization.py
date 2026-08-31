@@ -93,7 +93,7 @@ def main() -> int:
     fid = pd.read_parquet(fiducials)
     log.info("cohort %d studies, fiducials %d rows", len(cohort), len(fid))
 
-    df = cohort.merge(fid, on="study_id", how="inner")
+    df = cohort.merge(fid, on="study_id", how="inner", validate="many_to_one")
     if len(df) != len(cohort):
         missing = len(cohort) - len(df)
         raise RuntimeError(

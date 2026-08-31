@@ -55,7 +55,7 @@ def build() -> pd.DataFrame:
                  "mortality_observable", "readmission_eligible"],
     )
 
-    df = meta.merge(qc, on="study_id", how="left").merge(avail, on="study_id", how="left")
+    df = meta.merge(qc, on="study_id", how="left", validate="many_to_one").merge(avail, on="study_id", how="left", validate="many_to_one")
     df = df[df.decode_ok.fillna(False) & df.length_ok.fillna(False)]
 
     # Stratify on (split, link_tier, sqi_tier) so the sample is a fair miniature

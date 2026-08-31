@@ -269,7 +269,7 @@ def build_verification(dev: bool = False) -> pd.DataFrame:
     # Levels 2-3 match on more than heart rate, so the extra buckets are joined
     # once here rather than recomputed per split.
     cohort = cohort.merge(_difficulty_buckets(cohort.study_id.to_numpy()),
-                          on="study_id", how="left")
+                          on="study_id", how="left", validate="many_to_one")
     corrupted_reports = _b5_corrupted_reports(dev=dev)
 
     frames: list[pd.DataFrame] = []

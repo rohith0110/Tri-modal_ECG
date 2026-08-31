@@ -208,7 +208,7 @@ def main() -> int:
     adm = pd.read_parquet(
         bc.EHR_CACHE / "admissions.parquet", columns=["hadm_id", "admittime", "dischtime"]
     )
-    cohort = cohort.merge(adm, on="hadm_id", how="left")
+    cohort = cohort.merge(adm, on="hadm_id", how="left", validate="many_to_one")
     window = pd.Timedelta(hours=BOUNDARY_HOURS)
     near_admit = (cohort.ecg_time - cohort.admittime).abs() <= window
     near_disch = (cohort.ecg_time - cohort.dischtime).abs() <= window
@@ -217,14 +217,14 @@ def main() -> int:
     # --- assemble ------------------------------------------------------------
     hosp_rows = cohort[cohort.hadm_id.notna() & cohort.icd_available.fillna(False)].merge(
         hosp, on="hadm_id", how="inner"
-    )
+    , validate="many_to_one")
     hosp_rows["label_source"] = "hosp"
     log.info("hospital-ICD rows: %d", len(hosp_rows))
 
     if ed_agg is not None and len(ed_agg):
         ed_rows = cohort[cohort.stay_id.notna() & cohort.hadm_id.isna()].merge(
             ed_agg, on="stay_id", how="inner"
-        )
+        , validate="many_to_one")
         ed_rows["label_source"] = "ed"
     else:
         ed_rows = hosp_rows.iloc[0:0].copy()
@@ -250,9 +250,9 @@ def main() -> int:
     dictionary["icd_code"] = dictionary["icd_code"].astype(str).str.strip()
     firing = code_groups[code_groups[GROUPS].any(axis=1)].merge(
         dictionary, on=["icd_code", "icd_version"], how="left"
-    )
+    , validate="many_to_one")
     occurrences = diag.groupby(["icd_code", "icd_version"]).size().rename("n_rows_in_cohort")
-    firing = firing.merge(occurrences, on=["icd_code", "icd_version"], how="left")
+    firing = firing.merge(occurrences, on=["icd_code", "icd_version"], how="left", validate="many_to_one")
     firing["n_rows_in_cohort"] = firing["n_rows_in_cohort"].fillna(0).astype("int64")
     manifest = firing.melt(
         id_vars=["icd_code", "icd_version", "long_title", "n_rows_in_cohort"],

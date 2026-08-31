@@ -99,7 +99,7 @@ def join_masked_attributes(frame: pd.DataFrame, masked: pd.DataFrame) -> pd.Data
     loss (`mask_column='masked_attr_valid'`).
     """
     masked = masked.rename(columns={"study_id": "anchor_study_id"})
-    out = frame.merge(masked, on="anchor_study_id", how="left")
+    out = frame.merge(masked, on="anchor_study_id", how="left", validate="many_to_one")
     aligned = (out["signal_id"] == out["anchor_study_id"]) & \
               (out["image_id"] == out["anchor_study_id"])
     out["masked_attr_valid"] = aligned & out["hr_label"].notna() & \

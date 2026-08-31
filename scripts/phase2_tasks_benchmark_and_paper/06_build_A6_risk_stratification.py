@@ -236,7 +236,7 @@ def prior_history(cohort: pd.DataFrame, adm: pd.DataFrame) -> pd.DataFrame:
 
     discharged = adm[adm.dischtime.notna()][["subject_id", "hadm_id", "dischtime"]]
     pairs = out[["study_id", "subject_id", "ecg_time"]].merge(
-        discharged, on="subject_id", how="left")
+        discharged, on="subject_id", how="left", validate="many_to_many")
     before = pairs[pairs.dischtime < pairs.ecg_time]
 
     counts = before.groupby("study_id").size()
@@ -260,8 +260,8 @@ def prior_history(cohort: pd.DataFrame, adm: pd.DataFrame) -> pd.DataFrame:
     distinct = dx[["icd_code", "icd_version"]].drop_duplicates()
     flags = a1.code_group_table(distinct, groups)
     prior_dx = (before[["study_id", "hadm_id"]]
-                .merge(dx[["hadm_id", "icd_code", "icd_version"]], on="hadm_id", how="inner")
-                .merge(flags, on=["icd_code", "icd_version"], how="left"))
+                .merge(dx[["hadm_id", "icd_code", "icd_version"]], on="hadm_id", how="inner", validate="many_to_many")
+                .merge(flags, on=["icd_code", "icd_version"], how="left", validate="many_to_one"))
     for group in PRIOR_DX_GROUPS:
         hits = set(prior_dx.loc[prior_dx[group].fillna(False), "study_id"])
         out[f"prior_dx_{group}"] = out.study_id.isin(hits)
@@ -293,7 +293,7 @@ def ed_disposition_before_ecg(cohort: pd.DataFrame) -> pd.Series:
     ed = ed[ed.outtime.notna() & ed.subject_id.isin(set(cohort.subject_id))]
 
     pairs = cohort[["study_id", "subject_id", "ecg_time"]].merge(
-        ed, on="subject_id", how="left")
+        ed, on="subject_id", how="left", validate="many_to_many")
     pairs = pairs[pairs.outtime < pairs.ecg_time]
     latest = pairs.sort_values("outtime", kind="mergesort").groupby("study_id").last()
     return cohort.study_id.map(latest["disposition"]).astype("string")
@@ -344,9 +344,9 @@ def main() -> int:
 
     df = cohort.merge(
         adm[["hadm_id", "admittime", "dischtime", "deathtime"]], on="hadm_id", how="left"
-    ).merge(patients, on="subject_id", how="left")
+    , validate="many_to_one").merge(patients, on="subject_id", how="left", validate="many_to_one")
     if len(nxt):
-        df = df.merge(nxt, on="hadm_id", how="left")
+        df = df.merge(nxt, on="hadm_id", how="left", validate="many_to_one")
     else:
         for col in ("next_admittime", "next_admission_type", "next_admission_location"):
             df[col] = pd.NaT if col == "next_admittime" else None
@@ -401,16 +401,16 @@ def main() -> int:
     # though calendar years are not comparable across patients (§2.3 caveat).
     demo = pd.read_parquet(bc.EHR_CACHE / "patients.parquet",
                            columns=["subject_id", "gender", "anchor_age", "anchor_year"])
-    df = df.merge(demo, on="subject_id", how="left")
+    df = df.merge(demo, on="subject_id", how="left", validate="many_to_one")
     df["age_at_ecg"] = (
         df["anchor_age"] + (df["ecg_time"].dt.year - df["anchor_year"])
     ).astype("float32")
     df["sex_male"] = (df["gender"].astype(str).str.upper() == "M")
 
     df = df.merge(adm[["hadm_id", "admission_type", "race", "insurance"]],
-                  on="hadm_id", how="left")
+                  on="hadm_id", how="left", validate="many_to_one")
     df["ed_disposition"] = ed_disposition_before_ecg(df)
-    df = df.merge(prior_history(df, adm), on="study_id", how="left")
+    df = df.merge(prior_history(df, adm), on="study_id", how="left", validate="many_to_one")
     df["n_prior_ecgs"] = prior_ecg_counts(df, bc.load_clean_cohort(dev=args.dev))
     for group in PRIOR_DX_GROUPS:
         df[f"prior_dx_{group}"] = df[f"prior_dx_{group}"].fillna(False).astype(bool)

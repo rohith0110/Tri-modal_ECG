@@ -168,7 +168,7 @@ def install_overlays(log=None) -> dict[str, list[int]]:
         overlay = pd.concat(frames, ignore_index=True)
         overlay["modality_kind"] = manifest_kind
         overlay["layout"] = layout
-        overlay = overlay.merge(subjects, on="study_id", how="left")
+        overlay = overlay.merge(subjects, on="study_id", how="left", validate="many_to_one")
         overlay = overlay[["study_id", "subject_id", "modality_kind", "layout",
                            "container_path", "container_row",
                            "container_offset", "container_length"]]

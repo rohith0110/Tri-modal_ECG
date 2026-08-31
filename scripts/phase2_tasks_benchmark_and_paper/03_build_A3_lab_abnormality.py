@@ -210,7 +210,7 @@ def main() -> int:
 
     adm = pd.read_parquet(bc.EHR_CACHE / "admissions.parquet",
                           columns=["hadm_id", "admittime", "dischtime"])
-    joined = cohort.merge(adm, on="hadm_id", how="left")
+    joined = cohort.merge(adm, on="hadm_id", how="left", validate="many_to_one")
     window2h = pd.Timedelta(hours=2)
     cohort["boundary_flag"] = (
         ((joined.ecg_time - joined.admittime).abs() <= window2h)

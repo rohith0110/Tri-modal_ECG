@@ -274,7 +274,7 @@ def load_clean_cohort(dev: bool = False, *, with_text: bool = False) -> pd.DataF
         DATA_PROCESSED / "splits_subject_level.parquet", columns=["subject_id", "split"]
     )
 
-    df = meta.merge(qc, on="study_id", how="left").merge(avail, on="study_id", how="left")
+    df = meta.merge(qc, on="study_id", how="left", validate="many_to_one").merge(avail, on="study_id", how="left", validate="many_to_one")
     df = df.merge(splits, on="subject_id", how="left", validate="many_to_one")
 
     if df["split"].isna().any():
@@ -333,7 +333,7 @@ def machine_measurements(dev: bool = False) -> pd.DataFrame:
     sf = pd.read_parquet(
         DATA_PROCESSED / "structured_features.parquet", columns=["study_id", "qtc_bazett_ms"]
     )
-    df = meta.merge(sf, on="study_id", how="left")
+    df = meta.merge(sf, on="study_id", how="left", validate="many_to_one")
 
     rr = _mask_sentinel(df["rr_interval"])
     p_on = _mask_sentinel(df["p_onset"])

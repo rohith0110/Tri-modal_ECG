@@ -131,7 +131,7 @@ def align_measurements(rows: pd.DataFrame, measured: pd.DataFrame) -> pd.DataFra
     study carries 40 corrupted variants there -- and builds its aligned frame
     positionally instead.
     """
-    return rows[["study_id"]].merge(measured, on="study_id", how="left")
+    return rows[["study_id"]].merge(measured, on="study_id", how="left", validate="many_to_one")
 
 
 def attach_measurement_predictions(rows: pd.DataFrame,
@@ -325,8 +325,8 @@ def run_a1(dev: bool, log, limit: int) -> int:
     features = ab.machine_feature_table(
         pd.concat([train.study_id, test.study_id]).unique().tolist())
     feature_columns = [c for c in features.columns if c != "study_id"]
-    train = train.merge(features, on="study_id", how="inner")
-    test = test.merge(features, on="study_id", how="inner")
+    train = train.merge(features, on="study_id", how="inner", validate="many_to_one")
+    test = test.merge(features, on="study_id", how="inner", validate="many_to_one")
     labels = [h.label_column for h in spec.heads]
 
     scored = ab.logistic_baseline(train, test, feature_columns, labels)
@@ -361,8 +361,8 @@ def run_a3(dev: bool, log, limit: int) -> int:
     features = ab.machine_feature_table(
         pd.concat([train.study_id, test.study_id]).unique().tolist())
     feature_columns = [c for c in features.columns if c != "study_id"]
-    train = train.merge(features, on="study_id", how="inner")
-    test = test.merge(features, on="study_id", how="inner")
+    train = train.merge(features, on="study_id", how="inner", validate="many_to_one")
+    test = test.merge(features, on="study_id", how="inner", validate="many_to_one")
 
     classes = list(spec.heads[0].classes)
     labels = [h.label_column for h in spec.heads]
@@ -415,8 +415,8 @@ def run_a6(dev: bool, log, limit: int) -> int:
     features = ab.machine_feature_table(
         pd.concat([train.study_id, test.study_id]).unique().tolist())
     feature_columns = ["age_at_ecg", "sex_male", "hr_bpm", "qrs_ms", "qtc_ms"]
-    train = train.merge(features, on="study_id")
-    test = test.merge(features, on="study_id")
+    train = train.merge(features, on="study_id", validate="many_to_one")
+    test = test.merge(features, on="study_id", validate="many_to_one")
     for frame in (train, test):
         frame["sex_male"] = frame["sex_male"].astype("boolean").fillna(False).astype("float64")
 

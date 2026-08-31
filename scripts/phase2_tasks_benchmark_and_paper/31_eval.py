@@ -415,7 +415,7 @@ def attach_b6_tiers(frame: pd.DataFrame, dev: bool) -> pd.DataFrame:
     keys = pd.read_parquet(root / "B6_difficulty_stratified" / "eval_keys.parquet")
     keys = keys.rename(columns={"study_id": "study_id", "neg_type": "neg_type"})
     merged = frame.merge(keys[["study_id", "neg_type", "difficulty_tier"]].drop_duplicates(),
-                         on=["study_id", "neg_type"], how="left")
+                         on=["study_id", "neg_type"], how="left", validate="many_to_one")
     merged["difficulty_tier"] = merged["difficulty_tier"].fillna("positive")
     return merged
 

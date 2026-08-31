@@ -52,7 +52,7 @@ def measurement_table(dev: bool = False) -> pd.DataFrame:
     """
     cohort = bc.load_clean_cohort(dev=dev)
     meas = bc.machine_measurements(dev=dev)
-    df = cohort.merge(meas, on="study_id", how="left")
+    df = cohort.merge(meas, on="study_id", how="left", validate="many_to_one")
 
     valid = df.hr_bpm_valid.fillna(False) & df.qrs_ms_valid.fillna(False) & df.qtc_ms_valid.fillna(False)
     df = df[valid].copy()

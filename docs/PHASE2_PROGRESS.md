@@ -4,7 +4,7 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-30 (session 12)
+- **Last updated:** 2026-08-31 (session 12, continued)
 - **Current stage:** Stages P2.1–P2.4 were complete at full scale. **Round 10 —
   the Plan A/B compliance audit — then reopened four of them on purpose.**
   A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`
@@ -80,6 +80,30 @@ starting cold reads this first, works, then updates it before the session ends.
   costs, not staged data. Campaign 7 stages 37.7 GB, which left ~1 GB of margin
   under the old ceiling. Changed in both places it is written:
   `campaigns.sh` and `decision_phase2.yaml`.
+- **🔴 STOP-THE-LINE (2026-08-31): every `text_tfidf` run was silently training
+  BioClinicalBERT.** Campaign 1's tf-idf and BERT runs came back with identical
+  `macro_AUPRC` to four decimals (0.3931 / 0.3923 / 0.3932 across seeds 42 /
+  123 / 456), identical epoch counts, ~29 min/epoch and an identical
+  **7.814 GB** peak. A TF-IDF model cannot do any of that. Cause: the emitted
+  configs name encoder CLASSES (`encoder: TfidfTextEncoder`), `plan_from_config`
+  lower-cased that to `"tfidftextencoder"`, and `task_models.py` read
+  `TfidfPassthrough() if plan.text_encoder == "tfidf" else
+  BioClinicalBertEncoder(...)` — so the mismatch fell through to BERT.
+  `task_dataset.py:529` compared the same way, so the loader fed tokenised text
+  instead of `text_vec` and **nothing ever raised**. `BioClinicalBert` lowers to
+  `"bioclinicalbert"`, which matched, so **the BERT tier is correct**; only
+  tf-idf was wrong. Fixed in **1e266f2**: names canonicalise in one place
+  (`_TEXT_ENCODER_ALIASES`) and both switch points now raise on anything
+  unknown rather than defaulting.
+  **Consequences, still open:**
+  - **6 configs / 18 runs affected** (one tf-idf config per text task x 3 seeds).
+  - A1's three tf-idf runs are **invalid, and already pushed to `r2-results`**
+    with their checkpoints deleted locally. They must be re-run and the pushed
+    copies removed.
+  - The five queued shards were **cancelled** (22345–22349) before they could
+    burn ~75 GPU-hours producing more of the same. Nothing else was lost — they
+    had not started.
+  - **The A1 BERT results stand** and do not need re-running.
 - **Next action — the scoped smoke test, then campaign 1.**
   `smoke_test.py` defaults to all six families, but campaign 1 is `text_models`
   and stages `code configs tasks fiducials index text` — no signals, no images.
@@ -991,14 +1015,39 @@ plan; this is the index of record.
         project. Sharding was kept anyway: with the cap, Slurm starts the next
         shard automatically, each is a smaller resumable unit, and none risks
         the wall-clock timeout a single 36-run job would.
-  - [ ] **IN FLIGHT: campaign 1 / Step 13, sharded by task.** Job 22339 runs
-        `A1_ecg_diagnosis` on a dgxa `a100_4g.20gb` slice at **4.88 it/s,
-        ~28 min/epoch** (8,218 batches of 32). Jobs 22345–22349 are queued for
-        the other five tasks on a **dgxb full `a100:1`** — `task_dataset.py:334`
-        reads the text parquet once into memory and tokenises from RAM, so
-        there is no per-sample disk read and rule 2's 28x NFS penalty does not
-        apply to a text campaign. A full card is ~1.75x a `4g.20gb` slice.
-        ETA at 20 epochs / patience 5: **5–9 days for campaign 1**.
+  - [x] **A1's six runs finished (2026-08-30 → 08-31), job 22339 on a dgxa
+        `a100_4g.20gb` slice.** Measured, per run:
+
+        | tier | seed | epochs | best macro_AUPRC | hours | peak_gpu_gb |
+        | ---- | ---- | ------ | ---------------- | ----- | ----------- |
+        | text_bioclinicalbert | 42  | 10 | 0.3931 | 4.84 | 7.814 |
+        | text_bioclinicalbert | 123 |  9 | 0.3923 | 4.35 | 7.814 |
+        | text_bioclinicalbert | 456 | 11 | 0.3932 | 5.33 | 7.814 |
+        | text_tfidf (INVALID) | 42  | 10 | 0.3931 | 4.84 | 7.814 |
+        | text_tfidf (INVALID) | 123 |  9 | 0.3923 | 4.35 | 7.814 |
+        | text_tfidf (INVALID) | 456 | 11 | 0.3932 | 5.32 | 7.814 |
+
+        Early stopping fired at 9–11 epochs of the allowed 20 (patience 5), so a
+        BERT run is **~4.3–5.3 h** on a 20 GB slice, not the 9.7 h a full 20
+        epochs would cost. Training was healthy: loss 4.963 → 4.785 over the
+        first four epochs, `amp: bf16`, `improved: true` every epoch until the
+        plateau. All six pushed to `r2-results`, 0 failures, checkpoints freed
+        (1.3 GB + 419 MB per run); `Used: 7.65 GB of 49 GB`.
+        **The three tf-idf rows are the wrong model — see the stop-the-line
+        note in the header.**
+  - [x] **`peak_gpu_gb` = 7.814 for a BioClinicalBERT run** — the first
+        measurement the field was added for. It fits an **`a100_2g.10gb`** slice
+        (10 GB) with ~2.2 GB spare, and does NOT fit `a100_1g.5gb`. The 10 GB
+        slices are the most plentiful thing on dgxa, so memory was never the
+        obstacle to fanning out — `gres/gpu=1` was.
+  - [x] **The dgxb swap never happened, and should not be relied on.**
+        `swap_watcher.sbatch` (job 22350) polled for 24 h and logged
+        `dgxb_full_cards_busy=5/5` on every single check before hitting its
+        TIMEOUT. Jobs 22033/22034 did end — and `gpu_faculty` immediately took
+        the cards again as 22308/22309. **dgxb's full A100s churn straight back
+        to faculty; a student job should not wait for one.** The mechanism
+        worked exactly as designed (no GPU held, clean exit); the assumption
+        behind it did not.
   - [ ] Read `peak_gpu_gb` from the first completed epoch's `train_log.jsonl`
         and size every later campaign of each family from it.
 
@@ -2048,3 +2097,61 @@ because `task_dataset.py:334` reads the parquet once into memory -- rule 2's
 28x NFS penalty is a per-sample-read problem and text has no per-sample reads.
 
 **Next:** `peak_gpu_gb` off the first finished epoch, then campaign 2.
+
+### Session 12 (continued) — 2026-08-31 — campaign 1's first task, and a wrong model
+
+**A1 finished all six runs** on a dgxa `a100_4g.20gb` slice (job 22339, 1 d 09 h
+wall). Numbers are in Step 8 above. The useful measurements:
+
+* **`peak_gpu_gb` = 7.814** for BioClinicalBERT, constant across every epoch of
+  every run. It fits a 10 GB `a100_2g.10gb` slice; it does not fit a 5 GB one.
+* **Early stopping fires at 9–11 epochs**, not 20, so a BERT run costs
+  **~4.3–5.3 h** on a 20 GB slice rather than the ~9.7 h a full schedule would.
+* Epoch time was *dead* steady: 1746.7 / 1745.3 / 1748.3 / 1747.3 seconds.
+
+**The dgxb plan failed, and the reason matters more than the plan.** The swap
+watcher ran its full 24 h and saw `dgxb_full_cards_busy=5/5` on every check.
+The two faculty jobs we were waiting on did finish — and the same faculty user
+immediately took both cards again (22308/22309). **dgxb's full A100s churn back
+to faculty; waiting for one as a student is not a strategy.** The watcher
+itself behaved correctly: no GPU held, honest logging, clean TIMEOUT, and the
+training was never disturbed.
+
+**Then the tf-idf finding.** The six runs came back like this:
+
+```
+text_bioclinicalbert seed_42  epochs=10 best_macro_AUPRC=0.3931 hours=4.84 peak=7.814
+text_tfidf           seed_42  epochs=10 best_macro_AUPRC=0.3931 hours=4.84 peak=7.814
+```
+
+Identical to four decimals, in a model that should be orders of magnitude
+cheaper. The logs are genuinely different files written a day apart, so these
+were two real runs — of the same model. Cause and fix are in the header's
+stop-the-line note and in commit 1e266f2. The short version: configs name
+encoder classes, the plan lower-cased the class name, and the model builder
+treated "not exactly tfidf" as "use BERT".
+
+**What that costs:** 18 runs across 6 configs. Three are done, invalid, and
+already in `r2-results`. The five queued shards were cancelled before they
+could add 15 more.
+
+**What it does not cost:** the BERT tier. `BioClinicalBert`.lower() happens to
+equal the expected token, so those runs used the right model and their numbers
+stand.
+
+**Lesson worth keeping:** the bug was invisible from every angle the pipeline
+checks — no crash, no warning, checksums fine, audits fine, and each run wrote
+a `train_config.yaml` that faithfully said `encoder: TfidfTextEncoder`. What
+caught it was two tiers agreeing to four decimal places. **Cross-tier
+comparisons are a correctness check, not just a result.** Consider asserting in
+`31_eval.py` that two different arch tiers never produce bit-identical metrics.
+
+**Open, for the next session:**
+
+1. Decide the re-run scope for the tf-idf tier (18 runs, ~2–3 h each once it is
+   actually a TF-IDF model, so far cheaper than the BERT runs).
+2. Remove the three invalid `text_tfidf` run directories from `r2-results`.
+3. Re-submit campaign 1's remaining five tasks (A3, A5, A6, B4, B5). Use a dgxa
+   slice — `a100_4g.20gb` if free, `a100_2g.10gb` otherwise, since 7.814 GB
+   fits. Do not wait for dgxb.
+4. Ask the facility to raise `gres/gpu` above 1.

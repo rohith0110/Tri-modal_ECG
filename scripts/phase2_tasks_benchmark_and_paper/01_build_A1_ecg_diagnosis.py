@@ -111,7 +111,22 @@ def code_group_table(codes: pd.DataFrame, groups: dict) -> pd.DataFrame:
 
 def aggregate_by_encounter(assign: pd.DataFrame, key: str, code_groups: pd.DataFrame) -> pd.DataFrame:
     """Roll per-code group flags up to one row per encounter (`hadm_id` / `stay_id`)."""
-    merged = assign.merge(code_groups, on=["icd_code", "icd_version"], how="left")
+    # `code_groups` is built from THIS table's own distinct codes (both call
+    # sites do: hospital codes for the hadm_id roll-up, ED codes for the
+    # stay_id one), so every row matches and the fillna below is a no-op. Assert
+    # that, because if it ever stops being true the failure is silent and
+    # maximally bad: an unmatched code becomes all-groups-False, i.e. a
+    # confidently negative label rather than a missing one. `validate` catches
+    # the other direction -- a duplicated code table would multiply rows.
+    merged = assign.merge(code_groups, on=["icd_code", "icd_version"], how="left",
+                          validate="many_to_one")
+    unmatched = int(merged[GROUPS[0]].isna().sum())
+    if unmatched:
+        raise ValueError(
+            f"{unmatched} of {len(merged)} rows have an ICD code missing from the "
+            "group table. They would silently become all-negative labels. The "
+            "group table must be built from the same code list as the rows."
+        )
     for group in GROUPS:
         merged[group] = merged[group].fillna(False)
     merged["any_group"] = merged[GROUPS].any(axis=1)

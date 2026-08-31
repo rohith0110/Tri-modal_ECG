@@ -102,12 +102,36 @@ def run(command: list[str], label: str) -> tuple[bool, str]:
 # -----------------------------------------------------------------------------
 # crash recovery, in-process so it is deterministic and OS-independent
 # -----------------------------------------------------------------------------
+# Which (task, config) the crash-recovery and determinism checks train on.
+# It used to be hard-wired to a signal tier, so `--tiers text_tfidf text_bert`
+# on a node staged for a TEXT campaign reported three FAILs for missing
+# `signals/*.h5` -- failures that say nothing about the code under test.
+# Spurious FAILs are worse than no check: they teach the reader to skim past
+# FAIL lines, which is precisely the habit that lets a real one through.
+RECOVERY_CHOICES = {
+    "signal":     ("B1_measurement_blind", "B1_signal_resnet18_lead2_preprocessed.yaml"),
+    "text_tfidf": ("A1_ecg_diagnosis",     "A1_text_tfidf.yaml"),
+    "text_bert":  ("A1_ecg_diagnosis",     "A1_text_bioclinicalbert.yaml"),
+    "image":      ("A1_ecg_diagnosis",     "A1_image_resnet50_lead2_clean.yaml"),
+    "fusion":     ("A1_ecg_diagnosis",     "A1_multimodal_fusion_lead2.yaml"),
+}
+RECOVERY_TARGET: tuple[str, str] = RECOVERY_CHOICES["signal"]
+
+
+def choose_recovery_target(families: list[str]) -> tuple[str, str]:
+    """Run the recovery checks on a tier whose data this node actually has."""
+    for family in families:
+        choice = RECOVERY_CHOICES.get(family)
+        if choice and (MODEL_CONFIG_DIR / choice[1]).exists():
+            return choice
+    return RECOVERY_CHOICES["signal"]
+
+
 def build_tiny_trainer(output_dir: Path, epochs: int = 2, batch_size: int = 4,
                        steps: int = 3) -> tuple[Trainer, Any]:
-    task = "B1_measurement_blind"
+    task, config_name = RECOVERY_TARGET
     spec = get_task(task)
-    config_dict = load_model_config(
-        MODEL_CONFIG_DIR / "B1_signal_resnet18_lead2_preprocessed.yaml")
+    config_dict = load_model_config(MODEL_CONFIG_DIR / config_name)
     plan = plan_from_config(config_dict)
     set_seed(42)
 
@@ -246,6 +270,9 @@ def test_gates() -> bool:
 
     ok = True
     try:
+        # MUST be a task whose input policy forbids images -- B1 allows signals
+        # only. Pointing this at the recovery target would break the gate the
+        # moment that target became a task that legitimately allows images.
         TaskDataset("B1_measurement_blind", "val",
                     ModalityPlan(image_kind="image_clean_lead2"), dev=True, limit=2)
         print("  FAIL  leakage gate: B1 accepted an image input")
@@ -295,6 +322,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     tasks = args.tasks or [k for k, v in TASKS.items() if not v.eval_only]
+
+    # Bind the recovery checks to a tier this node has data for (see
+    # RECOVERY_CHOICES) so a scoped smoke run does not report failures about
+    # modalities it was never asked to exercise.
+    global RECOVERY_TARGET
+    RECOVERY_TARGET = choose_recovery_target(args.tiers)
+
     root = DEV_RUNS / "_smoke"
     root.mkdir(parents=True, exist_ok=True)
 

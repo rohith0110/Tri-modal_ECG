@@ -157,20 +157,35 @@ from pathlib import Path
 
 manifest, directory = Path(sys.argv[1]), Path(sys.argv[2])
 recorded = json.loads(manifest.read_text())
-bad = 0
+bad = checked = missing = 0
 for name, meta in sorted(recorded.items()):
     path = directory / name
     if not path.exists():
-        continue                      # not staged this time; not an error here
+        # Phase filtering means a manifest legitimately describes files this
+        # phase did not stage (train phase does not fetch the test split), so a
+        # missing file is not by itself an error. It is COUNTED, though: this
+        # used to `continue` silently, which meant a staging step that fetched
+        # nothing at all -- a wrong prefix, an empty listing -- still printed a
+        # clean verification and the campaign trained on absent data.
+        missing += 1
+        continue
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1 << 20), b""):
             digest.update(block)
+    checked += 1
     if digest.hexdigest() != meta["sha256"]:
         print(f"  CHECKSUM MISMATCH: {name}", file=sys.stderr)
         bad += 1
     else:
         print(f"  ok {name}")
+
+print(f"  verified {checked}, absent {missing} of {len(recorded)} recorded")
+if recorded and checked == 0:
+    print("  ERROR: the manifest lists files but NONE of them are on disk. "
+          "Nothing was staged here -- this is a failed fetch, not a phase "
+          "filter.", file=sys.stderr)
+    sys.exit(1)
 sys.exit(1 if bad else 0)
 PY
     # `checksums_<dataset>.json` for a plain dataset -- two datasets can land in

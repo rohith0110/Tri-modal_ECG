@@ -741,6 +741,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--arch-tier", default=None,
                         help="default: every arch tier with predictions on disk")
     parser.add_argument("--seeds", type=int, nargs="*", default=None)
+    parser.add_argument("--allow-identical-tiers", action="store_true",
+                        help="write results even when two arch tiers produce "
+                             "bit-identical metrics (normally a wiring bug)")
     parser.add_argument("--dev", action="store_true")
     parser.add_argument("--bootstrap-n", type=int, default=0,
                         help="override n_iter (smoke tests only; §6.7 locks 10,000)")
@@ -748,6 +751,56 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="also run the §7.5 retrieval check (needs checkpoint_best)")
     parser.add_argument("--no-calibration", action="store_true")
     return parser.parse_args(argv)
+
+
+def identical_tier_check(rows: list[dict[str, Any]], log) -> list[tuple[str, str]]:
+    """Refuse to believe that two different architectures scored identically.
+
+    On 2026-08-31 every `text_tfidf` run in campaign 1 turned out to have
+    trained BioClinicalBERT: the configs name encoder classes
+    (`TfidfTextEncoder`), the modality plan lower-cased that to
+    `"tfidftextencoder"`, and the model builder read "anything that is not
+    exactly 'tfidf'" as "use BERT". Nothing raised. Checksums passed, the audits
+    passed, the smoke test passed, and each run wrote a `train_config.yaml` that
+    said `encoder: TfidfTextEncoder`. A day and a half of GPU time produced a
+    duplicate of the BERT arm labelled as the baseline it was supposed to be
+    compared against.
+
+    The ONLY thing that gave it away was two tiers agreeing to four decimals.
+    So that comparison is now a gate rather than an observation: two distinct
+    arch tiers producing bit-identical metrics across every head and metric is
+    not a result, it is a wiring bug. `--allow-identical-tiers` exists for the
+    genuinely degenerate case (a task where two tiers really are the same
+    computation), and it has to be typed deliberately.
+    """
+    by_tier: dict[str, dict[tuple, float]] = {}
+    for row in rows:
+        if row.get("group_key") not in (None, "", "overall"):
+            continue                       # compare headline numbers, not subgroups
+        key = (row["head"], row["metric"])
+        value = row.get("value_mean")
+        if value is None:
+            continue
+        by_tier.setdefault(row["arch_tier"], {})[key] = float(value)
+
+    collisions: list[tuple[str, str]] = []
+    tiers = sorted(by_tier)
+    for i, left in enumerate(tiers):
+        for right in tiers[i + 1:]:
+            shared = set(by_tier[left]) & set(by_tier[right])
+            if len(shared) < 2:
+                continue                   # too little overlap to mean anything
+            if all(by_tier[left][k] == by_tier[right][k] for k in shared):
+                collisions.append((left, right))
+                log.error(
+                    "IDENTICAL METRICS: arch tiers %r and %r agree exactly on all "
+                    "%d headline metrics. Two different architectures do not do "
+                    "that. Check that each tier builds the encoder its config "
+                    "names -- this is exactly how the 2026-08-31 tf-idf/BERT "
+                    "collision looked. Override with --allow-identical-tiers "
+                    "only if they are genuinely the same computation.",
+                    left, right, len(shared))
+    return collisions
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -794,6 +847,12 @@ def main(argv: list[str] | None = None) -> int:
     if not rows:
         log.error("no results produced")
         return 1
+
+    identical = identical_tier_check(rows, log)
+    if identical and not args.allow_identical_tiers:
+        log.error("refusing to write results -- see the tier collision above")
+        return 1
+
     write_results(args.task, rows, args.dev, log)
 
     if extras:

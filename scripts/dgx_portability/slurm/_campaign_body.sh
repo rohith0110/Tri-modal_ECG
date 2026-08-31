@@ -170,6 +170,20 @@ while read -r task tier seed config; do
         status=1
         continue
     fi
+    # ---- skip work that is already finished ------------------------------
+    # push_results.sh deletes both checkpoints once a run's artifacts are safely
+    # in R2, so `trainer.try_resume()` finds nothing and a repeat of this loop
+    # retrains a finished run from scratch. That matters twice: re-submitting a
+    # campaign to redo ONE tier would redo the others too, and a job requeued at
+    # the wall-clock limit restarts this loop from the top -- silently redoing
+    # every completed run before reaching the unfinished one.
+    SUMMARY="$RESULTS_ROOT/model_runs/$task/$tier/seed_$seed/run_summary.json"
+    if [ -z "${TRIMODAL_FORCE_RERUN:-}" ] && [ -f "$SUMMARY" ]        && grep -q '"status": *"complete"' "$SUMMARY" 2>/dev/null; then
+        log "--- skip  $task / $tier / seed $seed (already complete) ---"
+        evaluated["$task|$tier"]=1
+        continue
+    fi
+
     log "--- train $task / $tier / seed $seed ---"
     if python3 "$TRAIN" --model-config "$config_path" --seed "$seed"; then
         # §8.1: push and free the checkpoints as each run finishes, not at the

@@ -355,6 +355,22 @@ def resolve_jobs(requested: int) -> int:
         return 1
 
 
+# Set by evaluate_arch immediately before the pool is created; the workers
+# inherit it through fork rather than receiving it as pickled arguments.
+_UNIT_CTX: dict[str, Any] = {}
+
+
+def _compute_unit(index: int) -> dict[str, Any]:
+    ctx = _UNIT_CTX
+    head, metric_name, metric_fn, group_key, group_value = ctx["units"][index]
+    sliced_seeds = {s: _slice(f, group_key, group_value)
+                    for s, f in ctx["per_seed"].items()}
+    sliced_pooled = _slice(ctx["pooled"], group_key, group_value)
+    return evaluate_group(ctx["spec"], head, metric_name, metric_fn,
+                          sliced_seeds, sliced_pooled, group_key, group_value,
+                          ctx["settings"], ctx["meta"])
+
+
 def checkpoint_path(task: str, arch_tier: str, dev: bool) -> Path:
     directory = (RESULTS_DIR / "_dev" if dev else RESULTS_DIR) / ".eval_checkpoints"
     directory.mkdir(parents=True, exist_ok=True)
@@ -461,13 +477,14 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
     def unit_key(head, metric_name, group_key, group_value) -> str:
         return f"{head.name}|{metric_name}|{group_key}|{group_value}"
 
-    def compute(index: int) -> dict[str, Any]:
-        head, metric_name, metric_fn, group_key, group_value = units[index]
-        sliced_seeds = {s: _slice(f, group_key, group_value) for s, f in per_seed.items()}
-        sliced_pooled = _slice(pooled, group_key, group_value)
-        return evaluate_group(spec, head, metric_name, metric_fn,
-                              sliced_seeds, sliced_pooled, group_key,
-                              group_value, settings, meta)
+    # The worker must be importable at module level: ProcessPoolExecutor pickles
+    # the CALLABLE, and a nested function cannot be pickled. Only the unit index
+    # crosses the process boundary -- the frames, the metric closures and the
+    # spec are inherited through fork, which is also what keeps the ~10^5-row
+    # pooled frame from being copied per task.
+    _UNIT_CTX.update(units=units, per_seed=per_seed, pooled=pooled,
+                     spec=spec, settings=settings, meta=meta)
+    compute = _compute_unit
 
     # ---- resume ------------------------------------------------------------
     done = load_checkpoint(task, arch_tier, dev)
@@ -487,10 +504,10 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
     # A 10,000-iteration BCa bootstrap per unit is hours of single-core work.
     # fork lets the children share `pooled`/`per_seed` copy-on-write instead of
     # pickling them per task, which matters when the pooled frame is ~10^5 rows.
-    if jobs > 1 and len(todo) > 1:
+    if jobs > 1 and len(todo) > 1 and hasattr(os, "fork"):
         import concurrent.futures as cf
         import multiprocessing as mp
-        context = mp.get_context("fork") if hasattr(os, "fork") else None
+        context = mp.get_context("fork")
         log.info("%s/%s: %d units to compute across %d workers",
                  task, arch_tier, len(todo), jobs)
         with cf.ProcessPoolExecutor(max_workers=jobs, mp_context=context) as pool:

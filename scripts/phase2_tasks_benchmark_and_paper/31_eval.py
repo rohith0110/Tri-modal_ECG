@@ -377,18 +377,28 @@ def checkpoint_path(task: str, arch_tier: str, dev: bool) -> Path:
     return directory / f"{task}__{arch_tier}.jsonl"
 
 
-def load_checkpoint(task: str, arch_tier: str, dev: bool) -> dict[str, dict[str, Any]]:
-    """Units already computed for this (task, tier), keyed by unit.
+def load_checkpoint(task: str, arch_tier: str, dev: bool,
+                    settings: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Units already computed for this (task, tier) UNDER THE SAME SETTINGS.
 
     An evaluation is hours of work and used to be all-or-nothing: it wrote
     nothing until the very end, so a cancelled or preempted job threw away
-    everything. A truncated final line (killed mid-write) is skipped rather
-    than treated as corruption -- that unit is simply recomputed.
+    everything.
+
+    The settings stamp is not optional. A debug run with `--bootstrap-n 200`
+    leaves a checkpoint behind, and without the stamp a later full run would
+    happily adopt those 200-iteration CIs as though they were the 10,000 the
+    spec locks -- reported numbers, quietly wrong, with nothing to show it. Any
+    record whose bootstrap settings differ from the current ones is ignored and
+    the unit is recomputed. A truncated final line (killed mid-write) is
+    skipped for the same reason: cheaper to redo one unit than to trust it.
     """
     path = checkpoint_path(task, arch_tier, dev)
     if not path.exists():
         return {}
+    stamp = checkpoint_stamp(settings)
     done: dict[str, dict[str, Any]] = {}
+    stale = 0
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
@@ -398,15 +408,28 @@ def load_checkpoint(task: str, arch_tier: str, dev: bool) -> dict[str, dict[str,
                 record = json.loads(line)
             except json.JSONDecodeError:
                 continue                    # half-written last line
+            if record.get("stamp") != stamp:
+                stale += 1
+                continue
             done[record["unit"]] = record["row"]
+    if stale:
+        print(f"  ignoring {stale} checkpointed unit(s) computed under different "
+              f"bootstrap settings", file=sys.stderr)
     return done
 
 
-def append_checkpoint(task: str, arch_tier: str, dev: bool,
-                      unit: str, row: dict[str, Any]) -> None:
+def checkpoint_stamp(settings: dict[str, Any]) -> str:
+    """The settings a checkpointed number depends on."""
+    keys = ("n_iter", "method", "seed", "level", "unit", "fallback")
+    return json.dumps({k: settings.get(k) for k in keys}, sort_keys=True, default=str)
+
+
+def append_checkpoint(task: str, arch_tier: str, dev: bool, unit: str,
+                      row: dict[str, Any], stamp: str) -> None:
     """Append one finished unit. Written by the parent, so it stays serialised."""
     with checkpoint_path(task, arch_tier, dev).open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"unit": unit, "row": row}, default=str) + chr(10))
+        handle.write(json.dumps({"unit": unit, "row": row, "stamp": stamp},
+                                default=str) + chr(10))
         handle.flush()
         os.fsync(handle.fileno())
 
@@ -487,7 +510,8 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
     compute = _compute_unit
 
     # ---- resume ------------------------------------------------------------
-    done = load_checkpoint(task, arch_tier, dev)
+    stamp = checkpoint_stamp(settings)
+    done = load_checkpoint(task, arch_tier, dev, settings)
     rows = [None] * len(units)                       # keep deterministic order
     todo = []
     for index, (head, metric_name, _fn, group_key, group_value) in enumerate(units):
@@ -518,7 +542,8 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
                 rows[index] = row
                 head, metric_name, _fn, group_key, group_value = units[index]
                 append_checkpoint(task, arch_tier, dev,
-                                  unit_key(head, metric_name, group_key, group_value), row)
+                                  unit_key(head, metric_name, group_key, group_value),
+                                  row, stamp)
                 if finished % 10 == 0 or finished == len(todo):
                     log.info("%s/%s: %d/%d units", task, arch_tier, finished, len(todo))
     else:
@@ -526,7 +551,8 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
             rows[index] = compute(index)
             head, metric_name, _fn, group_key, group_value = units[index]
             append_checkpoint(task, arch_tier, dev,
-                              unit_key(head, metric_name, group_key, group_value), rows[index])
+                              unit_key(head, metric_name, group_key, group_value),
+                              rows[index], stamp)
             if finished % 10 == 0 or finished == len(todo):
                 log.info("%s/%s: %d/%d units", task, arch_tier, finished, len(todo))
 

@@ -753,6 +753,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def previously_written_rows(task: str, dev: bool,
+                           exclude_tiers: set[str]) -> list[dict[str, Any]]:
+    """Headline rows for OTHER tiers of this task, from the accumulated CSV.
+
+    Returns [] when the file is absent or unreadable -- a missing history must
+    never block an evaluation, it just means there is nothing to compare with
+    yet.
+    """
+    path = (RESULTS_DIR / "_dev" if dev else RESULTS_DIR) / f"{task}.csv"
+    if not path.exists():
+        return []
+    try:
+        frame = pd.read_csv(path)
+    except Exception:
+        return []
+    if "arch_tier" not in frame.columns:
+        return []
+    frame = frame[~frame["arch_tier"].isin(exclude_tiers)]
+    return frame.to_dict("records")
+
+
 def identical_tier_check(rows: list[dict[str, Any]], log) -> list[tuple[str, str]]:
     """Refuse to believe that two different architectures scored identically.
 
@@ -848,7 +869,15 @@ def main(argv: list[str] | None = None) -> int:
         log.error("no results produced")
         return 1
 
-    identical = identical_tier_check(rows, log)
+    # The campaign runs `31_eval.py --task X --arch-tier Y`, one tier per
+    # process, so `rows` holds a SINGLE tier and a cross-tier comparison inside
+    # it can never fire -- which would have made this gate useless exactly where
+    # it is needed. `write_results` accumulates the per-task CSV across
+    # invocations, so the previously evaluated tiers are on disk: compare
+    # against those too.
+    identical = identical_tier_check(rows + previously_written_rows(args.task, args.dev,
+                                                                    {r["arch_tier"] for r in rows}),
+                                     log)
     if identical and not args.allow_identical_tiers:
         log.error("refusing to write results -- see the tier collision above")
         return 1

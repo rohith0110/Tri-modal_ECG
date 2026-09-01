@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import logging
 import sys
 from pathlib import Path
@@ -338,9 +339,70 @@ def subgroup_values(spec, pooled: pd.DataFrame, settings: dict[str, Any]) -> lis
     return unique
 
 
+def resolve_jobs(requested: int) -> int:
+    """Workers to use: what was asked, else the cores Slurm allocated.
+
+    `os.cpu_count()` reports the whole 256-core node, not this job's share, so
+    using it would oversubscribe the allocation and slow every other job on the
+    box. SLURM_CPUS_PER_TASK is the honest number.
+    """
+    if requested and requested > 0:
+        return requested
+    allocated = os.environ.get("SLURM_CPUS_PER_TASK") or os.environ.get("SLURM_CPUS_ON_NODE")
+    try:
+        return max(1, int(allocated))
+    except (TypeError, ValueError):
+        return 1
+
+
+def checkpoint_path(task: str, arch_tier: str, dev: bool) -> Path:
+    directory = (RESULTS_DIR / "_dev" if dev else RESULTS_DIR) / ".eval_checkpoints"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / f"{task}__{arch_tier}.jsonl"
+
+
+def load_checkpoint(task: str, arch_tier: str, dev: bool) -> dict[str, dict[str, Any]]:
+    """Units already computed for this (task, tier), keyed by unit.
+
+    An evaluation is hours of work and used to be all-or-nothing: it wrote
+    nothing until the very end, so a cancelled or preempted job threw away
+    everything. A truncated final line (killed mid-write) is skipped rather
+    than treated as corruption -- that unit is simply recomputed.
+    """
+    path = checkpoint_path(task, arch_tier, dev)
+    if not path.exists():
+        return {}
+    done: dict[str, dict[str, Any]] = {}
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue                    # half-written last line
+            done[record["unit"]] = record["row"]
+    return done
+
+
+def append_checkpoint(task: str, arch_tier: str, dev: bool,
+                      unit: str, row: dict[str, Any]) -> None:
+    """Append one finished unit. Written by the parent, so it stays serialised."""
+    with checkpoint_path(task, arch_tier, dev).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"unit": unit, "row": row}, default=str) + chr(10))
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def clear_checkpoint(task: str, arch_tier: str, dev: bool) -> None:
+    checkpoint_path(task, arch_tier, dev).unlink(missing_ok=True)
+
+
 def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | None,
                   eval_config: dict[str, Any], log: logging.Logger,
-                  bootstrap_override: int | None = None) -> list[dict[str, Any]]:
+                  bootstrap_override: int | None = None,
+                  jobs: int = 1) -> list[dict[str, Any]]:
     spec = get_task(task)
     prediction_paths = find_seed_predictions(task, arch_tier, dev, seeds)
     if not prediction_paths:
@@ -375,6 +437,12 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
     log.info("%s/%s: %d seeds, %d pooled rows, %d groups",
              task, arch_tier, len(per_seed), len(pooled), len(groups))
 
+    # ---- plan the work ----------------------------------------------------
+    # One unit = (head, subgroup, metric). Units are independent: each calls
+    # patient_bootstrap, which seeds its own RNG from the fixed spec seed, so a
+    # unit's numbers do not depend on how many other units ran or in what order.
+    # That is what makes both the parallelism below and the resume safe.
+    units: list[tuple[Any, str, str, Any, Any]] = []
     for head in spec.heads:
         if not head_present(head, pooled):
             # This tier could not serve the head (e.g. A5 text-only has no
@@ -385,15 +453,67 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
             continue
         fns = head_metric_fns(spec, head)
         for group_key, group_value in groups:
-            sliced_seeds = {s: _slice(f, group_key, group_value) for s, f in per_seed.items()}
-            sliced_pooled = _slice(pooled, group_key, group_value)
-            if sliced_pooled.empty:
+            if _slice(pooled, group_key, group_value).empty:
                 continue
             for metric_name, metric_fn in fns.items():
-                rows.append(evaluate_group(spec, head, metric_name, metric_fn,
-                                           sliced_seeds, sliced_pooled, group_key,
-                                           group_value, settings, meta))
-    return rows
+                units.append((head, metric_name, metric_fn, group_key, group_value))
+
+    def unit_key(head, metric_name, group_key, group_value) -> str:
+        return f"{head.name}|{metric_name}|{group_key}|{group_value}"
+
+    def compute(index: int) -> dict[str, Any]:
+        head, metric_name, metric_fn, group_key, group_value = units[index]
+        sliced_seeds = {s: _slice(f, group_key, group_value) for s, f in per_seed.items()}
+        sliced_pooled = _slice(pooled, group_key, group_value)
+        return evaluate_group(spec, head, metric_name, metric_fn,
+                              sliced_seeds, sliced_pooled, group_key,
+                              group_value, settings, meta)
+
+    # ---- resume ------------------------------------------------------------
+    done = load_checkpoint(task, arch_tier, dev)
+    rows = [None] * len(units)                       # keep deterministic order
+    todo = []
+    for index, (head, metric_name, _fn, group_key, group_value) in enumerate(units):
+        key = unit_key(head, metric_name, group_key, group_value)
+        if key in done:
+            rows[index] = done[key]
+        else:
+            todo.append(index)
+    if done:
+        log.info("%s/%s: resuming — %d of %d units already done",
+                 task, arch_tier, len(units) - len(todo), len(units))
+
+    # ---- run ---------------------------------------------------------------
+    # A 10,000-iteration BCa bootstrap per unit is hours of single-core work.
+    # fork lets the children share `pooled`/`per_seed` copy-on-write instead of
+    # pickling them per task, which matters when the pooled frame is ~10^5 rows.
+    if jobs > 1 and len(todo) > 1:
+        import concurrent.futures as cf
+        import multiprocessing as mp
+        context = mp.get_context("fork") if hasattr(os, "fork") else None
+        log.info("%s/%s: %d units to compute across %d workers",
+                 task, arch_tier, len(todo), jobs)
+        with cf.ProcessPoolExecutor(max_workers=jobs, mp_context=context) as pool:
+            futures = {pool.submit(compute, index): index for index in todo}
+            for finished, future in enumerate(cf.as_completed(futures), start=1):
+                index = futures[future]
+                row = future.result()
+                rows[index] = row
+                head, metric_name, _fn, group_key, group_value = units[index]
+                append_checkpoint(task, arch_tier, dev,
+                                  unit_key(head, metric_name, group_key, group_value), row)
+                if finished % 10 == 0 or finished == len(todo):
+                    log.info("%s/%s: %d/%d units", task, arch_tier, finished, len(todo))
+    else:
+        for finished, index in enumerate(todo, start=1):
+            rows[index] = compute(index)
+            head, metric_name, _fn, group_key, group_value = units[index]
+            append_checkpoint(task, arch_tier, dev,
+                              unit_key(head, metric_name, group_key, group_value), rows[index])
+            if finished % 10 == 0 or finished == len(todo):
+                log.info("%s/%s: %d/%d units", task, arch_tier, finished, len(todo))
+
+    return [r for r in rows if r is not None]
 
 
 def _first_or_none(frame: pd.DataFrame, column: str):
@@ -741,6 +861,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--arch-tier", default=None,
                         help="default: every arch tier with predictions on disk")
     parser.add_argument("--seeds", type=int, nargs="*", default=None)
+    parser.add_argument("-j", "--jobs", type=int, default=0,
+                        help="worker processes for the per-unit bootstrap "
+                             "(0 = use the cores Slurm actually gave this job)")
     parser.add_argument("--allow-identical-tiers", action="store_true",
                         help="write results even when two arch tiers produce "
                              "bit-identical metrics (normally a wiring bug)")
@@ -842,7 +965,8 @@ def main(argv: list[str] | None = None) -> int:
     extras: dict[str, Any] = {}
     for arch_tier in tiers:
         rows += evaluate_arch(args.task, arch_tier, args.dev, args.seeds, eval_config, log,
-                              bootstrap_override=args.bootstrap_n or None)
+                              bootstrap_override=args.bootstrap_n or None,
+                              jobs=resolve_jobs(args.jobs))
 
         prediction_paths = find_seed_predictions(args.task, arch_tier, args.dev, args.seeds)
         per_seed = {s: pd.read_parquet(p) for s, p in prediction_paths.items()}
@@ -883,6 +1007,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     write_results(args.task, rows, args.dev, log)
+    for arch_tier in tiers:
+        clear_checkpoint(args.task, arch_tier, args.dev)
 
     if extras:
         directory = RESULTS_DIR / "_dev" if args.dev else RESULTS_DIR

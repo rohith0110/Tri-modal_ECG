@@ -227,7 +227,7 @@ for key in "${!evaluated[@]}"; do
         python3 "$EVAL" --task "$task" --arch-tier "$tier" || status=1
         continue
     fi
-    if jid=$(sbatch --parsable --export=ALL,TASK="$task",TIER="$tier"                     "$HERE/eval_task.sbatch" 2>&1); then
+    if jid=$(sbatch --parsable --export=ALL,TASK="$task",TIER="$tier"                     --cpus-per-task="${TRIMODAL_EVAL_CPUS:-8}"                     "$HERE/eval_task.sbatch" 2>&1); then
         log "--- eval $task / $tier queued on cpu_student as job $jid ---"
     else
         log "SUBMIT FAILED for eval $task / $tier ($jid); running it inline instead"

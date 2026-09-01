@@ -208,13 +208,36 @@ stage "$CAMPAIGN" --phase eval || status=1
 
 # 31_eval.py aggregates ACROSS seeds (mean +/- std over the three), so it runs
 # once per (task, arch tier) after all its seeds are done -- not once per seed.
+#
+# IT DOES NOT RUN HERE. Evaluation is a 10,000-iteration BCa patient-level
+# bootstrap: pure CPU, single-threaded, and MEASURED at over ten hours for
+# A1/text_tfidf on 2026-09-01. Doing that inside this job pinned the account's
+# only GPU -- `gres/gpu=1` -- while one core did statistics, and with two tiers
+# per task it was costing roughly twenty GPU-hours per task, more than the
+# training it was evaluating.
+#
+# The cap is on GPUs, not cores (`cpu=32`), so each eval goes to cpu_student
+# where it runs CONCURRENTLY with the next training shard, and several evals run
+# at once. Set TRIMODAL_EVAL_INLINE=1 to get the old blocking behaviour (useful
+# when debugging an eval, where waiting for a queue is worse than holding a GPU).
 for key in "${!evaluated[@]}"; do
     task="${key%%|*}"; tier="${key##*|}"
-    log "--- eval $task / $tier (all seeds) ---"
-    python3 "$EVAL" --task "$task" --arch-tier "$tier" || status=1
+    if [ -n "${TRIMODAL_EVAL_INLINE:-}" ]; then
+        log "--- eval $task / $tier (all seeds, inline) ---"
+        python3 "$EVAL" --task "$task" --arch-tier "$tier" || status=1
+        continue
+    fi
+    if jid=$(sbatch --parsable --export=ALL,TASK="$task",TIER="$tier"                     "$HERE/eval_task.sbatch" 2>&1); then
+        log "--- eval $task / $tier queued on cpu_student as job $jid ---"
+    else
+        log "SUBMIT FAILED for eval $task / $tier ($jid); running it inline instead"
+        python3 "$EVAL" --task "$task" --arch-tier "$tier" || status=1
+    fi
 done
 
 # ---- final push, then leave the disk clean for the next campaign -----------
+# The eval jobs push their own results when they finish; this push covers
+# anything already complete before they do.
 "$HERE/push_results.sh" || status=1
 log "campaign $CAMPAIGN finished with status $status. Used: $(used_gb) GB."
 log "evict when you are satisfied the results landed:  $HERE/evict_data.sh"

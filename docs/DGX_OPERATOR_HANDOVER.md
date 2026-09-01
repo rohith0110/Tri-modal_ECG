@@ -327,6 +327,48 @@ fallback, and a batch job rather than a laptop.
 
 ---
 
+## 3d. The GPU is for training. Nothing else. — measured 2026-09-01
+
+**The cap is on GPUs, not on cores:** `gres/gpu=1` but `cpu=32`. That single
+fact decides how this project should be scheduled, and it was missed for a full
+campaign.
+
+`31_eval.py` is a 10,000-iteration BCa patient-level bootstrap
+(`config/eval_configs/default.yaml`). It is pure CPU and single-threaded.
+Measured on A1/text_tfidf: **over ten hours at 99.9 % of ONE core**, with the
+A100 slice next to it doing nothing. Two tiers per task made that roughly
+**twenty GPU-hours per task** — more than the training it was evaluating — and
+under a one-GPU cap every one of those hours is on the critical path.
+
+Since 2026-09-01 `_campaign_body.sh` submits each evaluation to
+`cpu_student` via `slurm/eval_task.sbatch` instead of running it inline. The
+consequences are worth stating plainly:
+
+* an eval no longer blocks the next training shard — it runs **beside** it;
+* **evals run concurrently with each other**: one core each, 24 spare, so a
+  campaign's twelve evaluations can all be in flight at once;
+* the GPU queue advances at the speed of training alone.
+
+`TRIMODAL_EVAL_INLINE=1` restores the old blocking behaviour, which is what you
+want when debugging an eval itself.
+
+**The general rule, for every campaign after this one:** before putting a step
+inside the GPU job, ask whether it actually uses the GPU. If it does not, it
+belongs in a `cpu_student` job. On this account a GPU-hour is the scarcest
+thing there is — one card, no concurrency, weeks of queue behind it — while
+cores are nearly free. Anything CPU-shaped that the campaign body might grow
+later (staging verification, calibration sweeps, bootstrap CIs, figure
+rendering, the audits) gets the same treatment.
+
+Watch them like any other job:
+
+```bash
+squeue -u $USER -o "%.8i %.14j %.9P %.2t %.10M %R"    # eval jobs say cpu_student
+tail -f trimodal_eval_<jobid>.out
+```
+
+---
+
 ## 4. Slurm, practically
 
 Partitions available to this account: `cpu_student`, `gpu_student` — **7-day**

@@ -115,6 +115,20 @@ starting cold reads this first, works, then updates it before the session ends.
     (jobs 22485–22490), and the A1 shard correctly **skipped the three finished
     BERT runs** and re-ran only tf-idf.
 
+- **🟠 EVALUATION MUST NOT RUN ON THE GPU (measured 2026-09-01). This applies
+  to every remaining campaign, not just campaign 1.** `31_eval.py` is a
+  10,000-iteration BCa patient-level bootstrap — pure CPU, single-threaded — and
+  A1/text_tfidf took **over ten hours at 99.9 % of one core** while the A100
+  slice beside it sat idle. At two tiers per task that is ~20 GPU-hours per
+  task, **more than the training it evaluates**, and with `gres/gpu=1` every one
+  of those hours is on the critical path.
+  **The account cap is on GPUs, not cores (`cpu=32`),** so evaluation belongs on
+  `cpu_student`, where it runs *concurrently with the next training shard* and
+  concurrently with other evals (one core each, 24 spare — a campaign's twelve
+  evaluations can all be in flight at once). `_campaign_body.sh` now submits
+  `slurm/eval_task.sbatch` per (task, tier); `TRIMODAL_EVAL_INLINE=1` restores
+  the old blocking behaviour for debugging. Handover §3d has the rule:
+  **before putting a step in the GPU job, ask whether it uses the GPU.**
 - **Guards added after the tf-idf collision (2026-09-01).** All three are
   proven, not just written:
   1. **`plan_from_config` asserts the plan matches the `arch_tier` name.** A

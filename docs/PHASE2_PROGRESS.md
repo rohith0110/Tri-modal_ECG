@@ -129,6 +129,20 @@ starting cold reads this first, works, then updates it before the session ends.
   `slurm/eval_task.sbatch` per (task, tier); `TRIMODAL_EVAL_INLINE=1` restores
   the old blocking behaviour for debugging. Handover §3d has the rule:
   **before putting a step in the GPU job, ask whether it uses the GPU.**
+- **Measured evaluation cost (2026-09-02), now that it is parallel and off the
+  GPU.** A1, 8 workers, both tiers running at once on `cpu_student`:
+  **178 of 300 units in 11.1 h**. The rate decelerates hard — units 10→30 took
+  16 minutes, units 160→170 took 83 — because `as_completed` returns the cheap
+  subgroup slices first and the expensive `overall` slices over all 225,561
+  pooled rows finish last. Extrapolating the tail: **~27 h per (task, tier)**,
+  with the two tiers of a task running concurrently, so ~27 h per task.
+  An earlier guess of "~4 days per tier" from a short `--bootstrap-n 200` probe
+  was **wrong and too pessimistic**; the real figure comes from the checkpoint
+  counter, which only exists because the eval is now resumable.
+  **The important part: this no longer sits on the critical path.** Training a
+  task takes ~28 h (A3: seed 42 took 8.8 h over 13 epochs, 9,227 batches/epoch),
+  and its evals run beside the *next* task's training. With `cpu=32` and
+  training holding 8, three evals fit alongside.
 - **Guards added after the tf-idf collision (2026-09-01).** All three are
   proven, not just written:
   1. **`plan_from_config` asserts the plan matches the `arch_tier` name.** A

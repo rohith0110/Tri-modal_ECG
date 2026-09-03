@@ -129,6 +129,40 @@ starting cold reads this first, works, then updates it before the session ends.
   `slurm/eval_task.sbatch` per (task, tier); `TRIMODAL_EVAL_INLINE=1` restores
   the old blocking behaviour for debugging. Handover §3d has the rule:
   **before putting a step in the GPU job, ask whether it uses the GPU.**
+- **✅ A1_ecg_diagnosis IS COMPLETE (2026-09-02) — campaign 1's first finished
+  task.** `outputs/results/A1_ecg_diagnosis.csv`, 600 rows, both tiers, pushed
+  to `r2-results` (12 runs, 0 failures). **The identical-tier tripwire passed
+  its first real test**: overall AUPRC now differs between the tiers at every
+  head (AF 0.7172 BERT vs 0.7199 tf-idf; HF 0.5754 vs 0.5907), which is what two
+  genuinely different encoders look like — and nothing like the bit-identical
+  collision of 2026-08-31.
+- **🔴 THE FACILITY CANCELLED FOUR QUEUED JOBS (2026-09-02 ~10:17 IST).**
+  `sacct` reports `CANCELLED by 0` — uid 0, an administrator — for 22487/22488/
+  22489/22490 (A5, A6, B4, B5), none of which had started. We did not cancel
+  them. **Someone should ask the facility why**: a queue-depth policy, a
+  maintenance window, or something about our submissions. If it repeats, the
+  campaign cannot be left unattended. They were resubmitted 2026-09-03 as
+  22735–22738.
+- **Three more bugs in the CPU-eval path, all now fixed (2026-09-03).** They
+  cost no science, but two of them silently undid the point of the change:
+  1. `_campaign_body.sh` submitted `$HERE/eval_task.sbatch`, but `HERE` is
+     `dgx_portability/` and the file is in `slurm/`. Every eval **fell back to
+     running inline on the GPU** — the exact thing the change existed to stop.
+     The fallback logged loudly and still evaluated, which is why it was
+     visible at all (commit 012d576).
+  2. `eval_task.sbatch` set its own `HERE` to `slurm/` and called
+     `$HERE/push_results.sh`, which is one level up. Both A1 evaluations ran
+     their full 18 h, wrote the results CSV, then **exited 1 without pushing** —
+     results existing only on the DGX, which §8.1 forbids (012d576).
+  3. `eval_task.sbatch` inherited `campaigns.sh`'s laptop default
+     `R2_RESULTS=r2:trimodal-results`, and on the DGX `r2` is the **read-only**
+     data token. rclone failed with a misleading "is a file not a directory".
+     `_campaign_body.sh` overrides this and `~/.bashrc` covers interactive
+     shells; a batch job that sources neither got the wrong remote (a059d94).
+- **A3's evaluation has 2,940 units against A1's 300** — an order of magnitude
+  more, because A3 carries far more subgroup values. At A1's measured rate this
+  is the cost to watch; it is the reason eval belongs on CPU where several can
+  run at once, and the reason the checkpoint exists.
 - **Measured evaluation cost (2026-09-02), now that it is parallel and off the
   GPU.** A1, 8 workers, both tiers running at once on `cpu_student`:
   **178 of 300 units in 11.1 h**. The rate decelerates hard — units 10→30 took

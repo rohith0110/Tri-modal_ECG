@@ -34,6 +34,14 @@ cd "$PROJECT_ROOT"
 . "$PROJECT_ROOT/ecg_env/bin/activate"
 export TOKENIZERS_PARALLELISM=false
 
+# campaigns.sh defaults R2_RESULTS to `r2:trimodal-results` for the laptop, and
+# `r2` on the DGX is the READ-ONLY data token -- a push through it fails with a
+# misleading "is a file not a directory". `_campaign_body.sh` overrides this for
+# campaign jobs and ~/.bashrc does it for interactive shells; a batch job that
+# sources neither gets the laptop default. Both A1 evaluations finished 18 hours
+# of bootstrap and then failed to push for exactly this reason.
+export R2_RESULTS="${R2_RESULTS:-r2-results:trimodal-results}"
+
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] eval $TASK / $TIER on $(hostname) job ${SLURM_JOB_ID:-none}"
 python3 "$PROJECT_ROOT/scripts/phase2_tasks_benchmark_and_paper/31_eval.py" \
         --task "$TASK" --arch-tier "$TIER"

@@ -22,7 +22,9 @@
 #   sbatch --export=ALL,TASK=A1_ecg_diagnosis,TIER=text_tfidf eval_task.sbatch
 set -euo pipefail
 PROJECT_ROOT="${TRIMODAL_HOME:-$HOME/se23ucse027}"
-HERE="$PROJECT_ROOT/scripts/dgx_portability/slurm"
+# push_results.sh lives in dgx_portability/, NOT in slurm/ -- the same layout
+# `_campaign_body.sh` assumes when it sets HERE to the parent directory.
+HERE="$PROJECT_ROOT/scripts/dgx_portability"
 cd "$PROJECT_ROOT"
 
 : "${TASK:?set TASK=<task key>}"

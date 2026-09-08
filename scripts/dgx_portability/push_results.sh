@@ -106,6 +106,35 @@ for run_dir in "${TARGETS[@]}"; do
     done
 done
 
+# ---- the EVALUATION outputs -----------------------------------------------
+# The loop above pushes per-RUN artifacts out of model_runs/. It never touched
+# what 31_eval.py produces -- `outputs/results/<task>.csv` (the §7.1 table),
+# `<task>_extras.json`, and the calibration figures -- so every evaluation
+# result lived only on the DGX. That is the §8.0 rule ("no Phase 2 artifact may
+# exist only on the DGX") broken for the one artifact the paper is actually
+# made of, and it went unnoticed because "pushed N run(s), 0 failure(s)" reads
+# like everything went.
+#
+# Nothing is deleted here: unlike a checkpoint, a results CSV is small and is
+# rewritten in place by the next --arch-tier run of the same task.
+if [ -d "$RESULTS_ROOT/results" ] || [ -d "$RESULTS_ROOT/figures" ]; then
+    if resolve_rclone; then
+        for what in results figures; do
+            [ -d "$RESULTS_ROOT/$what" ] || continue
+            log "pushing $what/"
+            if "$RCLONE" copy --checksum --s3-no-check-bucket                     --exclude "_dev/**" --exclude ".eval_checkpoints/**"                     "$RESULTS_ROOT/$what" "$R2_RESULTS/$what"; then
+                log "  $what/ pushed"
+            else
+                log "  PUSH FAILED for $what/"
+                failed=$((failed + 1))
+            fi
+        done
+    else
+        log "cannot push $what/: rclone not resolvable"
+        failed=$((failed + 1))
+    fi
+fi
+
 date -u +%Y-%m-%dT%H:%M:%SZ > "$STATE_DIR/last_push"
 log "pushed $pushed run(s), $failed failure(s). Used: $(used_gb) GB of ${QUOTA_CEILING_GB} GB."
 [ "$failed" -eq 0 ] || exit 1

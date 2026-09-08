@@ -4,7 +4,16 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-08-31 (session 12, continued)
+- **Last updated:** 2026-09-08 (session 13)
+- **RIGHT NOW: campaign 1 is 20 of 36 runs done, and the 32-core account cap is
+  what is stopping the other 16.** A1, A3 and A6 are complete at six runs each;
+  A5 has two (its shard hit the 4-day wall clock mid-run), B4 is training, B5
+  has not started. One training job and three evaluations at 8 cores each sit at
+  exactly `cpu=32`, so **`c1_A5` (22853), `c1_B5` (22738) and the A3 BERT eval
+  (22859) are all pending on `AssocGrpCpuLimit`.** Evaluation no longer blocks
+  training by holding the GPU — it blocks it by holding the cores. Session 13
+  below has the table, the two stalls it found, and the throttle
+  (`TRIMODAL_EVAL_CPUS`) that buys room before the facility raises the cap.
 - **Current stage:** Stages P2.1–P2.4 were complete at full scale. **Round 10 —
   the Plan A/B compliance audit — then reopened four of them on purpose.**
   A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`
@@ -1385,8 +1394,11 @@ now happen inside Steps 2 and 3 rather than after Step 8.
 
 ### Part 4 — Campaigns 1–4 (~1 week)
 
-- [ ] **Step 13 — Text models** (36 runs: 6 tasks x 2 tiers x 3 seeds, as
-      `campaign_runs.py 1` derives them; the older "21" predates Round 10) · [ ] **Step 14 — 12-lead pictures** (21)
+- [~] **Step 13 — Text models** (36 runs: 6 tasks x 2 tiers x 3 seeds, as
+      `campaign_runs.py 1` derives them; the older "21" predates Round 10)
+      — **IN PROGRESS 2026-09-08: 20/36 runs pushed** (A1, A3, A6 complete; A5
+      2/6; B4 training; B5 pending). **Evaluation: 2 of 12 (task, tier) pairs
+      done** — only A1's. See session 13. · [ ] **Step 14 — 12-lead pictures** (21)
 - [ ] **Step 15 — Lead-II pictures** (21) · [ ] **Step 16 — Lead-II signals** (33)
 
 ### Part 5 — Campaigns 5–6 (~1 week)
@@ -2310,3 +2322,77 @@ comparisons are a correctness check, not just a result.** Consider asserting in
    slice — `a100_4g.20gb` if free, `a100_2g.10gb` otherwise, since 7.814 GB
    fits. Do not wait for dgxb.
 4. Ask the facility to raise `gres/gpu` above 1.
+
+### Session 13 — 2026-09-08 — a status read of the DGX after five unattended days
+
+Nothing was trained by this session; it read the machine, found two stalls, and
+restarted one of them. The gap since 2026-09-03 was unattended, and the campaign
+survived it — but not intact, and the reasons are worth recording.
+
+**Campaign 1 stands at 20 of 36 runs pushed to `r2-results`.** A1, A3 and A6 are
+complete at six runs each (both tiers, three seeds); A5 has two; B4 and B5 have
+none.
+
+| Task | Training                                             | Evaluation                                   |
+| ---- | ---------------------------------------------------- | -------------------------------------------- |
+| A1   | 6/6                                                  | **DONE**, CSV + extras in `r2-results/results` |
+| A3   | 6/6                                                  | tfidf 312/2,940 units (22854); bert 90/2,940 |
+| A6   | 6/6 (job 22736, 13 h 34 m, finished 07:42 UTC today) | bert 46, tfidf 56 (22838/22839)              |
+| A5   | 2/6                                                  | not started                                  |
+| B4   | in flight (22737)                                    | not started                                  |
+| B5   | 0/6, pending                                         | not started                                  |
+
+**Stall 1 — `c1_A5` (22735) died on the wall clock, not on an error.**
+`sacct` says `FAILED` after `3-23:54:51` against a `4-00:00:00` limit. The log's
+last line is `--- train A5_cross_modal_verification / text_bioclinicalbert /
+seed 456 ---`, so the shard had pushed A1's and A3's fourteen runs and was four
+runs from done. The skip-completed guard means the resubmission (22853) will
+re-enter at that seed rather than retraining the twenty finished runs — the
+guard added on 2026-09-01 is what makes this cheap instead of catastrophic.
+
+**Stall 2 — A3's BioClinicalBERT evaluation had no job at all.** Its checkpoint
+was last written 2026-09-04 23:36 at 90 units and nothing has touched it since;
+jobs 22733/22734 TIMEOUT'd at their 24 h limit that night and only the tf-idf
+half was ever resubmitted. **Resubmitted this session as 22859** (`cpu_student`,
+12 cores, 7-day limit), pending on `AssocGrpCpuLimit`. It will resume at unit 90.
+
+**🔴 THE CPU CAP IS NOW THE BINDING CONSTRAINT, and evaluation is what is
+holding it.** The account is `cpu=32,gres/gpu=1,mem=256G`. Four jobs at 8 cores
+each — one training (22737) and three evaluations (22838, 22839, 22854) — sit
+at exactly 32, so **`c1_A5` (22853) and `c1_B5` (22738) are both pending on
+`AssocGrpCpuLimit`, and so is the eval just submitted.** This is the inverse of
+the problem the 2026-09-01 move to `cpu_student` solved: evaluation no longer
+blocks training by holding the GPU, it blocks it by holding the cores. The move
+was still right — the GPU was idle for the whole of those hours — but the new
+sizing (12 cores per eval, commit ddfdd7e) makes a training shard and three
+evals mutually exclusive on a 32-core cap. **Ask the facility to raise `cpu`
+before `gres/gpu`.** Until then, `TRIMODAL_EVAL_CPUS` is the throttle: at 4
+cores an eval and a training shard coexist comfortably.
+
+**A6's two evaluations will TIMEOUT in ~21 hours.** 22838/22839 carry a
+`1-00:00:00` limit — they were submitted at 07:42 UTC by the campaign body as it
+stood *before* ddfdd7e reached the DGX checkout, which is also why they show 8
+cores and not 12. The checkpoint makes that survivable; they need resubmitting
+afterwards, and nothing resubmits them automatically.
+
+**A3's evaluation is the schedule risk, and it is now measured rather than
+feared.** 2,940 units against A1's 300. The tf-idf half did ~312 units in about
+24.5 h of wall clock, and the rate decelerates by construction (`as_completed`
+returns cheap subgroup slices first and the pooled `overall` slices last).
+Straight-lining the *early* rate gives ~10 days per tier and the true figure is
+worse. Two tiers of A3 alone can cost more than all of campaign 1's training.
+
+**Scale check on what remains.** `campaign_runs.py --table` is unchanged at
+**104 configs / 312 runs**; 20 are done. Campaign 1 owes 16 runs and 10 of its
+12 (task, tier) evaluations. **Campaigns 2–14 are 276 runs and have not
+started** — and campaign 1 is the *cheapest* family, with no per-sample reads
+and a 7.8 GB peak. Parts 4–7 of the schedule below read "~1 week" per part;
+nothing measured on this machine supports that under `gres/gpu=1`.
+
+**Unchanged and still open from session 12:** open question 15a (the mid-epoch
+piece fetch is implemented but has never run, and campaigns 6, 8 and 9 need it);
+the signal/image/fusion smoke tests, which smoke in front of the campaign that
+stages their data; and the four remaining audits — `threshold_audit.md`,
+`calibration_audit.md`, `sensitivity_audit.md`, `reproducibility_audit.md`.
+The facility's `CANCELLED by 0` of four queued jobs on 2026-09-02 has still not
+been explained by anyone.

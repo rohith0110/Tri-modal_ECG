@@ -572,6 +572,10 @@ Not done, in order:
 
 ## 6. Prompt to start a Claude Code session on the on-campus laptop
 
+**`docs/SESSION_12_HANDOVER.md` §9 carries the current version of this
+prompt**, kept up to date with where campaign 1 actually is. The version
+below is the generic one; prefer §9 if the two disagree.
+
 Paste this:
 
 > I'm on the on-campus laptop that can reach the MU DGX. The Tri-Modal ECG repo

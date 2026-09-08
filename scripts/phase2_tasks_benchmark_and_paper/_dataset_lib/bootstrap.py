@@ -105,10 +105,35 @@ def patient_bootstrap(
 
     rng = np.random.default_rng(seed)
     replicates = np.empty(n_iter, dtype="float64")
+
+    # The gather below replaces
+    #     rows = np.concatenate([groups[j] for j in picked])
+    # which walked a Python list of ~n_subjects arrays on EVERY replicate: at
+    # 10,000 replicates over ~67,000 subjects that is ~10^9 interpreter-level
+    # steps per unit, and it dominated the runtime (measured 2026-09-08).
+    #
+    # `flat` holds every row index ordered by subject, `starts`/`counts` locate
+    # each subject's block. The arange/repeat trick then materialises the same
+    # concatenation with no Python loop at all.
+    #
+    # IDENTICAL, not equivalent: the rows come out in the same order as the old
+    # comprehension (picked order, each subject's rows in stored order), the RNG
+    # is drawn in the same sequence, so every replicate sees exactly the frame it
+    # saw before. `tests/test_bootstrap_vectorised.py` asserts that element for
+    # element against the original implementation.
+    counts = np.fromiter((len(g) for g in groups), dtype=np.int64, count=n_subjects)
+    flat = np.concatenate(groups) if n_subjects else np.empty(0, dtype=np.int64)
+    starts = np.concatenate(([0], np.cumsum(counts)[:-1])) if n_subjects else counts
+
     for i in range(n_iter):
         picked = rng.integers(0, n_subjects, size=n_subjects)
-        rows = np.concatenate([groups[j] for j in picked])
-        replicates[i] = metric_fn(frame.iloc[rows])
+        sel_counts = counts[picked]
+        total = int(sel_counts.sum())
+        # offset of each selected block in the output, expanded per row
+        block_start = np.repeat(np.cumsum(sel_counts) - sel_counts, sel_counts)
+        within = np.arange(total, dtype=np.int64) - block_start
+        rows = flat[np.repeat(starts[picked], sel_counts) + within]
+        replicates[i] = metric_fn(frame.take(rows))
 
     finite = replicates[np.isfinite(replicates)]
     if finite.size < 20:

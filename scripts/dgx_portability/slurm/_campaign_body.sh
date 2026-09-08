@@ -220,6 +220,17 @@ stage "$CAMPAIGN" --phase eval || status=1
 # where it runs CONCURRENTLY with the next training shard, and several evals run
 # at once. Set TRIMODAL_EVAL_INLINE=1 to get the old blocking behaviour (useful
 # when debugging an eval, where waiting for a queue is worse than holding a GPU).
+#
+# FOUR cores per eval, not twelve (2026-09-08). Twelve was sized for the eval
+# alone and it deadlocked the campaign: on 2026-09-08 one training shard and
+# three evals filled `cpu=32` exactly, and BOTH remaining campaign-1 training
+# shards sat on `AssocGrpCpuLimit` behind their own predecessors' statistics.
+# Evaluation stopped blocking training by holding the GPU and started blocking
+# it by holding the cores. At 4, a training shard (8) plus six evals still fits.
+# 31_eval.py sizes its pool from SLURM_CPUS_PER_TASK, so this is a real
+# throughput trade -- an eval takes roughly three times as long -- but eval is
+# off the critical path and training is on it. Raise TRIMODAL_EVAL_CPUS when the
+# facility raises the cap, or for a lone eval with no training queued behind it.
 for key in "${!evaluated[@]}"; do
     task="${key%%|*}"; tier="${key##*|}"
     if [ -n "${TRIMODAL_EVAL_INLINE:-}" ]; then
@@ -227,7 +238,7 @@ for key in "${!evaluated[@]}"; do
         python3 "$EVAL" --task "$task" --arch-tier "$tier" || status=1
         continue
     fi
-    if jid=$(sbatch --parsable --export=ALL,TASK="$task",TIER="$tier"                     --cpus-per-task="${TRIMODAL_EVAL_CPUS:-12}"                     "$HERE/slurm/eval_task.sbatch" 2>&1); then
+    if jid=$(sbatch --parsable --export=ALL,TASK="$task",TIER="$tier"                     --cpus-per-task="${TRIMODAL_EVAL_CPUS:-4}"                     "$HERE/slurm/eval_task.sbatch" 2>&1); then
         log "--- eval $task / $tier queued on cpu_student as job $jid ---"
     else
         log "SUBMIT FAILED for eval $task / $tier ($jid); running it inline instead"

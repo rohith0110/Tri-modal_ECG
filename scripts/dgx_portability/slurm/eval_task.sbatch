@@ -2,7 +2,14 @@
 #SBATCH --job-name=trimodal_eval
 #SBATCH --partition=cpu_student
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=4        # NOT 12: `_campaign_body.sh` overrides this
+                                  # with TRIMODAL_EVAL_CPUS, and twelve
+                                  # deadlocked the campaign against `cpu=32`
+                                  # on 2026-09-08 -- three evals plus one
+                                  # training shard filled the cap and both
+                                  # remaining shards pended on
+                                  # AssocGrpCpuLimit. 31_eval.py sizes its
+                                  # pool from SLURM_CPUS_PER_TASK.
 #SBATCH --mem=32G
 #SBATCH --time=7-00:00:00        # partition max; A3's 2,940 units
                                   # blew through a 24 h limit on 2026-09-04

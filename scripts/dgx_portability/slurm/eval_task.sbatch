@@ -2,9 +2,13 @@
 #SBATCH --job-name=trimodal_eval
 #SBATCH --partition=cpu_student
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=12
 #SBATCH --mem=32G
-#SBATCH --time=24:00:00
+#SBATCH --time=7-00:00:00        # partition max; A3's 2,940 units
+                                  # blew through a 24 h limit on 2026-09-04
+                                  # (TIMEOUT, jobs 22733/22734). The
+                                  # checkpoint made that survivable, but a
+                                  # too-short limit still wastes a queue slot.
 #SBATCH --output=trimodal_eval_%j.out
 #SBATCH --error=trimodal_eval_%j.err
 #

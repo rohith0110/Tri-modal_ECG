@@ -352,6 +352,37 @@ consequences are worth stating plainly:
 `TRIMODAL_EVAL_INLINE=1` restores the old blocking behaviour, which is what you
 want when debugging an eval itself.
 
+**But do not fill all 32 cores with evaluations.** A GPU shard needs 8 CPUs of
+its own, and the cap is shared: on 2026-09-08, three 8-core evals plus a
+training shard came to exactly 32, and the next training job then pended on
+`AssocGrpCpuLimit` — with a GPU free. Evaluation had starved training of cores,
+which is the opposite of what moving it off the GPU was for.
+
+**Keep total eval cores at 24 or below**, i.e. at most three 8-core evals, and
+check before submitting a fourth:
+
+```bash
+squeue -u $USER -h -t R -o "%C" | paste -sd+ | bc     # cores in use, cap is 32
+```
+
+The GPU is still the scarcest resource. A pending eval costs a few hours; a
+pending training shard costs the critical path.
+
+### What the bootstrap actually spends its time on — measured 2026-09-08
+
+Profiled on a real prediction file (75,187 rows, 19,168 subjects), per replicate:
+
+| | seconds | share |
+| --- | --- | --- |
+| subject gather | 0.002 | 18 % |
+| `average_precision_score` | 0.008 | **82 %** |
+
+So the resampling is *not* the bottleneck; the metric is. Vectorising the
+gather (2026-09-08) was worth about 1.2x overall, not the order of magnitude it
+first looked like. Anyone hoping to make evaluation dramatically cheaper has to
+attack the metric or `n_iter`, not the resampling — and `n_iter: 10000` is
+locked by §6.7, so that is a spec decision, not an engineering one.
+
 **The general rule, for every campaign after this one:** before putting a step
 inside the GPU job, ask whether it actually uses the GPU. If it does not, it
 belongs in a `cpu_student` job. On this account a GPU-hour is the scarcest

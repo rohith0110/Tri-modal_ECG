@@ -2396,3 +2396,37 @@ stages their data; and the four remaining audits — `threshold_audit.md`,
 `calibration_audit.md`, `sensitivity_audit.md`, `reproducibility_audit.md`.
 The facility's `CANCELLED by 0` of four queued jobs on 2026-09-02 has still not
 been explained by anyone.
+
+**Actions taken this session, and what they corrected.** The eval sizing was
+changed and the four stalled/mis-sized evaluations were put back on the machine:
+
+* **`TRIMODAL_EVAL_CPUS` defaults to 4, not 12** (commit c01d5ba), in both
+  places it is written — `_campaign_body.sh`'s override, which is the path a
+  campaign uses, and `eval_task.sbatch`'s own header, which is what a
+  hand-submitted eval gets. `31_eval.py` sizes its pool from
+  `SLURM_CPUS_PER_TASK`, so **an eval now takes roughly three times as long**.
+  That is the right side to lose on: evaluation runs beside the next task's
+  training and is off the critical path. Raise it for a lone eval with nothing
+  queued behind it.
+* **All four campaign-1 evaluations now run at 4 cores with a 7-day limit**:
+  22860 (A6/bert, resumed at unit 54), 22861 (A6/tfidf, 59), 22862 (A3/bert,
+  90), beside 22854 (A3/tfidf, still 8 cores from its pre-change submit).
+  Checkpoint line counts were compared before and after every cancel and were
+  identical — a cancelled eval loses only the units in flight.
+* **`scontrol update jobid=... NumCPUs=4` on a PENDING job does not survive
+  dispatch.** It reported success, `scontrol show job` read back `NumCPUs=4`,
+  and the job then started holding **12**. Only a fresh `sbatch` picks up a new
+  size. That is why 22859 was cancelled and resubmitted as 22862.
+* **`stage_data.sh` needed no R2 re-upload for this change**: a git checkout
+  wins over the bucket's `code` copy (2026-08-30), so the next campaign's
+  staging will not revert it.
+
+**A correction to the CPU-cap diagnosis above.** Freeing cores does **not**
+release `c1_A5` (22853) or `c1_B5` (22738). Both also need the account's single
+GPU, which `c1_B4` (22737) holds for up to another four days — `gres/gpu=1` is
+the real limit and `AssocGrpCpuLimit` was merely the first one Slurm named.
+**A5 starts when B4 ends, not when cores free.** So the evaluations were not, at
+that moment, blocking anything that could otherwise have run. The 4-core change
+still matters for every campaign after this one, where the body submits its
+evals while the *next* training shard is genuinely runnable — and it removes a
+deadlock that would have bitten as soon as the GPU cap is raised.

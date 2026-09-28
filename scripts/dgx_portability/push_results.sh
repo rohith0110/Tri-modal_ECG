@@ -57,8 +57,13 @@ for run_dir in "${TARGETS[@]}"; do
     fi
 
     staged="$(mktemp -d)"
-    for artifact in test_predictions.parquet train_log.jsonl checkpoint_best.pt \
-                    train_config.yaml threshold.json metrics.json; do
+    # Names must match what 30_train.py writes. Until 2026-09-28 this list read
+    # `threshold.json metrics.json` -- files the trainer never writes -- so
+    # thresholds.json, run_summary.json and val_predictions.parquet (what the
+    # thresholds and calibrators were fitted on) never left the DGX for any run.
+    for artifact in test_predictions.parquet val_predictions.parquet \
+                    train_log.jsonl checkpoint_best.pt train_config.yaml \
+                    thresholds.json run_summary.json; do
         [ -f "$run_dir/$artifact" ] && cp "$run_dir/$artifact" "$staged/"
     done
 
@@ -133,6 +138,27 @@ if [ -d "$RESULTS_ROOT/results" ] || [ -d "$RESULTS_ROOT/figures" ]; then
         log "cannot push $what/: rclone not resolvable"
         failed=$((failed + 1))
     fi
+fi
+
+# ---- audit reports and the eval checkpoints (backup only) -----------------
+# 31_eval.py writes audit_reports/threshold_audit.md, and its resumable
+# checkpoints hold days of bootstrap work per (task, tier). Both lived only on
+# the DGX. The checkpoints go to their own prefix, never into results/, so a
+# half-finished eval can never be mistaken for a result. A jsonl being appended
+# to mid-copy is fine for a backup: resume re-runs only units it lacks.
+if resolve_rclone; then
+    for pair in "audit_reports:audit_reports" \
+                "results/.eval_checkpoints:eval_checkpoints_backup"; do
+        src="$RESULTS_ROOT/${pair%%:*}"; dst="${pair##*:}"
+        [ -d "$src" ] || continue
+        log "pushing ${pair%%:*}/ -> $dst/"
+        if "$RCLONE" copy --checksum --s3-no-check-bucket "$src" "$R2_RESULTS/$dst"; then
+            log "  $dst/ pushed"
+        else
+            log "  PUSH FAILED for $dst/"
+            failed=$((failed + 1))
+        fi
+    done
 fi
 
 date -u +%Y-%m-%dT%H:%M:%SZ > "$STATE_DIR/last_push"

@@ -4,16 +4,22 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-09-08 (session 13)
-- **RIGHT NOW: campaign 1 is 20 of 36 runs done, and the 32-core account cap is
-  what is stopping the other 16.** A1, A3 and A6 are complete at six runs each;
-  A5 has two (its shard hit the 4-day wall clock mid-run), B4 is training, B5
-  has not started. One training job and three evaluations at 8 cores each sit at
-  exactly `cpu=32`, so **`c1_A5` (22853), `c1_B5` (22738) and the A3 BERT eval
-  (22859) are all pending on `AssocGrpCpuLimit`.** Evaluation no longer blocks
-  training by holding the GPU — it blocks it by holding the cores. Session 13
-  below has the table, the two stalls it found, and the throttle
-  (`TRIMODAL_EVAL_CPUS`) that buys room before the facility raises the cap.
+- **Last updated:** 2026-09-28 (session 14 — read-only status check)
+- **RIGHT NOW: THE DGX HAS BEEN IDLE SINCE 2026-09-16 — nothing is queued.**
+  Campaign 1 is **32 of 36 runs** done (A1/A3/A5/A6/B5 6/6; B4 2/6) and
+  **8 of 12 evaluations** (A1, A5, A6, B5). Three things need resubmitting:
+  1. **`c1_B4` (22737) died on the 4-day wall clock** 2026-09-12 inside B4
+     BERT seed 456, epoch 3; `checkpoint_last.pt` is on disk, so it resumes.
+     The three B4 tf-idf runs have not run.
+  2. **Both A3 evals TIMEOUT'd at 7 days on 2026-09-15** (22854 tfidf at
+     903/2,940 units, 22862 bert at 571/2,940). Checkpoints intact; nothing
+     resubmitted them.
+  3. B4's two evals, once B4 finishes.
+  **🔴 `push_results.sh` has never pushed `run_summary.json`, `thresholds.json`
+  or `val_predictions.parquet`** — its artifact list names `threshold.json` and
+  `metrics.json`, which the trainer does not write. 96 files, all 32 runs, exist
+  only on the DGX (§8.0 breach). Also DGX-only: `.eval_checkpoints/` and
+  `audit_reports/threshold_audit.md`. See session 14.
 - **Current stage:** Stages P2.1–P2.4 were complete at full scale. **Round 10 —
   the Plan A/B compliance audit — then reopened four of them on purpose.**
   A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`
@@ -1396,9 +1402,10 @@ now happen inside Steps 2 and 3 rather than after Step 8.
 
 - [~] **Step 13 — Text models** (36 runs: 6 tasks x 2 tiers x 3 seeds, as
       `campaign_runs.py 1` derives them; the older "21" predates Round 10)
-      — **IN PROGRESS 2026-09-08: 20/36 runs pushed** (A1, A3, A6 complete; A5
-      2/6; B4 training; B5 pending). **Evaluation: 2 of 12 (task, tier) pairs
-      done** — only A1's. See session 13. · [ ] **Step 14 — 12-lead pictures** (21)
+      — **IN PROGRESS 2026-09-28: 32/36 runs pushed** (A1, A3, A5, A6, B5
+      complete; B4 2/6, shard died on wall clock, not resubmitted).
+      **Evaluation: 8 of 12 (task, tier) pairs done** — A1, A5, A6, B5; A3's
+      two timed out at 7 days, B4's not started. See session 14. · [ ] **Step 14 — 12-lead pictures** (21)
 - [ ] **Step 15 — Lead-II pictures** (21) · [ ] **Step 16 — Lead-II signals** (33)
 
 ### Part 5 — Campaigns 5–6 (~1 week)
@@ -2430,3 +2437,59 @@ that moment, blocking anything that could otherwise have run. The 4-core change
 still matters for every campaign after this one, where the body submits its
 evals while the *next* training shard is genuinely runnable — and it removes a
 deadlock that would have bitten as soon as the GPU cap is raised.
+
+### Session 14 — 2026-09-28 — a read-only check after twenty unattended days
+
+Nothing was changed on the DGX or in R2. The machine had been **idle since
+2026-09-16**: the GPU since `c1_A5` (22853) finished 2026-09-13, the CPU since
+the A5 evals (23093/23094) finished 2026-09-16. Nothing resubmits a job that
+dies, so every stall below sat for about two weeks.
+
+**What finished between 09-08 and 09-16.** `c1_B5` (22738, 6 h 22 m) and
+`c1_A5` (22853, 25 h, re-entered at seed 456 as designed). Evals: A6 both tiers
+(22860/22861), B5 both (23087/23088, ~3 h each), A5 both (23093/23094, ~2.3 d).
+`31_eval.py` also wrote `audit_reports/threshold_audit.md` (1,157 lines, every
+threshold `selected_on_split = val`) — untracked on the DGX, not in R2.
+
+**What died.** `c1_B4` (22737) hit `3-23:54:55` of 4 days mid-seed-456 BERT
+(epoch 3, batch ~80k/101k); `checkpoint_last.pt` is present, so a resubmit
+resumes. A3's evals hit the 7-day wall: tfidf 903/2,940 units, bert 571/2,940.
+At 4 cores that is ~480 units per 7 days on the decelerating curve, so **A3
+needs several more 7-day evals per tier**; with nothing else on the CPU they can
+run at 12 cores each (8 + 12 + 12 = 32 with B4 training).
+
+**Verified.**
+- 32 `run_summary.json` all `complete`, 3 seeds each; DGX checkout at 7845778,
+  same as `main`.
+- Result CSVs A1/A5/A6/B5: `rclone check` against `r2-results` — **9 of 9
+  identical**. Every row `n_seeds=3`; every pooled point inside its CI; all
+  blank CIs (A5 80, B5 122) are single-class slices where AUROC/AUPRC are
+  undefined, none a failure.
+- 96 per-run files (test predictions, logs, configs, `checkpoint_best.pt`)
+  match R2.
+
+**🔴 Found: `push_results.sh` artifact list is wrong.** It copies
+`threshold.json` and `metrics.json`; the trainer writes `thresholds.json`,
+`run_summary.json` and `val_predictions.parquet`. **None of the three has ever
+reached R2 for any run** (`rclone check --one-way`: 99 missing, 96 of them
+these). The checkpoints are already deleted locally, so the DGX copy is the only
+copy of the val predictions the thresholds and calibrators were fitted on — the
+calibration, threshold and reproducibility audits need them. Fix: correct the
+list at `push_results.sh:59-60`, then re-run `push_results.sh` (additive) to
+backfill. `.eval_checkpoints/` (weeks of bootstrap work, 1.2 MB) is also
+excluded from every push and should be backed up somewhere.
+
+**Noted, not bugs.**
+- **A5/B4 text tiers are at chance by construction** (A5 test AUROC 0.5000
+  BERT, 0.4998 tf-idf). The label is "does this report belong to *that* ECG",
+  and a text-only model never sees the ECG. BERT collapsed to a constant
+  (val AUPRC = 2/7, AUROC = 0.5 exactly, best epoch 0 on every seed); tf-idf
+  is noisy chance. It is the unimodal floor the fusion tiers are measured
+  against — say so in the paper.
+- **B4 BERT reproduces A5 BERT loss-for-loss** (same rows, seeds, config — the
+  verification head is the only head a text tier has). Each is ~36 h of GPU.
+  Scope rule keeps both; worth knowing when estimating.
+- `run_summary.n_epochs_run` counts only post-resume epochs (A5 seed 456 says
+  3; its log has 6). Cosmetic.
+- ECE is high on A1/A6 (0.14–0.32), as expected from pos-weighted BCE; §6's
+  calibrators should be reported beside it.

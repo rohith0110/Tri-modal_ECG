@@ -4,22 +4,22 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-09-28 (session 14 — read-only status check)
-- **RIGHT NOW: THE DGX HAS BEEN IDLE SINCE 2026-09-16 — nothing is queued.**
-  Campaign 1 is **32 of 36 runs** done (A1/A3/A5/A6/B5 6/6; B4 2/6) and
-  **8 of 12 evaluations** (A1, A5, A6, B5). Three things need resubmitting:
-  1. **`c1_B4` (22737) died on the 4-day wall clock** 2026-09-12 inside B4
-     BERT seed 456, epoch 3; `checkpoint_last.pt` is on disk, so it resumes.
-     The three B4 tf-idf runs have not run.
-  2. **Both A3 evals TIMEOUT'd at 7 days on 2026-09-15** (22854 tfidf at
-     903/2,940 units, 22862 bert at 571/2,940). Checkpoints intact; nothing
-     resubmitted them.
-  3. B4's two evals, once B4 finishes.
-  **🔴 `push_results.sh` has never pushed `run_summary.json`, `thresholds.json`
-  or `val_predictions.parquet`** — its artifact list names `threshold.json` and
-  `metrics.json`, which the trainer does not write. 96 files, all 32 runs, exist
-  only on the DGX (§8.0 breach). Also DGX-only: `.eval_checkpoints/` and
-  `audit_reports/threshold_audit.md`. See session 14.
+- **Last updated:** 2026-09-28 (session 14)
+- **RIGHT NOW: campaign 1 restarted after 12 idle days.** 32/36 runs and 8/12
+  evals done (A1, A5, A6, B5). Running since 2026-09-28 ~10:06 UTC:
+  - **`c1_B4` 24622** (dgxa slice, 7 d) — resumed B4 BERT seed 456 at epoch 3
+    batch 79,997; then 3 tf-idf runs; its body then submits B4's 2 evals.
+    ETA training ~2026-09-29 07:00 UTC, B4 evals ~2026-10-01/02.
+  - **A3 evals 24625 (tfidf, dgxa) / 24626 (bert, dgxb)** at 12 CPU / 96G,
+    resumed at 903 and 571 of 2,940 units. **32G OOM-killed a 12-worker eval**
+    (24623/24624) — MaxRSS measured ~33-35 GB. Continuations chained with
+    `afternotok` (24627/24628 tfidf, 24629/24630 bert) so a 7-day TIMEOUT no
+    longer stalls them. ETA roughly 2-3 weeks per tier; re-measure the rate.
+  - **Cloudflare backfilled**: `push_results.sh` artifact-name bug fixed
+    (7128da3) — 96 missing run files pushed; `audit_reports/` and eval
+    checkpoints (`eval_checkpoints_backup/`) now pushed on every run.
+  - Account now at cap: cpu 32/32, mem 256/256G. **All jobs go to dgxa/dgxb
+    via Slurm, never the login node.**
 - **Current stage:** Stages P2.1–P2.4 were complete at full scale. **Round 10 —
   the Plan A/B compliance audit — then reopened four of them on purpose.**
   A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`
@@ -2493,3 +2493,13 @@ excluded from every push and should be backed up somewhere.
   3; its log has 6). Cosmetic.
 - ECE is high on A1/A6 (0.14–0.32), as expected from pos-weighted BCE; §6's
   calibrators should be reported beside it.
+
+**Actions later the same day (owner approved).** `push_results.sh` fixed and
+pulled on the DGX (7128da3); backfill pushed 32 runs, 0 failures — `rclone
+check` now 192 matching, only the placeholder `model_runs/README.md` differs.
+Resubmitted `c1_B4` (24622, resumed mid-epoch as designed) and both A3 evals.
+The first A3 pair (24623/24624, 12 CPU, `eval_task.sbatch`'s default 32G) was
+**OOM-killed** — 12 workers need ~35 GB — and was resubmitted at `--mem=96G`
+(24625/24626) with checkpoints unchanged (903 / 571 lines). Two `afternotok`
+continuations per tier are queued so a TIMEOUT resumes on its own.
+**Trap:** raising `--cpus-per-task` on an eval without raising `--mem` OOMs it.

@@ -2885,10 +2885,96 @@ commits.** `CLAUDE.md` carries the short form so it is injected every session.
 `docs/CAMPUS_LAPTOP_HANDOVER.md` is the operating manual for the other two
 machines and carries a ready-to-paste prompt.
 
-**Verification run on this laptop:** `campaigns.sh selfcheck` PASS,
-`chunk_cycle.py` self-check PASS (including the new peak-residency property —
-a swap never holds more than two pieces), `make_chunks.py` fairness PASS for
-both scan-like kinds, the piece round trip PASS, `smoke_test.py` block [1] green
-for all six tier families, and all four staging phases (`train`, `train_only`,
-`val`, `eval`) behaving correctly against a fake DATA_ROOT.
+**12. Then the same question was asked of every campaign, and four more
+answers came back wrong.** The scan-like gap was not a one-off: a campaign's
+dataset list was written from what a config *names* (`input_modality`), and
+that is not what a run *reads*. Deriving the reads properly — resolving A5/B4's
+per-row `image_type`, and asking which cohort each campaign's tasks actually
+train on — found:
+
+- **campaign 10 staged no CLEAN container**, the mirror image of the original
+  bug: its A5/B4 scan-like runs read a clean image for their clean rows;
+- **campaign 11 trains A5 and B4, which are not L3 tasks**, against
+  `signals_12lead_L3` / `images_clean_12lead_L3`, so every study outside the L3
+  cohort would have missed;
+- **campaign 7 was over the ceiling at 40.5 GB** on measured sizes while the
+  table claimed 37.7, because `signals_12lead_L3` is 35.35 GB resident;
+- **`upload_data.py --all` looped `range(1, 12)`**, a leftover from before the
+  Lead-II split, so it had never uploaded campaigns 12-14's datasets.
+
+Campaigns 5 and 7 now read the full-cohort 12-lead pieces instead of the L3
+subset — a superset, already cut and already uploaded, 13.7 GB for two resident
+pieces against 35.35 GB whole. `signals_12lead_L3` is consequently unused.
+
+**13. `check_campaign_data.py` is the guard so this class of bug cannot come
+back.** For each campaign it derives the (modality kind, split) pairs its
+configs will actually ask `read_modality()` for, plus whether any run reads
+text and whether the cohort is L3 or full, and checks the hand-written dataset
+list covers all of it. The dataset list stays hand-written — it encodes a
+storage decision (whole container, subset, or pieces) that no introspection can
+make — but whether that choice covers the reads is now checked. **Its
+`--selfcheck` replays the three historical failures and asserts each is
+rejected**, so a check that quietly stops working fails loudly instead.
+**15/15 campaigns pass.**
+
+**14. Open question 17: the scan-like image tier TRAINS.** `campaign_runs.py 10`
+emits 30 training runs and the body trains them, but the campaign staged the
+test split only and the execution plan called it "the sweeps that only need
+re-testing". Settled against the binding documents:
+
+- **§5.3** turns image augmentation on "when **training on** scan-like or mixed
+  clean+scanlike" and off for clean-only training, and `model_configs.py:145`
+  emits exactly that — `augmentation: true` on every `*_scanlike` config and
+  `false` on every `*_clean` one. `build_image_transform` applies augmentation
+  **only when `split == "train"`**, so the setting is meaningless otherwise.
+- It is the image-side analogue of **§7.3's B2 regimes**, where regime_1
+  (clean-trained) and regime_2 (corruption-augmented) are **both** trained arms.
+- Its 30 runs are part of the **104 configs / 312 runs** the spec counts.
+- The **Truth doc §6.1** makes the scan-like image **"Positive type 2"** of the
+  verification task — training data — which is exactly what `image_type_column`
+  implements.
+
+So the execution plan was wrong and is corrected (its Step 23 and its upload
+table). Campaign 10 is **split by lead subset** exactly as 7/8/11 were into
+12/13/14: **10 is the 12-lead half, 15 the Lead-II half**, 5 configs and 15 runs
+each. `--table` still reports **104 configs and 312 runs**. Both stage the clean
+container too. **No new data was needed** — they read what question 16 built.
+Locked in spec **§12.10**.
+
+**15. Storage on this laptop is now unambiguous.** D: holds what Phase 1 built;
+C: holds everything derived from it; R2 holds what the DGX reads. The C:
+directories are reached from D: through **junctions**, so the default roots
+resolve to the real data and `TRIMODAL_CHUNK_ROOT` / `TRIMODAL_DERIVED_BASE` are
+no longer needed to run anything locally. That also closed trap 21: four
+`*_valtest` containers had been uploaded and then deleted from D: to free space,
+leaving their overlays pointing at files that were not there, so every local
+val/test read of 12-lead clean images, 12-lead int16 signals and raw 12-lead
+signals failed. All three read correctly again. `data/processed/chunks` held
+four stale plan files duplicating C:, now a junction to the real cuts. The local
+copy of `raw_12lead__train__p8` (28 GB) was deleted after comparing its objects
+name-for-name and byte-for-byte against R2; its 1.4 KB `checksums.json` was kept
+so `--sizes` can still measure campaign 9 from the manifest.
+
+**Everything run on this laptop, all green:**
+
+| check | result |
+| --- | --- |
+| `campaigns.sh selfcheck` | PASS |
+| `chunk_cycle.py` self-check | PASS, including the new peak-residency property — a swap never holds more than two pieces |
+| `make_chunks.py plan` (both scan-like kinds, clean Lead-II) | fairness PASS, piece sizes within 0.40 %, **0 of 523,945 studies disagree** with the three existing cuts |
+| piece round trip | PASS — `read_modality()` byte-identical to the base shards, studies outside the window still on the base container |
+| `check_campaign_data.py` | **15/15 campaigns stage what they read** |
+| `check_campaign_data.py --selfcheck` | PASS — all three historical failures rejected |
+| `upload_data.py --sizes` | every campaign fits both phases; thinnest is campaign 8/11 at +5.7 GB |
+| `smoke_test.py` block [1] | green for all six tier families |
+| the four staging phases | `train`, `train_only`, `val`, `eval` all filter correctly against a fake DATA_ROOT |
+
+**One bug was caught by re-reading rather than by a test, and it would have
+been fatal:** after the val swap evicts the pieces, a chunk cut's
+`checksums.json` lists eight files that are all legitimately absent, which
+tripped `stage_data.sh`'s "the manifest lists files but NONE of them are on
+disk" guard — a guard that exists to catch a fetch which silently moved
+nothing. It would have failed the val swap at the first epoch boundary on
+campaigns 8 and 11, **and the eval phase of every chunked campaign**, which has
+never run. The cut's manifest is now skipped outside the train phases.
 

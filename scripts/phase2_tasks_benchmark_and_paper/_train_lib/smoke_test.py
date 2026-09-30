@@ -39,6 +39,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _dataset_lib import build_common as bc                            # noqa: E402
+from _dataset_lib import modality as mod                               # noqa: E402
 from _dataset_lib.task_dataset import TaskDataset, plan_from_config    # noqa: E402
 from _dataset_lib.task_spec import TASKS, get_task                     # noqa: E402
 from _model_lib.model_configs import MODEL_CONFIG_DIR, load_model_config  # noqa: E402
@@ -55,18 +56,54 @@ DEV_RUNS = bc.PROJECT_ROOT / "outputs" / "model_runs" / "_dev"
 
 # One representative tier per family. The full 94-config matrix differs only in
 # which modality kind is named, and `check_input_policy` already covers that.
+#
+# `{layout}` is filled in by `staged_image_layout()`, not hard-wired. A campaign
+# stages ONE image layout -- campaign 2 is 12-lead only, campaign 3 Lead-II --
+# and a list that always named `lead2` first reported 8/10 FAILs inside campaign
+# 2's staging for a missing `clean_lead2_shard_000.tar` (job 24639, 2026-09-30).
+# Those FAILs were a staging fact, not a code defect, and spurious FAILs teach
+# the reader to skim past FAIL lines. The CONFIG always exists on disk, so
+# `pick_configs` could never tell the two cases apart; the CONTAINER may not.
 TIER_PREFERENCE = {
     "signal": ["signal_resnet18_lead2_preprocessed", "signal_resnet18_lead2_raw"],
-    "image": ["image_resnet50_lead2_clean", "image_resnet50_12lead_clean"],
+    "image": ["image_resnet50_{layout}_clean"],
     "text_tfidf": ["text_tfidf"],
     "text_bert": ["text_bioclinicalbert"],
-    "fusion": ["multimodal_fusion_lead2"],
+    "fusion": ["multimodal_fusion_{layout}"],
     # Plan A/B §5.3 ablation 6 -- the trained no-text multimodal tier. It has to
     # run on real bytes like every other tier: dropping the text encoder changes
     # the fusion input width, and a config that only *looks* right would be found
     # at campaign time on the DGX rather than here.
-    "fusion_notext": ["multimodal_fusion_notext_lead2"],
+    "fusion_notext": ["multimodal_fusion_notext_{layout}"],
 }
+
+# Resolved once, at startup, by probing the manifest. Lead-II first so a laptop
+# holding every container behaves exactly as it did before this change.
+IMAGE_LAYOUT_PREFERENCE = ("lead2", "12lead")
+
+
+def staged_image_layout() -> str:
+    """The image layout whose clean container is actually present on this node.
+
+    Probes one manifest row per layout and stats the file it names -- the same
+    resolution `read_modality()` performs, overlays included, so a derived
+    subset container counts as present and a base shard that was never staged
+    does not. Falls back to the first preference when neither resolves, so the
+    smoke test still fails loudly with a real missing-file error rather than
+    silently checking nothing.
+    """
+    for layout in IMAGE_LAYOUT_PREFERENCE:
+        try:
+            index = mod._index_for(f"image_clean_{layout}")
+            container = next(iter(index.values()))[0]
+        except Exception:                          # no manifest row for this layout
+            continue
+        if (mod.DATA_PROCESSED / container).exists():
+            return layout
+    return IMAGE_LAYOUT_PREFERENCE[0]
+
+
+IMAGE_LAYOUT = IMAGE_LAYOUT_PREFERENCE[0]
 
 
 def available_configs(task: str) -> dict[str, Path]:
@@ -79,7 +116,8 @@ def pick_configs(task: str, families: list[str]) -> list[Path]:
     configs = available_configs(task)
     picked: list[Path] = []
     for family in families:
-        for tier in TIER_PREFERENCE[family]:
+        for template in TIER_PREFERENCE[family]:
+            tier = template.format(layout=IMAGE_LAYOUT)
             if tier in configs:
                 picked.append(configs[tier])
                 break
@@ -108,12 +146,15 @@ def run(command: list[str], label: str) -> tuple[bool, str]:
 # `signals/*.h5` -- failures that say nothing about the code under test.
 # Spurious FAILs are worse than no check: they teach the reader to skim past
 # FAIL lines, which is precisely the habit that lets a real one through.
+# `{layout}` is filled in from `staged_image_layout()` for the same reason as
+# TIER_PREFERENCE: a config that exists is not a container that is staged.
 RECOVERY_CHOICES = {
     "signal":     ("B1_measurement_blind", "B1_signal_resnet18_lead2_preprocessed.yaml"),
     "text_tfidf": ("A1_ecg_diagnosis",     "A1_text_tfidf.yaml"),
     "text_bert":  ("A1_ecg_diagnosis",     "A1_text_bioclinicalbert.yaml"),
-    "image":      ("A1_ecg_diagnosis",     "A1_image_resnet50_lead2_clean.yaml"),
-    "fusion":     ("A1_ecg_diagnosis",     "A1_multimodal_fusion_lead2.yaml"),
+    "image":      ("A1_ecg_diagnosis",     "A1_image_resnet50_{layout}_clean.yaml"),
+    "fusion":     ("A1_ecg_diagnosis",     "A1_multimodal_fusion_{layout}.yaml"),
+    "fusion_notext": ("A1_ecg_diagnosis",  "A1_multimodal_fusion_notext_{layout}.yaml"),
 }
 RECOVERY_TARGET: tuple[str, str] = RECOVERY_CHOICES["signal"]
 
@@ -122,8 +163,11 @@ def choose_recovery_target(families: list[str]) -> tuple[str, str]:
     """Run the recovery checks on a tier whose data this node actually has."""
     for family in families:
         choice = RECOVERY_CHOICES.get(family)
-        if choice and (MODEL_CONFIG_DIR / choice[1]).exists():
-            return choice
+        if choice is None:
+            continue
+        name = choice[1].format(layout=IMAGE_LAYOUT)
+        if (MODEL_CONFIG_DIR / name).exists():
+            return (choice[0], name)
     return RECOVERY_CHOICES["signal"]
 
 
@@ -137,6 +181,18 @@ def build_tiny_trainer(output_dir: Path, epochs: int = 2, batch_size: int = 4,
 
     train_dataset = TaskDataset(task, "train", plan, dev=True, limit=32)
     val_dataset = TaskDataset(task, "val", plan, dev=True, limit=16)
+    if plan.text_encoder == "tfidf":
+        # §5.4.1: fit on TRAIN only, then transform each split -- the same two
+        # calls `30_train.py:prepare_tfidf` makes. Without them the tf-idf
+        # branch of these checks raised "TF-IDF features not precomputed"
+        # instead of running, so mid-epoch resume, epoch-boundary resume and
+        # determinism were unverified for the one tier whose encoder was
+        # silently wrong once already (1e266f2).
+        from _model_lib.text_encoders import TfidfTextEncoder
+
+        encoder = TfidfTextEncoder().fit(train_dataset.raw_texts())
+        for dataset in (train_dataset, val_dataset):
+            dataset.precompute_text_features(encoder.transform(dataset.raw_texts()))
     config = TrainConfig(task=task, arch_tier="smoke", lead_subset="lead2", seed=42,
                          output_dir=output_dir, epochs=epochs, batch_size=batch_size,
                          num_workers=0, checkpoint_minutes=1e9,
@@ -274,7 +330,8 @@ def test_gates() -> bool:
         # only. Pointing this at the recovery target would break the gate the
         # moment that target became a task that legitimately allows images.
         TaskDataset("B1_measurement_blind", "val",
-                    ModalityPlan(image_kind="image_clean_lead2"), dev=True, limit=2)
+                    ModalityPlan(image_kind=f"image_clean_{IMAGE_LAYOUT}"),
+                    dev=True, limit=2)
         print("  FAIL  leakage gate: B1 accepted an image input")
         ok = False
     except PermissionError:
@@ -289,6 +346,37 @@ def test_gates() -> bool:
     if ok:
         print("  PASS  gates (forbidden modality rejected, test-split threshold rejected)")
     return ok
+
+
+def test_layout_probe() -> bool:
+    """`staged_image_layout()` must follow the CONTAINERS, not the configs.
+
+    Both configs always exist, so the only thing that can distinguish campaign
+    2's staging from campaign 3's is whether the clean tar is on disk. Faked
+    here against a temp DATA_PROCESSED rather than the real one, so the check
+    runs identically on the laptop (which holds both layouts) and on a node
+    staged for one.
+    """
+    import tempfile
+
+    real = mod.DATA_PROCESSED
+    try:
+        for present, absent in (("12lead", "lead2"), ("lead2", "12lead")):
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                container = next(iter(mod._index_for(f"image_clean_{present}").values()))[0]
+                (root / container).parent.mkdir(parents=True, exist_ok=True)
+                (root / container).touch()
+                mod.DATA_PROCESSED = root
+                got = staged_image_layout()
+            if got != present:
+                print(f"  FAIL  layout probe: only {present} staged, probe chose {got!r}"
+                      f" (a missing {absent} container would be reported as 8/10 FAILs)")
+                return False
+    finally:
+        mod.DATA_PROCESSED = real
+    print("  PASS  layout probe (follows the staged container, not the config)")
+    return True
 
 
 def test_determinism(root: Path) -> bool:
@@ -319,14 +407,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--steps", type=int, default=2)
     parser.add_argument("--skip-train", action="store_true")
     parser.add_argument("--skip-recovery", action="store_true")
+    parser.add_argument("--image-layout", choices=["lead2", "12lead"], default=None,
+                        help="force the image/fusion layout instead of probing "
+                             "which one is staged")
     args = parser.parse_args(argv)
 
     tasks = args.tasks or [k for k, v in TASKS.items() if not v.eval_only]
 
-    # Bind the recovery checks to a tier this node has data for (see
-    # RECOVERY_CHOICES) so a scoped smoke run does not report failures about
-    # modalities it was never asked to exercise.
-    global RECOVERY_TARGET
+    # Bind the image layout, and the recovery checks, to what this node has
+    # data for (see `staged_image_layout` and RECOVERY_CHOICES) so a scoped
+    # smoke run does not report failures about modalities or layouts it was
+    # never asked to exercise.
+    global RECOVERY_TARGET, IMAGE_LAYOUT
+    IMAGE_LAYOUT = args.image_layout or staged_image_layout()
+    source = "forced" if args.image_layout else "probed from the staged containers"
+    print(f"image layout: {IMAGE_LAYOUT} ({source})")
     RECOVERY_TARGET = choose_recovery_target(args.tiers)
 
     root = DEV_RUNS / "_smoke"
@@ -343,6 +438,7 @@ def main(argv: list[str] | None = None) -> int:
                          ("epoch-boundary resume", lambda: test_epoch_boundary_resume(root)),
                          ("preemption handler", lambda: test_preemption_handler(root)),
                          ("determinism", lambda: test_determinism(root)),
+                         ("layout probe", test_layout_probe),
                          ("gates", test_gates)):
             try:
                 if not fn():

@@ -69,6 +69,24 @@ WARMUP_FRACTION = 0.05                  # §6.3
 # -----------------------------------------------------------------------------
 # deterministic, resumable batch order
 # -----------------------------------------------------------------------------
+def _truncate_plan(plan: list[tuple[list[int], list[list[int]]]],
+                   max_batches: int) -> list[tuple[list[int], list[list[int]]]]:
+    """The first `max_batches` batches of an epoch plan, windows kept intact.
+
+    Smoke tests and pre-flight runs only (`max_steps_per_epoch`). A window that
+    falls entirely past the cap is dropped rather than staged, which is what
+    makes a capped run on a chunked campaign cheap instead of merely short.
+    """
+    out: list[tuple[list[int], list[list[int]]]] = []
+    remaining = max_batches
+    for window, batches in plan:
+        if remaining <= 0:
+            break
+        out.append((window, list(batches[:remaining])))
+        remaining -= len(out[-1][1])
+    return out
+
+
 def build_batch_order(n_rows: int, batch_size: int, *, seed: int, epoch: int,
                       shuffle: bool, hard_negative_index: np.ndarray | None = None,
                       drop_last: bool = False,
@@ -352,24 +370,40 @@ class Trainer:
                 for k, v in batch.items()}
 
     def _epoch_plan(self, epoch: int) -> list[tuple[list[int], list[list[int]]]]:
-        """One epoch as [(resident piece window, its batches)]."""
+        """One epoch as [(resident piece window, its batches)].
+
+        `max_steps_per_epoch` is applied HERE, to the plan the epoch actually
+        iterates. It used to be applied in `train()` to a flattened *copy* of
+        the plan while `_run_windows` went on iterating the untruncated one, so
+        from the chunk-cycling refactor onwards the cap moved the progress-bar
+        total and nothing else. Two things that cost: `smoke_test.py`'s
+        mid-epoch resume check asked for 3 batches, ran 8 and reported
+        `resumed run did [6] batches, expected [1]` on every tier, and campaign
+        2's pre-flight ran full epochs under `--max-steps-per-epoch 400` (jobs
+        24639/24640, so its per-run wall clocks describe an epoch, not 400
+        steps). Truncating the plan itself means the plan and its batch count
+        cannot drift apart again.
+        """
         config = self.config
         if self.cycle is None:
-            return [([], build_batch_order(
+            plan = [([], build_batch_order(
                 len(self.train_dataset), config.batch_size, seed=config.seed,
                 epoch=epoch, shuffle=True, hard_negative_index=self.hard_index))]
-        plan = []
-        for window in self.cycle.windows(epoch):
-            pool = self.cycle.rows_for(window)
-            if pool.size == 0:
-                continue
-            plan.append((window, build_batch_order(
-                len(self.train_dataset), config.batch_size, seed=config.seed,
-                epoch=epoch, shuffle=True, hard_negative_index=self.hard_index,
-                index_pool=pool)))
-        covered = sum(len(b) for _w, bs in plan for b in bs)
-        self.log.info("epoch %d: %d pieces in %d windows, %d rows covered",
-                      epoch, self.cycle.total, len(plan), covered)
+        else:
+            plan = []
+            for window in self.cycle.windows(epoch):
+                pool = self.cycle.rows_for(window)
+                if pool.size == 0:
+                    continue
+                plan.append((window, build_batch_order(
+                    len(self.train_dataset), config.batch_size, seed=config.seed,
+                    epoch=epoch, shuffle=True, hard_negative_index=self.hard_index,
+                    index_pool=pool)))
+            covered = sum(len(b) for _w, bs in plan for b in bs)
+            self.log.info("epoch %d: %d pieces in %d windows, %d rows covered",
+                          epoch, self.cycle.total, len(plan), covered)
+        if config.max_steps_per_epoch:
+            plan = _truncate_plan(plan, config.max_steps_per_epoch)
         return plan
 
     def _run_windows(self, plan: list[tuple[list[int], list[list[int]]]],
@@ -424,16 +458,14 @@ class Trainer:
             # and never a curriculum. A non-chunked run has one window holding
             # every row, which is exactly the previous behaviour.
             plan = self._epoch_plan(epoch)
-            batches = [b for _window, window_batches in plan for b in window_batches]
-            if config.max_steps_per_epoch:
-                batches = batches[:config.max_steps_per_epoch]
+            n_batches = sum(len(window_batches) for _window, window_batches in plan)
             skip = self.batch_in_epoch if epoch == start_epoch else 0
             if skip:
                 self.log.info("resuming mid-epoch: skipping %d of %d batches",
-                              skip, len(batches))
+                              skip, n_batches)
 
             epoch_start = time.time()
-            train_loss, head_losses = self._run_windows(plan, skip, len(batches))
+            train_loss, head_losses = self._run_windows(plan, skip, n_batches)
             if self.stop_requested:
                 self.save_last("interrupted")
                 self.log.warning("stopping after signal at epoch %d batch %d",

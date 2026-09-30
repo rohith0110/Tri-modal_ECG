@@ -2,7 +2,13 @@
 
 ## Start every session here
 
-**Read `docs/PHASE2_PROGRESS.md` before doing anything else** — before
+Three steps, in this order, before answering anything:
+
+1. read `.machine` — **which of the three machines is this?** (next section)
+2. `git pull --ff-only origin main` — **or the progress doc you read is stale**
+3. read `docs/PHASE2_PROGRESS.md`
+
+**Then read `docs/PHASE2_PROGRESS.md` before doing anything else** — before
 answering questions, before exploring the repo, before planning. It is the live
 state of this project: what is done, what is next, what is decided, what is
 blocked. It exists so no session needs the previous session's transcript.
@@ -10,6 +16,96 @@ blocked. It exists so no session needs the previous session's transcript.
 It tells you which other documents to read and in what order. Follow that order.
 Do not go spelunking through the repo to reconstruct state that the progress doc
 already records.
+
+## Which machine am I on? Read `.machine` first
+
+**Three machines share this repo, and they are not interchangeable.** Read the
+untracked file `.machine` at the repo root before you plan anything. It holds
+exactly one word:
+
+| `.machine`     | What it is                                     | Has `data/processed`? | Reaches the DGX? |
+| -------------- | ---------------------------------------------- | --------------------- | ---------------- |
+| `data-laptop`  | the user's own laptop, `D:\Coding\MU\Tri-Modal_ECG` | yes, 355 GB      | no               |
+| `campus-laptop`| the on-campus laptop, inside the MU network    | no                    | yes, by remote desktop |
+| `dgx`          | the DGX itself, `$HOME/se23ucse027`            | only what is staged   | it *is* the DGX  |
+
+`.machine` is untracked on purpose (`/*` in `.gitignore` already covers it), so
+each machine states its own identity and a pull can never overwrite it.
+
+**If `.machine` is missing, stop and ask the user which machine this is**, then
+write the answer into it before doing anything else. Do not guess from the path
+or the OS: a laptop can be re-cloned anywhere, and guessing wrong means either
+proposing a DGX submit from a machine that cannot reach it, or proposing a data
+build on a machine that has no data.
+
+What each machine can and cannot do:
+
+- **`data-laptop`** holds `data/processed`. It is the only machine that can
+  build, measure or upload datasets. It has no route to the DGX — never propose
+  submitting, cancelling or polling a Slurm job from here, and never write a
+  number into the progress doc as if it came from the DGX.
+- **`campus-laptop`** is the only machine that reaches the DGX. It runs
+  `sbatch`, `squeue`, `sacct` and the `stage_data.sh` / campaign launchers. It
+  has no `data/processed`, so anything that reads a container fails here by
+  design; that is not a bug to fix.
+- **`dgx`** is a git checkout plus staged data. Code and configs come from
+  **git, not from R2** — `stage_data.sh` skips the `code`/`configs` datasets
+  when `PROJECT_ROOT` is a work tree, because staging them over a checkout
+  silently reverts whatever git has that the last upload does not (commit
+  7d3602d). The DGX **pulls and never pushes.**
+
+## Git is how the three machines stay in sync — pull first, push last
+
+There is no shared filesystem between these machines. `main` on
+`https://github.com/rohith0110/Tri-modal_ECG.git` is the only channel, so a
+commit that is not pushed does not exist as far as the other two machines are
+concerned, and a checkout that was not pulled is running last week's code.
+
+**Every session, on every machine, in this order:**
+
+1. **Before anything else** — after reading `.machine`, before reading the
+   progress doc:
+
+   ```bash
+   git pull --ff-only origin main
+   ```
+
+   `--ff-only` on purpose. If it refuses, this machine has local commits or a
+   divergence — **stop and tell the user**, do not merge, rebase or force.
+   Reading `docs/PHASE2_PROGRESS.md` before pulling means reading a stale
+   handover, which is the one failure this whole loop exists to prevent.
+
+2. **Work**, on `main`, never on a branch (see the project rules below).
+
+3. **Before the session ends** — if you changed anything at all, including a
+   docs-only edit:
+
+   ```bash
+   git add -A && git commit && git push origin main
+   ```
+
+   An unpushed commit on the `data-laptop` is invisible to the person driving
+   the DGX, and an unpushed commit on the `campus-laptop` is invisible to the
+   machine that holds the data. Push even when the work is unfinished; a
+   `[~]` step mark plus a session-log entry is exactly what the next machine
+   needs.
+
+4. **On the DGX**, before submitting anything:
+
+   ```bash
+   git -C "$PROJECT_ROOT" pull --ff-only origin main
+   ```
+
+   A campaign launched from an unpulled checkout runs the old `campaigns.sh`,
+   the old quota ceiling and the old encoder switch. That has already cost this
+   project a wrong-model incident (1e266f2) and a `transport=none` failure
+   (7d3602d). **Never commit on the DGX** — it is a consumer of `main`. If
+   something there has to change, change it on a laptop, push, and pull.
+
+**The handover is the commit, not the conversation.** Two of these machines are
+driven by different people at different times; neither can see the other's
+transcript. If a fact is not in `docs/PHASE2_PROGRESS.md` on pushed `main`, it
+is lost.
 
 ## Update it before every session ends
 

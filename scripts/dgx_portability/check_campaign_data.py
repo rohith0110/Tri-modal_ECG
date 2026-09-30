@@ -99,15 +99,21 @@ def image_types(task: str) -> list[str] | None:
     return _TYPES[task]
 
 
-def reads_for(campaign: int) -> tuple[set[str], set[str], bool]:
-    """(modality kinds, tasks, needs_full_cohort) for one campaign's configs."""
+def reads_for(campaign: int) -> tuple[set[str], set[str], bool, bool]:
+    """(modality kinds, tasks, needs_full_cohort, needs_text) for a campaign."""
     kinds: set[str] = set()
     tasks: set[str] = set()
+    needs_text = False
     for config in build_matrix():
         if campaign_of(config) != campaign:
             continue
         tasks.add(config["task"])
         plan = plan_from_config(config)
+        # A text run reads report text through `build_common.report_text_series`,
+        # i.e. the `text` dataset -- unless the task table carries its own text
+        # column (B5 audits the report, so it stores it).
+        if getattr(plan, "uses_text", False) and not get_task(config["task"]).text_column:
+            needs_text = True
         if getattr(plan, "signal_kind", None):
             kinds.add(plan.signal_kind)
         image_kind = getattr(plan, "image_kind", None)
@@ -118,11 +124,11 @@ def reads_for(campaign: int) -> tuple[set[str], set[str], bool]:
                 kinds |= {f"image_{t}_{layout}" for t in types}
             else:
                 kinds.add(image_kind)
-    return kinds, tasks, any(t not in L3_TASKS for t in tasks)
+    return kinds, tasks, any(t not in L3_TASKS for t in tasks), needs_text
 
 
 def check(campaign: int, verbose: bool) -> list[str]:
-    kinds, tasks, needs_full = reads_for(campaign)
+    kinds, tasks, needs_full, needs_text = reads_for(campaign)
     datasets = campaign_datasets(campaign)
 
     # kind -> the splits this campaign's datasets cover, and whether any
@@ -150,6 +156,10 @@ def check(campaign: int, verbose: bool) -> list[str]:
             covered[kind] |= set(splits)
 
     problems = []
+    if needs_text and "text" not in datasets:
+        problems.append("has a text-reading config but does not stage `text` "
+                        "(index/ecg_metadata_clean_with_measurements.parquet), which "
+                        "`build_common.report_text_series` reads at batch time")
     for kind in sorted(kinds):
         want = {TRAIN, VAL, TEST}
         gaps = want - covered[kind]
@@ -163,8 +173,8 @@ def check(campaign: int, verbose: bool) -> list[str]:
             problems.append(
                 f"reads {kind} but stages nothing for split(s) {sorted(gaps)}{why}")
     if verbose and not problems:
-        print(f"  reads {sorted(kinds) or ['(text only)']}"
-              f"  cohort={'full' if needs_full else 'L3'}")
+        print(f"  reads {sorted(kinds) or ['(no modality bytes)']}"
+              f"  text={needs_text}  cohort={'full' if needs_full else 'L3'}")
     return problems
 
 

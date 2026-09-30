@@ -4,7 +4,14 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-09-28 (session 14)
+- **Last updated:** 2026-09-30 (session 15, read-only DGX check)
+- **SESSION 15 (2026-09-30): campaign 1 training is DONE (36/36; `c1_B4` 24622
+  COMPLETED 09-29). Campaign 2 pre-flight ran and found a DATA GAP — A5/B4
+  image runs cannot train.** R2 holds only `images_scanlike_test`; A5/B4 read
+  `image_scanlike_12lead` for train/val rows (`task_dataset.py:524-528`), and
+  no campaign stages it. `c2_images12` 24641 is HELD. A3 evals are far slower
+  than planned (tf-idf ~34 d, BERT ~70 d left at the current rate). See the
+  session 15 log.
 - **RIGHT NOW: campaign 1 restarted after 12 idle days.** 32/36 runs and 8/12
   evals done (A1, A5, A6, B5). Running since 2026-09-28 ~10:06 UTC:
   - **`c1_B4` 24622** (dgxa slice, 7 d) — resumed B4 BERT seed 456 at epoch 3
@@ -2503,3 +2510,49 @@ The first A3 pair (24623/24624, 12 CPU, `eval_task.sbatch`'s default 32G) was
 (24625/24626) with checkpoints unchanged (903 / 571 lines). Two `afternotok`
 continuations per tier are queued so a TIMEOUT resumes on its own.
 **Trap:** raising `--cpus-per-task` on an eval without raising `--mem` OOMs it.
+
+### Session 15 — 2026-09-30 — reading back the campaign 2 pre-flight
+
+Read-only: nothing submitted, cancelled or pushed. Git on the DGX is at 7128da3
+(docs-only behind `main`).
+
+**Campaign 1.** `c1_B4` 24622 COMPLETED 2026-09-29 14:56 (23 h 20 m): **36/36
+runs done.** Its body submitted the B4 evals at 4 CPU / 32G: tf-idf 24760 at
+50/60 units (hours left), BERT 24761 at 10/60 (~3-4 d). The A3 evals were
+re-submitted a third time after session 14 at **8 CPU / 64G** (24633 tf-idf,
+24636 BERT; 24625/24626 cancelled), continuations 24634/24635, 24637/24638
+chained `afternotok`. Units restarted counting at 2,037 / 2,369 remaining.
+After 39 h: tf-idf 170, BERT 100 — and decelerating (last 10 units took 4.3 h
+and 7.5 h). **Extrapolated: tf-idf ~34 days, BERT ~70 days.** That is 5-10
+more 7-day continuations per tier than are queued; the eval method for A3
+(2,940 bootstrap units) needs rethinking, not more wall clock.
+
+**Campaign 2 pre-flight (`~/c2test/`, outside the repo; outputs under
+`outputs/model_runs/_dev/c2test*`, 2.4 GB).**
+- 24639 `c2_test_cpu` (8 CPU, 52 min, COMPLETED): stage `2 --phase train` and
+  `--phase eval` both PASS, 19.0 -> 20.2 GB of 49. Real-data 20-step runs:
+  **A1/A3/A6 exit 0**, A1 test predictions written; **A5/B4 exit 1**.
+  `smoke_test.py --tiers image` failed 8/10 — only because the smoke harness
+  uses **lead2** image configs and campaign 2 stages only 12-lead
+  (`clean_lead2_shard_000.tar` missing). Not a code bug; the smoke test cannot
+  be run inside a single-layout campaign's staging.
+- 24640 `c2_test_gpu` (a100_4g.20gb slice on dgxa, 1 h 38 m, FAILED on A5/B4):
+  400 steps each, bf16. **A1/A3/A6 peak_gpu_gb 10.82** — fits the 20 GB slice
+  with room. ~3.0 it/s. Epoch = 4,109 (A1) / 4,614 (A3, A6) steps; 400 steps +
+  full val took 25 / 33 / 28 min.
+- **🔴 A5/B4 image tier: `FileNotFoundError ... images/scanlike_12lead_shard_017.tar`.**
+  Verification tasks pick the rendering per row (`image_type_column`,
+  `task_dataset.py:524-528`), so the scan-like positive rows need
+  `image_scanlike_12lead` for train and val. R2 has only
+  `images_scanlike_test` (18.9 GiB, test split, both layouts). Full
+  `scanlike_12lead` is 62.3 GB — over the 49 GB ceiling alone. Affects
+  campaign 2 and 3 (A5/B4 image, 6 runs each) and every fusion campaign that
+  trains A5/B4 with images (7, 8, 12, 13). Fix needs the data machine: a
+  derived `images_scanlike_{12lead,lead2}_trainval` subset of only the A5/B4
+  anchors (like `make_subsets.py` did for L3), uploaded and added to those
+  campaigns' dataset lists in `campaigns.sh`.
+- `c2_images12` 24641 (`gpu_student`, 4g.20gb slice, dgxa, 7 d) is **held**
+  (`--hold`), dependency on 24640 already satisfied.
+  `campaign_runs.py` takes `--tasks`, so campaign 2 can run A1/A3/A6 (9 runs)
+  now and A5/B4 later.
+

@@ -64,6 +64,7 @@ So, measured and rebuilt:
 | `signals_lead2` | split into `..._preprocessed` and `..._raw`; 12/13/14 were staging a 6.08 GB raw file they never read |
 | campaigns 5 and 7 | now read the **full-cohort** 12-lead pieces instead of `signals_12lead_L3` (35.35 GB resident, which put campaign 7 at 40.5) |
 | campaigns 8 and 11 | **val on demand** — they do not hold the val split while training |
+| campaign 10 | **it trains on scan-like images**, it is not a re-testing sweep, so it was split by layout into 10 (12-lead) and **15** (Lead-II). 15 campaigns now; still 104 configs and 312 runs |
 | the whole size table | **measured**, by `upload_data.py --sizes`, not hand-maintained |
 
 Three latent failures were found and fixed on the way, all the same shape as
@@ -117,7 +118,8 @@ on the command line — see campaign 2.
 | 17/18 | 5, 6 | 12 + 18 | both now read the full-cohort 12-lead pieces |
 | 19 | 7, 12 | 18 + 18 | |
 | 20 | 8, 13 | 15 + 15 | 8 is the first `val_mode=on_demand` campaign |
-| 22/23 | 9, 10 | 30 + 30 | |
+| 22 | 9 | 30 | |
+| 23 | 10, **15** | 15 + 15 | the scan-like arm. It **trains** — campaign 10 was split by layout on 2026-09-30, see below |
 | 24 | 11, 14 | 6 + 6 | 11 is `on_demand` too |
 
 ### Campaign 2 specifically
@@ -195,11 +197,12 @@ on the data laptop, or read it off `campaigns.sh`.
 | 7 | fusion_L3_12lead | 26.8 | 17.8 | yes | resident |
 | 8 | fusion_full_12lead | 27.4 | 31.1 | yes | **on_demand** |
 | 9 | retrain_sweeps | 12.7 | 9.6 | yes | resident |
-| 10 | test_sweeps | 27.8 | 27.8 | no | resident |
+| 10 | test_sweeps_12lead | 27.9 | 23.2 | yes | resident |
 | 11 | final_eval_12lead | 27.4 | 31.1 | yes | **on_demand** |
 | 12 | fusion_L3_lead2 | 27.7 | 27.7 | no | resident |
 | 13 | fusion_full_lead2 | 24.3 | 20.0 | yes | resident |
 | 14 | final_eval_lead2 | 24.3 | 20.0 | yes | resident |
+| 15 | test_sweeps_lead2 | 31.0 | 28.1 | yes | resident |
 
 **`val_mode=on_demand`** (campaigns 8 and 11) means the run does not hold the
 val split while it trains: at each epoch boundary the trainer evicts the
@@ -217,31 +220,9 @@ data bug. It resumes from the last epoch-boundary checkpoint.
 
 ---
 
-## 4. Two things that are still genuinely unresolved
+## 4. The one thing that is still genuinely unresolved
 
-### 4a. Campaign 10: does it train on scan-like images, or only re-test?
-
-**Settle this before Step 23; as configured it will fail either way.**
-`campaign_runs.py 10` emits **30 training runs** and the body trains them, but
-the campaign stages the **test split only** and the execution plan budgets
-6 GPU-hours for all 30 — which is an evaluation, not training. Meanwhile spec
-§5.3 says augmentation is "on when **training on** scan-like", and the
-`*_scanlike.yaml` configs set `augmentation: true`, which only means anything
-while training.
-
-Either way the data is ready: the re-testing reading measures 27.8 GB and works
-now (its clean test containers were missing from the dataset list until
-2026-09-30), and the training reading needs the scan-like pieces, which are
-already in R2. **It is a `campaigns.sh` change, not a data change** — the data
-laptop is not needed. If it does train, campaign 10 must also be split by lead
-subset, the way 7/8/11 and 12/13/14 were, because one campaign reading both
-layouts is the 69 GB problem open question 14 solved.
-
-See open question 17 in `docs/PHASE2_PROGRESS.md` for the full evidence.
-
-### 4b. The A3 evaluation is too slow to finish as written
-
-Measured over 39 hours
+**The A3 evaluation is too slow to finish as written.** Measured over 39 hours
 in session 15: tf-idf ~34 days remaining, BERT ~70 days, and *decelerating* —
 the last ten units took 4.3 h and 7.5 h. That is 5–10 more seven-day
 continuations per tier. The 2,940-unit BCa bootstrap needs rethinking, not more

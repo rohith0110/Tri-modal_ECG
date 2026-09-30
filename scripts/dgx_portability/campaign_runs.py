@@ -39,8 +39,9 @@ TIER_RANK = ["algorithmic", "signal", "image", "text", "embedding", "multimodal"
 SEEDS = [42, 123, 456]
 
 # 1-11 are the original campaigns; 12-14 are the Lead-II halves of 7, 8 and 11,
-# split out at open question 14 so every campaign fits the 45 GB ceiling.
-N_CAMPAIGNS = 14
+# split out at open question 14, and 15 is the Lead-II half of 10, split out at
+# question 17 -- all so every campaign fits the ceiling.
+N_CAMPAIGNS = 15
 
 # The four L3 tasks use the smaller patient group and fit outright (§8.2 note,
 # and the execution plan's remark on campaigns 5 and 7).
@@ -58,7 +59,13 @@ def campaign_of(config: dict) -> int | None:
         return 1
     if tier.startswith("image_"):
         if "scanlike" in tier:
-            return 10                                   # test-split sweeps only
+            # SPLIT BY LEAD SUBSET 2026-09-30 (open question 17), for the same
+            # reason 7/8/11 vs 12/13/14 are: this tier TRAINS (§5.3 turns
+            # augmentation on "only for scan-like training", and these 30 runs
+            # are part of the 312 the spec counts), so it needs scan-like
+            # train+val -- 50.08 GB for 12-lead and 31.24 for Lead-II. One
+            # campaign holding both is the 69 GB problem question 14 solved.
+            return 10 if "12lead" in tier else 15
         return 2 if "12lead" in tier else 3
     if tier.startswith("embedding_cosine"):
         # Split by lead subset for the same reason 7 and 8 are (below).

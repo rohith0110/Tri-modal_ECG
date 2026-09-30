@@ -163,6 +163,26 @@ while IFS= read -r manifest; do
                 continue
             fi
             ;;
+        # `checksums.json` is a CHUNK CUT's own manifest, and it lists all eight
+        # pieces. Only the train phase stages any of them: the val swap evicts
+        # them to make room for the val split, and _campaign_body.sh runs
+        # `evict_data.sh --pieces-all` before the eval phase. In those phases
+        # every file it names is legitimately absent, which trips the
+        # "the manifest lists files but NONE of them are on disk" guard below --
+        # a guard that exists to catch a fetch which silently moved nothing, and
+        # which cannot tell that case apart from a deliberate eviction. So skip
+        # the cut's manifest outside the train phases rather than weaken the
+        # guard for everything else.
+        checksums.json)
+            case "$PHASE" in
+                train|train_only) ;;
+                *)
+                    log "skipping $(basename "$(dirname "$manifest")")/checksums.json:"
+                    log "  it lists chunk pieces, which the $PHASE phase does not stage."
+                    continue
+                    ;;
+            esac
+            ;;
     esac
     dir="$(dirname "$manifest")"
     log "verifying $(basename "$dir") against $(basename "$manifest")"

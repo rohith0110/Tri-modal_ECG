@@ -262,13 +262,18 @@ Upload in the order the campaigns need things, so the DGX is never waiting on yo
 | Clean Lead-II pictures | 17.8 GB | Campaign 3 |
 | 12-lead filtered signals, in pieces | 56.7 GB | Campaigns 5–8 |
 | 12-lead raw signals, in pieces | ~32 GB | Campaign 9 |
-| Scan-like pictures, test split only | ~20 GB | Campaign 10 |
+| Scan-like pictures, 12-lead, in pieces + val/test | 62.6 GB | Campaigns 2, 8, 10, 11 |
+| Scan-like pictures, Lead-II, in pieces + val/test | 39.1 GB | Campaigns 3, 13, 14, 15 |
+| Clean Lead-II pictures, in pieces + val/test | 17.9 GB | Campaigns 13, 14 |
 
-**About 142 GB in total, uploaded over the whole project, not at once.** (Was ~145 GB;
-the EHR tables came off the list when task building moved home. The finished task files
-are small — they hold study IDs and labels, never signal or image bytes.) Storage cost is
-around ₹180/month, and downloading it to the DGX costs nothing. Uploads resume after an
-interruption, so power cuts and dropped connections are not a problem.
+**About 262 GB in total, uploaded over the whole project, not at once.** (Was ~142 GB
+before open question 16 added the scan-like train/val data — 120 GB of it — which the
+A5/B4 tasks always needed and nothing had staged.)
+
+The finished task files are small — they hold study IDs and labels, never signal or
+image bytes. Storage cost is around ₹330/month, and downloading it to the DGX costs
+nothing. Uploads resume after an interruption, so power cuts and dropped connections
+are not a problem.
 
 *If your home upload speed makes this painful:* an alternative is to put everything on a
 256 GB portable drive and courier it to your friend. Their laptop then serves the data to the
@@ -387,10 +392,23 @@ question a reviewer would otherwise ask.
 **Step 22 — Campaign 9, the sweeps that need re-training.** Raw vs filtered signals, TF-IDF
 vs BERT. Uses raw signals in pieces.
 
-**Step 23 — Campaign 10, the sweeps that only need re-testing.** Clean vs scan-like pictures,
-corrupted signals, the SQI tiers, Lead-II vs 12-lead, first-ECG-per-patient, the lab time
-windows, and the rest. These only run an already-trained model over different test data, so
-only the test portion needs uploading.
+**Step 23 — Campaigns 10 and 15, the scan-like image arm.** **CORRECTED 2026-09-30
+(spec §12.10, open question 17).** This step used to read "the sweeps that only need
+re-testing… only the test portion needs uploading", and that was wrong. The scan-like
+image tier **trains**: §5.3 turns augmentation on "when training on scan-like" and
+`model_configs.py` sets it on every `*_scanlike` config and on no `*_clean` one, and
+augmentation is applied only when `split == "train"`. It is the image-side analogue of
+§7.3's B2 regimes, where the clean-trained and corruption-augmented arms are both
+trained. Its 30 runs are part of the 104 configs / 312 runs the spec counts.
+
+So it needs scan-like **train+val**, which is 50.08 GB for 12-lead and 31.24 GB for
+Lead-II — hence the p8 cut (§8.2 rule 1) and the **split by lead subset**: campaign 10
+is the 12-lead half, campaign 15 the Lead-II half, 15 runs each. It also stages the
+CLEAN container, because its A5/B4 rows choose the rendering per row.
+
+The genuinely re-testing-only sweeps — the SQI tiers, Lead-II vs 12-lead,
+first-ECG-per-patient, the lab time windows — are evaluation-side slices of models
+trained elsewhere and need no campaign of their own.
 
 **Step 24 — Campaign 11, final evaluation.** Every model, every task, every seed, plus the
 confidence intervals (10,000 patient-level bootstrap rounds). Then the calibration, threshold

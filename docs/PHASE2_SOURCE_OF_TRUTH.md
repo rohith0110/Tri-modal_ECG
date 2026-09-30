@@ -2329,10 +2329,14 @@ scripts/dgx_portability/
 > campaign model changed, all of them measured rather than estimated, and none
 > of them touching the two rules below.
 >
-> 1. **There are 14 campaigns, not 11.** A fusion campaign reads a whole lead
->    set, and campaigns 7, 8 and 11 had configs covering both, which put
+> 1. **There are 15 campaigns, not 11.** A campaign that reads a whole lead set
+>    does not fit: campaigns 7, 8 and 11 had configs covering both, which put
 >    campaign 7 at 69 GB against the 45 GB ceiling. They are split by lead
 >    subset: **7/8/11 are the 12-lead halves, 12/13/14 the Lead-II ones.**
+>    **Campaign 10 was split the same way on 2026-09-30** (§12.10), into 10
+>    (12-lead) and **15** (Lead-II), once it was settled that the scan-like
+>    image tier trains rather than only re-tests and therefore needs scan-like
+>    train+val for each layout.
 >    `campaign_runs.py --table` still reports 104 configs and 312 runs — the
 >    same work, partitioned differently. Step-ledger references to campaign
 >    numbers were updated with it.
@@ -3154,6 +3158,47 @@ better design, since a high-SQI-only anchor set would overstate
 robustness, but it must be described accurately.
 
 ---
+
+### 12.10 Round 11 — locked 2026-09-30 (the scan-like staging round)
+
+Two questions were settled while closing the A5/B4 scan-like data gap. Neither
+changes a cohort, a metric, a split or a model; both change **what a campaign
+stages**, and the second corrects a mis-description in the execution plan.
+
+1. **A5/B4 read two image containers, not one, and the campaign table has to
+   say so.** §4.A.5 gives every anchor a clean positive *and* a scan-like
+   positive (Truth doc §6.1, "Positive type 2"), and `task_dataset.py` builds
+   the modality kind from the ROW's `image_type`, so an A5/B4 run's config
+   names only the layout. Every A5/B4 config that touches images therefore
+   reads `image_scanlike_<layout>` as well as `image_clean_<layout>`. That set
+   is 599,470 of 749,112 studies for train+val — **50.08 GB for 12-lead**, more
+   than the whole storage ceiling — so the scan-like TRAIN split is cut into
+   **eight aligned i.i.d. pieces under §8.2 rule 1** and cycled under rule 2,
+   and val/test ship as per-layout containers. No cohort changes: the pieces
+   are a partition of the same studies, keyed by
+   `blake2b(salt|study_id) % 8`, which is independent of subject, label, cart
+   and time by construction and measured to be so.
+
+2. **The scan-like image tier is a TRAINED arm, not a test-time sweep.** §5.3
+   turns image augmentation **on** "when training on scan-like or mixed
+   clean+scanlike" and off for clean-only training, and `model_configs.py`
+   emits exactly that — `augmentation: true` on every `*_scanlike` config and
+   `false` on every `*_clean` one. Augmentation is applied only when
+   `split == "train"`, so the setting is meaningless unless the tier trains.
+   It is the image-side analogue of §7.3's B2 regimes, where regime_1 is the
+   clean-trained arm and regime_2 the corruption-augmented one, and both are
+   trained. The 30 runs it contributes are part of the **104 configs / 312
+   runs** this spec counts; treating it as evaluation-only would silently drop
+   them.
+
+   `docs/PHASE2_EXECUTION_PLAN_DGX.md` described that campaign as "the sweeps
+   that only need re-testing… test split only", which is **wrong** and has been
+   corrected. Because the tier covers both layouts and a trained scan-like arm
+   needs train+val for each, the campaign is **split by lead subset** exactly as
+   Round 5's campaigns 7/8/11 were into 12/13/14: campaign 10 is the 12-lead
+   half and campaign 15 the Lead-II half, 5 configs and 15 runs each. **No
+   config was renamed, no run or seed dropped** — `campaign_runs.py --table`
+   still reports 104 configs and 312 runs.
 
 ### 12.9 Round 10 — locked 2026-08-28 (the Plan A/B compliance audit)
 

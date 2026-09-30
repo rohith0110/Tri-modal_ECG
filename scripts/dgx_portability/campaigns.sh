@@ -308,26 +308,27 @@ campaign_spec() {
         7)  echo "fusion_L3_12lead|26.8|18|20|yes|code configs tasks index text signals_12lead_pieces signals_12lead_valtest images_clean_12lead_L3|17.8|resident" ;;
         8)  echo "fusion_full_12lead|27.4|15|30|yes|code configs tasks index text signals_12lead_pieces images_clean_12lead_pieces images_scanlike_12lead_pieces signals_12lead_valtest images_clean_12lead_valtest images_scanlike_12lead_valtest|31.1|on_demand" ;;
         9)  echo "retrain_sweeps|12.7|30|25|yes|code configs tasks index text signals_raw_pieces signals_raw_valtest|9.6|resident" ;;
-        # 🔴 OPEN QUESTION 17. This row is the RE-TESTING reading: scan-like
-        # test plus the clean test containers its A5/B4 rows read (which were
-        # missing entirely until 2026-09-30). But `campaign_runs.py 10` emits
-        # 30 TRAINING runs and `_campaign_body.sh` trains them, and spec §5.3
-        # says augmentation is on "when training on scan-like" -- which the
-        # `*_scanlike.yaml` configs duly set. As it stands this campaign FAILS
-        # in the train phase on missing train-split containers. If it really
-        # trains, it needs the scan-like pieces (already in R2) and must be
-        # SPLIT BY LAYOUT, because one campaign reading both is the 69 GB
-        # problem question 14 solved. Settle it before Step 23.
-        10) echo "test_sweeps|27.8|30|6|no|code configs tasks index images_scanlike_test images_clean_12lead_valtest images_clean_lead2_valtest signals_corrupted|27.8|resident" ;;
+        # Campaign 10 TRAINS on scan-like images; it is not a re-testing sweep
+        # (open question 17, closed 2026-09-30). §5.3 turns augmentation on
+        # "only for scan-like training" and `model_configs.py` duly sets it,
+        # exactly as B2's regime_2 is a trained corruption arm rather than a
+        # test-time one; and these 30 runs are part of the 104 configs / 312
+        # runs the spec counts. It therefore needs scan-like train+val, and is
+        # SPLIT BY LAYOUT into 10 (12-lead) and 15 (Lead-II) -- one campaign
+        # reading both is the 69 GB problem question 14 solved. It also reads
+        # the CLEAN container, because its A5/B4 rows pick the rendering per
+        # row; staging only scan-like is what question 16 fixed.
+        10) echo "test_sweeps_12lead|27.9|15|6|yes|code configs tasks index images_clean_12lead images_scanlike_12lead_pieces images_scanlike_12lead_valtest|23.2|resident" ;;
         11) echo "final_eval_12lead|27.4|6|4|yes|code configs tasks index text results signals_12lead_pieces images_clean_12lead_pieces images_scanlike_12lead_pieces signals_12lead_valtest images_clean_12lead_valtest images_scanlike_12lead_valtest|31.1|on_demand" ;;
         12) echo "fusion_L3_lead2|27.7|18|20|no|code configs tasks index text signals_lead2_preprocessed images_clean_lead2|27.7|resident" ;;
         13) echo "fusion_full_lead2|24.3|15|30|yes|code configs tasks index text signals_lead2_preprocessed images_clean_lead2_pieces images_clean_lead2_valtest images_scanlike_lead2_pieces images_scanlike_lead2_valtest|20.0|resident" ;;
         14) echo "final_eval_lead2|24.3|6|4|yes|code configs tasks index text results signals_lead2_preprocessed images_clean_lead2_pieces images_clean_lead2_valtest images_scanlike_lead2_pieces images_scanlike_lead2_valtest|20.0|resident" ;;
+        15) echo "test_sweeps_lead2|31.0|15|6|yes|code configs tasks index images_clean_lead2 images_scanlike_lead2_pieces images_scanlike_lead2_valtest|28.1|resident" ;;
         *)  return 1 ;;
     esac
 }
 
-N_CAMPAIGNS=14
+N_CAMPAIGNS=15
 
 campaign_field() { campaign_spec "$1" | cut -d'|' -f"$2"; }
 campaign_name()      { campaign_field "$1" 1; }

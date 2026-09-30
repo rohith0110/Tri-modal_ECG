@@ -28,6 +28,26 @@ side of open questions 16 and 17. See `docs/PHASE2_PROGRESS.md` session 16.
 
 R2 is at **267.1 GiB / 617 objects** (was 226.4 GiB / 601 before this session).
 
+**All four scan-like containers passed `verify` at 15:06** — every sha256
+matches what the builder recorded, sizes exactly as predicted:
+scan-like Lead-II pieces 8 x ~3.41 GB; `images_scanlike_12lead_valtest`
+val 6.31 GB / test 12.52 GB; `images_scanlike_lead2_valtest` val 3.94 /
+test 7.81. Both scan-like round trips PASS.
+
+**A background orchestrator was running when the session stopped** and had just
+started the `image_clean_lead2` cut (15:06). It may or may not have survived the
+Claude Code restart. **Check before re-running §1 — it is harmless either way,
+because every step skips what is already done:**
+
+```bash
+tasklist | grep -i python          # or: Get-Process python
+tail -20 "C:/Users/banot/AppData/Local/Temp/claude/D--Coding-MU-Tri-Modal-ECG/6ceaca24-9f54-4157-a57f-db680785cc81/scratchpad/finish.log"
+ls /c/trimodal_chunks/image_clean_lead2__train__p8/
+```
+
+If it is alive, let it finish — it does the whole of §1 by itself, then prints
+`FINISH DONE`. If it is gone, just run §1.
+
 ---
 
 ## 1. Finish the data — one command

@@ -106,6 +106,9 @@ sacct -u $USER --starttime 2026-09-28 --format=JobID,JobName%22,State,Elapsed,En
 
 Then, in this order:
 
+Every `sbatch` below wants `--partition=gpu_student --gres=gpu:a100_4g.20gb:1`
+on the command line — see campaign 2.
+
 | step | campaign | runs | notes |
 | --- | --- | --- | --- |
 | 14 | **2** `images_12lead` | 15 | job **24641 is held** — see below |
@@ -128,15 +131,30 @@ scancel 24641
 cd ~/se23ucse027
 git pull --ff-only origin main
 bash scripts/dgx_portability/stage_data.sh 2 --pieces 0 1 --dry-run   # expect: quota OK
-sbatch scripts/dgx_portability/slurm/campaign_02.sbatch
+sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1 \
+       scripts/dgx_portability/slurm/campaign_02.sbatch
 ```
+
+**Always override `--gres` on the command line.** The `.sbatch` files say
+`--gres=gpu:a100:1`, which is a FULL 40 GB card, and on 2026-08-30 Slurm's
+estimate for one of those was **three weeks out** — dgxa has exactly two and
+they were held by `gpu_faculty` jobs. A `a100_4g.20gb` slice allocated in
+~20 seconds. Rule 4 in `DGX_OPERATOR_HANDOVER.md` §3a is "fit first, card
+second": take a slice on dgxa by default, a full card on dgxb only when a run
+truly needs more than 20 GB, and wait for a full dgxa card only when it needs
+both 40 GB and the fast disk.
+
+Measured: A1/A3/A6 peak at **10.82 GB**, so they fit a 20 GB slice with room.
+The fusion tiers (campaigns 7, 8, 12, 13) have never been measured — every
+epoch row in `train_log.jsonl` carries `peak_gpu_gb`, so read it off the first
+one rather than guessing, and move to a dgxb full card if it OOMs.
 
 `campaign_runs.py` takes `--tasks`, so campaign 2 can be sharded if you want
 A1/A3/A6 (9 runs, no cycling) separate from A5/B4 (6 runs, cycling):
 
 ```bash
 TRIMODAL_TASKS="A1_ecg_diagnosis A3_lab_abnormality A6_risk_stratification" \
-  sbatch scripts/dgx_portability/slurm/campaign_02.sbatch
+  sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1 \n         --export=ALL scripts/dgx_portability/slurm/campaign_02.sbatch
 ```
 
 ### Before every campaign
@@ -185,15 +203,45 @@ on the data laptop, or read it off `campaigns.sh`.
 
 **`val_mode=on_demand`** (campaigns 8 and 11) means the run does not hold the
 val split while it trains: at each epoch boundary the trainer evicts the
-pieces, fetches `*__val.*`, validates, and drops it again. Expect one extra
-15 GB fetch per epoch in those two campaigns and a correspondingly longer
-epoch. It buys 15 GB, which is what makes them fit at all.
+pieces, fetches `*__val.*`, validates, and drops it again. It buys 15 GB, which
+is what makes them fit at all.
+
+Two things follow. **Give those two campaigns more wall clock** — the `.sbatch`
+files were timed without a per-epoch 15 GB transfer; at the 27 MB/s measured
+from the data laptop that is ~10 minutes each way, so budget an extra ~20 min
+per epoch and raise `--time` accordingly (`MaxTime` on `gpu_student` is 7 days).
+And **they depend on the network at every epoch boundary**: a chunked campaign
+already fetches mid-epoch, so the dependency is not new, but a run that dies
+with `chunk staging failed` or `staging failed` is an R2/network failure, not a
+data bug. It resumes from the last epoch-boundary checkpoint.
 
 ---
 
-## 4. The one thing that is still genuinely unresolved
+## 4. Two things that are still genuinely unresolved
 
-**The A3 evaluation is too slow to finish as written.** Measured over 39 hours
+### 4a. Campaign 10: does it train on scan-like images, or only re-test?
+
+**Settle this before Step 23; as configured it will fail either way.**
+`campaign_runs.py 10` emits **30 training runs** and the body trains them, but
+the campaign stages the **test split only** and the execution plan budgets
+6 GPU-hours for all 30 — which is an evaluation, not training. Meanwhile spec
+§5.3 says augmentation is "on when **training on** scan-like", and the
+`*_scanlike.yaml` configs set `augmentation: true`, which only means anything
+while training.
+
+Either way the data is ready: the re-testing reading measures 27.8 GB and works
+now (its clean test containers were missing from the dataset list until
+2026-09-30), and the training reading needs the scan-like pieces, which are
+already in R2. **It is a `campaigns.sh` change, not a data change** — the data
+laptop is not needed. If it does train, campaign 10 must also be split by lead
+subset, the way 7/8/11 and 12/13/14 were, because one campaign reading both
+layouts is the 69 GB problem open question 14 solved.
+
+See open question 17 in `docs/PHASE2_PROGRESS.md` for the full evidence.
+
+### 4b. The A3 evaluation is too slow to finish as written
+
+Measured over 39 hours
 in session 15: tf-idf ~34 days remaining, BERT ~70 days, and *decelerating* —
 the last ten units took 4.3 h and 7.5 h. That is 5–10 more seven-day
 continuations per tier. The 2,940-unit BCa bootstrap needs rethinking, not more

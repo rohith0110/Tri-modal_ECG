@@ -308,6 +308,16 @@ campaign_spec() {
         7)  echo "fusion_L3_12lead|26.8|18|20|yes|code configs tasks index text signals_12lead_pieces signals_12lead_valtest images_clean_12lead_L3|17.8|resident" ;;
         8)  echo "fusion_full_12lead|27.4|15|30|yes|code configs tasks index text signals_12lead_pieces images_clean_12lead_pieces images_scanlike_12lead_pieces signals_12lead_valtest images_clean_12lead_valtest images_scanlike_12lead_valtest|31.1|on_demand" ;;
         9)  echo "retrain_sweeps|12.7|30|25|yes|code configs tasks index text signals_raw_pieces signals_raw_valtest|9.6|resident" ;;
+        # 🔴 OPEN QUESTION 17. This row is the RE-TESTING reading: scan-like
+        # test plus the clean test containers its A5/B4 rows read (which were
+        # missing entirely until 2026-09-30). But `campaign_runs.py 10` emits
+        # 30 TRAINING runs and `_campaign_body.sh` trains them, and spec §5.3
+        # says augmentation is on "when training on scan-like" -- which the
+        # `*_scanlike.yaml` configs duly set. As it stands this campaign FAILS
+        # in the train phase on missing train-split containers. If it really
+        # trains, it needs the scan-like pieces (already in R2) and must be
+        # SPLIT BY LAYOUT, because one campaign reading both is the 69 GB
+        # problem question 14 solved. Settle it before Step 23.
         10) echo "test_sweeps|27.8|30|6|no|code configs tasks index images_scanlike_test images_clean_12lead_valtest images_clean_lead2_valtest signals_corrupted|27.8|resident" ;;
         11) echo "final_eval_12lead|27.4|6|4|yes|code configs tasks index text results signals_12lead_pieces images_clean_12lead_pieces images_scanlike_12lead_pieces signals_12lead_valtest images_clean_12lead_valtest images_scanlike_12lead_valtest|31.1|on_demand" ;;
         12) echo "fusion_L3_lead2|27.7|18|20|no|code configs tasks index text signals_lead2_preprocessed images_clean_lead2|27.7|resident" ;;

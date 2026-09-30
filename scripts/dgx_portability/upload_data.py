@@ -87,8 +87,10 @@ DATASETS: dict[str, dict] = {
         "signals_int16/lead2_preprocessed.h5", "signals/lead2_raw.h5"]},
     # The same two files, separately. Campaigns 12/13/14 read only the
     # preprocessed copy and were staging the 6.08 GB raw one for nothing; only
-    # campaign 4 has `*_lead2_raw` configs. Same remote keys as `signals_lead2`,
-    # so naming them costs no upload -- rclone sees files it already has.
+    # campaign 4 has `*_lead2_raw` configs. Remote keys are `<dataset>/<path>`,
+    # so these are NEW prefixes: splitting them re-uploaded both files (12.6 GB,
+    # 2026-09-30) and left `signals_lead2/` unused. The files live on D:, so
+    # TRIMODAL_UPLOAD_STAGE must be on D: too (a hard link cannot cross volumes).
     "signals_lead2_preprocessed": {"root": DATA, "paths": [
         "signals_int16/lead2_preprocessed.h5"]},
     "signals_lead2_raw": {"root": DATA, "paths": [

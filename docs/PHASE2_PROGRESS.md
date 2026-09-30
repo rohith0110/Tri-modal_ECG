@@ -505,6 +505,35 @@ encoding moves every metric **0.42× as much as changing the training seed does*
 - Mains power is unreliable (cuts). Every long-running local script must
   checkpoint and resume.
 
+### Where the data physically lives (2026-09-30)
+
+**One rule: D: holds what Phase 1 produced, C: holds everything derived from
+it, and R2 holds what the DGX reads.** Nothing is duplicated between them.
+
+| path | what | size |
+| --- | --- | --- |
+| `D:\Coding\MU\Tri-Modal_ECG\data\processed` | the base containers Phase 1 built -- image shards, signal HDF5s, `tasks/`, `index/`, `modality_manifest.parquet`, `manifest_overlays/`. **Never uploaded wholesale.** | ~355 GB |
+| `C:\trimodal_chunks\<kind>__train__p8` | the chunk cuts, one directory per kind | see below |
+| `C:\trimodal_derived\derived\<dataset>` | the derived val/test and subset containers | see below |
+| `C:\trimodal_chunks\_upload_stage` | hard-link staging the uploader builds. **Disposable** -- it shares inodes with the originals and costs no space. | 0 |
+| `r2:trimodal-data` | what the DGX stages from. The authority for anything staged. | ~370 GB |
+| `r2:trimodal-results` | what the DGX writes back; `push_results.sh` fills it | grows |
+
+**The C: directories are reached from D: through junctions** under
+`data/processed/derived/` and `data/processed/chunks/`, because `modality.py`
+resolves every overlay path relative to `DATA_PROCESSED`. Without the junction a
+val/test read fails on the laptop while being correct on the DGX -- see trap 21.
+
+**Deleted on purpose:** the local copy of `raw_12lead__train__p8` (28 GB). Its
+11 objects were compared name-for-name and byte-for-byte against
+`r2:trimodal-data/chunks/signals_raw` first. R2 is the authority for staged
+data (storage rule 5), and the cut is reproducible from the base containers.
+
+**Retained but UNUSED:** `signals_12lead_L3` in R2 (~44 GB). Campaigns 5 and 7
+moved to the full-cohort 12-lead pieces when the L3 subset measured 35.35 GB
+resident. It is kept rather than deleted because it cost a night to upload and
+storage is about $0.53/month; nothing reads it. Delete it only deliberately.
+
 ### MU DGX (primary compute)
 
 - NVIDIA **DGX A100**, nodes `dgxa` / `dgxb`, login `dgx-login01` (10.59.121.172),
@@ -1739,18 +1768,18 @@ the 12-lead halves, 12 and 13 the Lead-II ones. Project total is unchanged —
     failed. **Derive an A5/B4 campaign's image datasets from the task table, not
     from the config.**
 
-21. **Three `*_valtest` containers are in R2 but NOT on the laptop**
-    (`images_clean_12lead_valtest`, `signals_12lead_valtest`,
-    `signals_raw_valtest`). Their **overlays are installed**
-    (`data/processed/manifest_overlays/`), so `read_modality()` routes every
-    val/test study to `derived/<dataset>/...` and raises `FileNotFoundError`
-    locally — found 2026-09-30 running the smoke test on a 12-lead image tier.
-    The bytes were deleted after upload to free D:, which is down to 25.1 GB.
-    **On the laptop, expect any val/test read of 12-lead clean images, 12-lead
-    int16 signals or raw 12-lead signals to fail**; use a Lead-II tier, or pull
-    the container back from R2. On the DGX this is correct behaviour: an overlay
-    ships with its dataset (`upload_data.py`), so a campaign that stages the
-    base shards never sees it.
+21. **A derived container can live on C: while its overlay lives on D:, and a
+    junction is what makes that work.** `data/processed` is on D:, which has
+    25 GB free; the cuts and the derived val/test containers are on C: and are
+    reached through directory junctions under `data/processed/derived/`.
+    `modality.py` resolves an overlay path relative to `DATA_PROCESSED`, so
+    **without the junction a val/test read fails locally with
+    `FileNotFoundError` while being perfectly correct on the DGX** -- which is
+    what happened between 2026-08-29 and 2026-09-30, when the three `*_valtest`
+    sets were uploaded and then deleted from D: to free space. All four are
+    junctioned now and every val read works; see the storage map in §3. **If you
+    add a derived dataset, add its junction**, or the next session will chase a
+    missing file that is not missing.
 
 ---
 

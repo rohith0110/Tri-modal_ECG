@@ -426,70 +426,117 @@ CHECKPOINTS_GB = 5.0
 CEILING_GB = 49.0
 
 
+def _keep(name: str, phase: str) -> bool:
+    """Does `stage_data.sh --phase <phase>` take this file? See phase_excludes."""
+    if phase == "eval":
+        return not ("__train." in name or "__val." in name)
+    if phase == "val":
+        return not ("__train." in name or "__test." in name)
+    if phase == "train_only":
+        return not ("__val." in name or "__test." in name)
+    return "__test." not in name                          # phase == "train"
+
+
+def _recorded_sizes(dataset: str) -> dict[str, int] | None:
+    """A cut's sizes from its own `checksums.json` when the pieces are not here.
+
+    The local copy of a cut is disposable once it is in R2 -- `raw_12lead` was
+    deleted on 2026-09-30 to free space on C:, after its objects were compared
+    byte-for-byte against the bucket. Sizing must survive that, or the report
+    silently under-counts the campaign that reads it and calls the row a lower
+    bound. The manifest is 1.4 KB, so it is kept beside the empty directory.
+    """
+    if not dataset.endswith("_pieces"):
+        return None
+    base = dataset[: -len("_pieces")]
+    manifest = CHUNK_ROOT / CHUNKS.get(base, "") / "checksums.json"
+    if not manifest.is_file():
+        return None
+    recorded = json.loads(manifest.read_text(encoding="utf-8"))
+    return {name: int(meta["bytes"]) for name, meta in recorded.items()
+            if isinstance(meta, dict) and "bytes" in meta}
+
+
 def phase_bytes(dataset: str, phase: str) -> int:
     """Bytes this dataset puts on the node in one phase, the way stage_data does.
 
-    Mirrors `campaigns.sh::phase_excludes` -- a derived container is
-    `<dataset>__<split>.<ext>`, a file with no `__<split>.` in its name is always
-    taken -- and the piece rule above. Derived from the files on disk rather than
-    typed into the table, because the table has drifted twice: once when a
-    campaign's dataset list grew and once when the lead split moved data
-    between campaigns.
+    Mirrors `campaigns.sh::phase_excludes` and the piece rule above. Derived
+    from the files rather than typed into the table, because the table has
+    drifted repeatedly -- campaign 12 was listed 4.3 GB light and campaign 7
+    was listed 2.8 GB light, which put it over the ceiling unnoticed.
     """
     if dataset == "results":
         return 0
-    pairs = dataset_files(dataset)
     if dataset.endswith("_pieces"):
-        if phase == "eval":
-            return 0                       # evict_data.sh --pieces-all, then evaluate
-        pieces = sorted((p.stat().st_size for p, _ in pairs
-                         if p.name.startswith("piece_")), reverse=True)
-        other = sum(p.stat().st_size for p, _ in pairs if not p.name.startswith("piece_"))
+        if phase in ("eval", "val"):
+            return 0               # pieces are TRAIN data; the val swap evicts them
+        try:
+            pairs = dataset_files(dataset)
+            sizes = {p.name: p.stat().st_size for p, _ in pairs}
+        except SystemExit:
+            sizes = _recorded_sizes(dataset) or {}
+            if not sizes:
+                raise
+        pieces = sorted((v for k, v in sizes.items() if k.startswith("piece_")),
+                        reverse=True)
+        other = sum(v for k, v in sizes.items() if not k.startswith("piece_"))
         return sum(pieces[:RESIDENT_PIECES]) + other
-    total = 0
-    for path, _key in pairs:
-        name = path.name
-        if phase == "eval":
-            if "__train." in name or "__val." in name:
-                continue
-        elif "__test." in name:
-            continue
-        total += path.stat().st_size
-    return total
+    return sum(path.stat().st_size for path, _key in dataset_files(dataset)
+               if _keep(path.name, phase))
+
+
+def campaign_val_mode(campaign: int) -> str:
+    """`resident` or `on_demand`, field 8 of the campaign spec."""
+    text = CAMPAIGNS_SH.read_text(encoding="utf-8")
+    match = re.search(rf'^\s*{campaign}\)\s+echo "([^"]+)"', text, re.M)
+    if not match:
+        raise SystemExit(f"campaigns.sh has no campaign {campaign}")
+    fields = match.group(1).split("|")
+    return fields[7] if len(fields) > 7 else "resident"
 
 
 def sizes_report(campaigns: list[int], overhead: float) -> int:
-    """Measured train/eval residency per campaign, and the require_fit verdict."""
+    """Measured residency per campaign and phase, and the require_fit verdict."""
     print(f"Measured residency per campaign, GB. Ceiling {CEILING_GB:.0f} GB, "
           f"non-dataset overhead {overhead:.1f} GB "
-          f"(fixed {FIXED_GB:.1f} + checkpoints {CHECKPOINTS_GB:.1f}).")
-    print(f"A chunked dataset counts {RESIDENT_PIECES} resident pieces in the train "
-          f"phase and nothing in the eval phase.\n")
-    print(f"{'n':>3}  {'train':>7} {'eval':>7}  {'verdict':<28} missing")
+          f"(fixed {FIXED_GB:.1f} + checkpoints {CHECKPOINTS_GB:.1f}), so the "
+          f"budget for data is {CEILING_GB - overhead:.1f} GB.")
+    print(f"A chunked dataset counts {RESIDENT_PIECES} resident pieces while "
+          f"training and nothing while validating or evaluating.")
+    print("An `on_demand` campaign never holds train and val at once: its peak "
+          "is max(train_only, val).\n")
+    print(f"{'n':>3} {'val mode':<10} {'train':>7} {'val':>7} {'eval':>7} {'peak':>7}  "
+          f"{'verdict':<26} missing")
     status = 0
     for campaign in campaigns:
-        totals = {}
-        missing = []
-        for phase in ("train", "eval"):
+        mode = campaign_val_mode(campaign)
+        phases = ("train_only", "val", "eval") if mode == "on_demand" \
+            else ("train", "val", "eval")
+        totals, missing = {}, []
+        for phase in phases:
             total = 0
             for dataset in campaign_datasets(campaign):
                 try:
                     total += phase_bytes(dataset, phase)
-                except SystemExit as error:
+                except SystemExit:
                     if dataset not in missing:
                         missing.append(dataset)
-                    del error
             totals[phase] = total / 1e9
-        worst = max(totals["train"], totals["eval"])
-        headroom = CEILING_GB - overhead - worst
+        train = totals[phases[0]]
+        # A `resident` campaign already holds val inside its train phase, so its
+        # val row is informational; an `on_demand` one really does swap.
+        peak = max(train, totals["eval"], totals["val"] if mode == "on_demand" else 0.0)
+        headroom = CEILING_GB - overhead - peak
         verdict = (f"OK, {headroom:+.1f} GB spare" if headroom >= 0
                    else f"REFUSES, {headroom:+.1f} GB over")
         if headroom < 0:
             status = 1
-        print(f"{campaign:>3}  {totals['train']:>7.1f} {totals['eval']:>7.1f}  "
-              f"{verdict:<28} {', '.join(missing) if missing else '-'}")
-    print("\nA `missing` dataset is one not yet built on this machine; its bytes "
-          "are absent from the row above, so that row is a LOWER BOUND.")
+        print(f"{campaign:>3} {mode:<10} {train:>7.1f} {totals['val']:>7.1f} "
+              f"{totals['eval']:>7.1f} {peak:>7.1f}  {verdict:<26} "
+              f"{', '.join(missing) if missing else '-'}")
+    print("\nA `missing` dataset is not built on this machine and its bytes are "
+          "absent from that row, so the row is a LOWER BOUND. A cut that is only "
+          "in R2 is still counted, from its own checksums.json.")
     return status
 
 

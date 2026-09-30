@@ -49,6 +49,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from _dataset_lib import chunk_pieces
+from _train_lib import chunk_cycle as chunk_cycle_lib
 from _train_lib.chunk_cycle import RESIDENT_PIECES as CHUNK_RESIDENT, ChunkCycle
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -220,17 +221,36 @@ class Trainer:
         # only for the train split -- val and test are staged whole (open
         # question 15b: they measure 7.3-14.5 GiB and fit alongside two pieces).
         self.cycle = None
-        if chunk_pieces.enabled() and "study_id" in train_dataset.frame.columns:
+        # PER RUN, not per campaign. `TRIMODAL_CHUNKED=1` is set for the whole
+        # campaign, but a campaign can mix runs that read a chunked kind with
+        # runs that do not: campaign 2 stages `images_clean_12lead` WHOLE and
+        # `images_scanlike_12lead` as pieces, so A5/B4 must cycle and A1/A3/A6
+        # must not. Cycling a run that does not need it is not a slowdown, it is
+        # a different sampling regime -- each window would see 2 of 8 pieces --
+        # and silently changing the sampling of nine already-planned runs is not
+        # a staging detail. Decided 2026-09-30 (open question 16).
+        reads = (train_dataset.modality_kinds_read()
+                 if hasattr(train_dataset, "modality_kinds_read") else set())
+        staged_as_pieces = chunk_pieces.chunked_kinds()
+        needs_cycle = bool(reads & staged_as_pieces)
+        if chunk_pieces.enabled() and "study_id" in train_dataset.frame.columns \
+                and needs_cycle:
             self.cycle = ChunkCycle(
                 campaign=int(os.environ.get("CAMPAIGN", "0")),
                 study_ids=train_dataset.frame["study_id"].to_numpy(),
                 seed=config.seed, logger=logger)
             ok, detail = chunk_pieces.check_alignment()
             self.log.info("chunk cycling ON: %d pieces, %d resident, transport=%s; "
-                          "alignment: %s", self.cycle.total, CHUNK_RESIDENT,
-                          self.cycle.transport, detail)
+                          "alignment: %s; this run reads %s of which %s is chunked",
+                          self.cycle.total, CHUNK_RESIDENT, self.cycle.transport,
+                          detail, sorted(reads), sorted(reads & staged_as_pieces))
             if not ok:
                 raise RuntimeError(f"chunk pieces are not modality-aligned: {detail}")
+        elif chunk_pieces.enabled():
+            self.log.info("chunk cycling OFF for this run: it reads %s, and what is "
+                          "staged as pieces here is %s -- nothing in common, so the "
+                          "sampling is plain shuffling, unchanged",
+                          sorted(reads), sorted(staged_as_pieces))
         self.batches_per_epoch = len(build_batch_order(
             len(train_dataset), config.batch_size, seed=config.seed, epoch=0,
             shuffle=True, hard_negative_index=self.hard_index))
@@ -474,7 +494,7 @@ class Trainer:
                         "best_metric": self.best_metric, "best_epoch": self.best_epoch}
 
             self.batch_in_epoch = 0
-            val = self.evaluate(self.val_dataset)
+            val = self._evaluate_val()
             primary = val["primary_metric"]
             improved = np.isfinite(primary) and primary > self.best_metric
             if improved:
@@ -523,6 +543,30 @@ class Trainer:
 
         return {"status": "complete", "history": history,
                 "best_metric": self.best_metric, "best_epoch": self.best_epoch}
+
+    def _evaluate_val(self) -> dict:
+        """Validate, fetching the val split first when it is not held resident.
+
+        §8.2 storage rule 2 says one campaign's data at a time; campaigns 8 and
+        11 take that a step further because their train working set plus their
+        val split is 42.5 GB against a 49 GB ceiling (open question 16). The
+        pieces go out, the val containers come in, the pass runs, and the val
+        containers go out again -- the next epoch's first `ensure()` brings the
+        pieces back. Costs one val fetch per epoch and buys 15 GB of headroom.
+        """
+        if not chunk_cycle_lib.val_on_demand():
+            return self.evaluate(self.val_dataset)
+
+        campaign = int(os.environ.get("CAMPAIGN", "0"))
+        if self.cycle is not None:
+            self.cycle.release()
+        chunk_cycle_lib.stage_val(campaign, self.log)
+        try:
+            return self.evaluate(self.val_dataset)
+        finally:
+            # Always drop it, including when validation raised: leaving 15 GB of
+            # val containers behind is what makes the NEXT epoch fail to stage.
+            chunk_cycle_lib.evict_val(campaign, self.log)
 
     def _run_epoch(self, batches: Sequence[Sequence[int]], already_done: int,
                    total_batches: int) -> tuple[float, dict[str, float]]:

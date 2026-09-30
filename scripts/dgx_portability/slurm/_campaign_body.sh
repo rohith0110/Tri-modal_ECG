@@ -111,11 +111,20 @@ stage() {
 if [ -n "${TRIMODAL_TASKS:-}" ]; then
     log "shard: this job runs only tasks -- $TRIMODAL_TASKS"
 fi
+# `on_demand` campaigns do not hold the val split while they train -- it does
+# not fit beside the training data (open question 16). The trainer stages it at
+# each epoch boundary and drops it again; see TRIMODAL_VAL_ON_DEMAND below.
+VAL_MODE="$(campaign_val_mode "$CAMPAIGN")"
+TRAIN_PHASE=train
+if [ "$VAL_MODE" = "on_demand" ]; then
+    TRAIN_PHASE=train_only
+    log "val mode: ON DEMAND -- the val split is staged per epoch, not held"
+fi
 if [ "$CHUNKED" = "yes" ]; then
     FIRST_PIECES="${PIECES:-0 1}"
-    stage "$CAMPAIGN" --pieces $FIRST_PIECES
+    stage "$CAMPAIGN" --phase "$TRAIN_PHASE" --pieces $FIRST_PIECES
 else
-    stage "$CAMPAIGN"
+    stage "$CAMPAIGN" --phase "$TRAIN_PHASE"
 fi
 
 # ---- point the loader at the staged data ----------------------------------
@@ -139,6 +148,10 @@ export TRIMODAL_SIGNAL_INT16="${TRIMODAL_SIGNAL_INT16:-1}"
 # these two variables are how it learns that it should, and which campaign to
 # ask stage_data.sh for. CAMPAIGN is exported because the cycling shells out.
 export CAMPAIGN
+# The trainer shells back out to stage_data.sh/evict_data.sh for the val swap.
+if [ "$VAL_MODE" = "on_demand" ]; then
+    export TRIMODAL_VAL_ON_DEMAND=1
+fi
 if [ "$CHUNKED" = "yes" ]; then
     export TRIMODAL_CHUNKED=1
     export TRIMODAL_CHUNK_PIECES="${TRIMODAL_CHUNK_PIECES:-8}"
@@ -203,6 +216,9 @@ done < <(python3 "$PROJECT_ROOT/scripts/dgx_portability/campaign_runs.py"       
 if [ "$CHUNKED" = "yes" ]; then
     "$HERE/evict_data.sh" --pieces-all || log "piece eviction reported a problem, continuing"
 fi
+# A val container left over from the last epoch's swap is train-phase data the
+# eval phase has no use for, and it is counted against the same ceiling.
+"$HERE/evict_data.sh" --split val --force || log "val eviction reported a problem, continuing"
 log "staging the eval phase (test split)"
 stage "$CAMPAIGN" --phase eval || status=1
 

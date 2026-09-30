@@ -44,11 +44,17 @@ OVERLAY_DIR = mod.OVERLAY_DIR
 PIECE_SALT = "trimodal-phase2-chunk-v1"
 
 # stage_data.sh unpacks chunks/<base>/piece_NNN.* into $DATA_ROOT/<base>/, and
-# these are the three bases the campaign table names.
+# these are the bases the campaign table names. The two scan-like ones were
+# added at open question 16: A5/B4 pick the rendering per ROW, so every A5/B4
+# config that touches images reads image_scanlike_<layout> too, and that train
+# split is 80 % of every study -- 50.08 GB for 12-lead, over the whole ceiling.
 BASE_TO_KIND = {
     "signals_12lead": "preprocessed_12lead",
     "images_clean_12lead": "image_clean_12lead",
     "signals_raw": "raw_12lead",
+    "images_scanlike_12lead": "image_scanlike_12lead",
+    "images_scanlike_lead2": "image_scanlike_lead2",
+    "images_clean_lead2": "image_clean_lead2",
 }
 
 
@@ -84,6 +90,16 @@ def staged_bases() -> dict[str, Path]:
         if directory.is_dir() and any(directory.glob("piece_*")):
             found[base] = directory
     return found
+
+
+def chunked_kinds() -> set[str]:
+    """The modality kinds staged as PIECES on this node right now.
+
+    Static membership in BASE_TO_KIND is not the question: `image_clean_12lead`
+    is chunked in campaign 8 and staged whole in campaign 2, so only what is on
+    the disk can answer it.
+    """
+    return {BASE_TO_KIND[base] for base in staged_bases()}
 
 
 def resident(base: str) -> list[int]:

@@ -26,10 +26,16 @@ DRY_RUN=0
 # needing both at the same moment.
 PHASE=train
 PIECES_ONLY=0
+ONLY=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --pieces) shift; while [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; do PIECES+=("$1"); shift; done ;;
         --phase) shift; PHASE="${1:-train}"; shift ;;
+        # Stage only the datasets whose name is listed -- the val swap asks for
+        # the val containers without re-fetching and re-verifying the whole
+        # campaign, which would cost minutes at every epoch boundary.
+        --only-datasets) shift
+                  while [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; do ONLY+=("$1"); shift; done ;;
         # Mid-epoch piece cycling (§8.2 rule 2) asks for ONE more piece while a
         # run is live. Re-staging and re-verifying every plain dataset for that
         # would cost minutes per swap, so this stages only the piece files.
@@ -40,7 +46,8 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$CAMPAIGN" ] || ! campaign_spec "$CAMPAIGN" >/dev/null 2>&1; then
-    echo "usage: $0 <campaign 1-$N_CAMPAIGNS> [--pieces N...] [--phase train|eval] [--dry-run]" >&2
+    echo "usage: $0 <campaign 1-$N_CAMPAIGNS> [--pieces N...] [--only-datasets A B...]" \
+         "[--phase train|train_only|val|eval] [--dry-run]" >&2
     exit 2
 fi
 
@@ -56,7 +63,8 @@ log "transport=$(transport)  DATA_ROOT=$DATA_ROOT"
 # A chunked campaign never stages the whole modality -- only the resident
 # pieces (two at a time per §8.2 rule 2). Staging all of them would defeat the
 # entire point and blow the quota.
-if [ "$CHUNKED" = "yes" ] && [ "$PHASE" = "train" ] && [ ${#PIECES[@]} -eq 0 ]; then
+if [ "$CHUNKED" = "yes" ] && { [ "$PHASE" = "train" ] || [ "$PHASE" = "train_only" ]; } \
+   && [ ${#PIECES[@]} -eq 0 ]; then
     cat >&2 <<MSG
 REFUSING: campaign $CAMPAIGN is a CHUNKED campaign (§8.2 rule 1).
   Its training data does not fit, so it is staged piece by piece.
@@ -80,10 +88,17 @@ fi
 mkdir -p "$DATA_ROOT" "$STATE_DIR"
 
 for dataset in $DATASETS; do
+    # --only-datasets filter, applied before anything else.
+    if [ ${#ONLY[@]} -gt 0 ]; then
+        wanted=0
+        for name in "${ONLY[@]}"; do [ "$name" = "$dataset" ] && wanted=1; done
+        [ "$wanted" = "1" ] || continue
+    fi
     case "$dataset" in
         *_pieces)
-            # Pieces are TRAIN data; the eval phase never stages them.
-            if [ "$PHASE" = "eval" ]; then continue; fi
+            # Pieces are TRAIN data: neither the eval phase nor the val swap
+            # stages them, and the val swap has just evicted them to make room.
+            if [ "$PHASE" = "eval" ] || [ "$PHASE" = "val" ]; then continue; fi
             base="${dataset%_pieces}"
             for piece in "${PIECES[@]}"; do
                 printf -v padded 'piece_%03d' "$piece"

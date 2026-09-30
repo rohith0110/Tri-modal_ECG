@@ -19,6 +19,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 MODE="campaign"
 PIECES=()
+SPLIT=""
 FORCE=0
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -29,6 +30,9 @@ while [ $# -gt 0 ]; do
         # Every piece of every chunked base, and the overlays that point at
         # them: what the campaign body runs between the train and eval phases.
         --pieces-all) MODE="pieces_all"; shift ;;
+        # Drop one split's staged containers -- what the val swap does after it
+        # has validated, so the next epoch's pieces have room to land.
+        --split) MODE="split"; shift; SPLIT="${1:-}"; shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -74,6 +78,11 @@ case "$MODE" in
             log "evicting $padded"
             find "$DATA_ROOT" -name "$padded.*" -delete 2>/dev/null || true
         done
+        ;;
+    split)
+        [ -n "$SPLIT" ] || { echo "--split needs train, val or test" >&2; exit 2; }
+        log "evicting every staged *__${SPLIT}.* container"
+        find "$DATA_ROOT" -name "*__${SPLIT}.*" -delete 2>/dev/null || true
         ;;
     pieces_all)
         log "evicting every staged chunk piece under $DATA_ROOT"

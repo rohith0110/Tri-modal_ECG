@@ -515,6 +515,32 @@ class TaskDataset(Dataset):
             array = array[None, :]
         return torch.from_numpy(np.ascontiguousarray(array))
 
+    def modality_kinds_read(self) -> set[str]:
+        """Every modality kind this dataset will actually ask `read_modality` for.
+
+        Derived from the ROWS, not from the config. A5 and B4 set
+        `image_type_column`, so `_read_image` builds the kind from the row and
+        the config only fixes the layout -- which is why a campaign dataset list
+        read off `input_modality` was short `image_scanlike_12lead` and jobs
+        24639/24640 died on a shard nothing had staged (open question 16).
+
+        Two callers want this and both got it wrong by reading the config:
+        deciding whether a run must chunk-cycle, and deciding what a campaign
+        has to stage.
+        """
+        kinds: set[str] = set()
+        if getattr(self.plan, "signal_kind", None):
+            kinds.add(self.plan.signal_kind)
+        if getattr(self.plan, "image_kind", None):
+            column = self.spec.image_type_column
+            if column and column in self.frame.columns:
+                layout = "12lead" if self.plan.image_kind.endswith("12lead") else "lead2"
+                kinds |= {f"image_{value}_{layout}"
+                          for value in self.frame[column].dropna().unique()}
+            else:
+                kinds.add(self.plan.image_kind)
+        return kinds
+
     def _read_image(self, row: pd.Series) -> torch.Tensor:
         if self._image_transform is None:
             self._image_transform = build_image_transform(

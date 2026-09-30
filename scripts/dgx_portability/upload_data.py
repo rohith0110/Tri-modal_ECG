@@ -85,6 +85,14 @@ DATASETS: dict[str, dict] = {
     # one is absent -- so both land where the manifest already points.
     "signals_lead2": {"root": DATA, "paths": [
         "signals_int16/lead2_preprocessed.h5", "signals/lead2_raw.h5"]},
+    # The same two files, separately. Campaigns 12/13/14 read only the
+    # preprocessed copy and were staging the 6.08 GB raw one for nothing; only
+    # campaign 4 has `*_lead2_raw` configs. Same remote keys as `signals_lead2`,
+    # so naming them costs no upload -- rclone sees files it already has.
+    "signals_lead2_preprocessed": {"root": DATA, "paths": [
+        "signals_int16/lead2_preprocessed.h5"]},
+    "signals_lead2_raw": {"root": DATA, "paths": [
+        "signals/lead2_raw.h5"]},
     "signals_corrupted": {"root": DATA, "paths": ["signals_corrupted.parquet"]},
     "images_clean_12lead": {"root": DATA, "paths": ["images/clean_12lead_shard_*.tar"]},
     "images_clean_lead2": {"root": DATA, "paths": ["images/clean_lead2_shard_*.tar"]},
@@ -116,6 +124,25 @@ DATASETS: dict[str, dict] = {
         "derived/signals_raw_valtest/*.h5",
         "derived/signals_raw_valtest/*__rows.parquet",
         "manifest_overlays/signals_raw_valtest.parquet"]},
+    # val/test for the A5/B4 scan-like reads (open question 16). Per layout, so
+    # a 12-lead campaign does not stage Lead-II bytes it never opens; the
+    # scan-like TRAIN split is chunked, not shipped whole.
+    "images_scanlike_12lead_valtest": {"root": DATA, "paths": [
+        "derived/images_scanlike_12lead_valtest/*.tar",
+        "derived/images_scanlike_12lead_valtest/*__rows.parquet",
+        "manifest_overlays/images_scanlike_12lead_valtest.parquet"]},
+    "images_scanlike_lead2_valtest": {"root": DATA, "paths": [
+        "derived/images_scanlike_lead2_valtest/*.tar",
+        "derived/images_scanlike_lead2_valtest/*__rows.parquet",
+        "manifest_overlays/images_scanlike_lead2_valtest.parquet"]},
+    # Campaigns 13/14 chunk the clean Lead-II images too: held whole it is
+    # 19.15 GB, which left them 2.3 GB of margin once the scan-like pieces were
+    # added. Campaigns 3 and 12 keep the whole container, because their
+    # A1/A3/A6 runs must not start chunk-cycling.
+    "images_clean_lead2_valtest": {"root": DATA, "paths": [
+        "derived/images_clean_lead2_valtest/*.tar",
+        "derived/images_clean_lead2_valtest/*__rows.parquet",
+        "manifest_overlays/images_clean_lead2_valtest.parquet"]},
 }
 
 # --- chunked datasets: local cut directory -> the remote base name -----------
@@ -133,6 +160,14 @@ CHUNKS: dict[str, str] = {
     "signals_12lead": "preprocessed_12lead__train__p8",
     "images_clean_12lead": "image_clean_12lead__train__p8",
     "signals_raw": "raw_12lead__train__p8",
+    # Open question 16. Cut at p8 like the three above, and `make_chunks.py plan`
+    # confirms 0 studies disagree with any of them -- the assignment is
+    # `blake2b(salt|study_id) % 8`, so piece k covers the same studies in every
+    # kind without the cuts ever coordinating. That is what lets a fusion batch
+    # read signal, clean image and scan-like image from one resident window.
+    "images_scanlike_12lead": "image_scanlike_12lead__train__p8",
+    "images_scanlike_lead2": "image_scanlike_lead2__train__p8",
+    "images_clean_lead2": "image_clean_lead2__train__p8",
 }
 
 # --- never, under any flag ---------------------------------------------------
@@ -366,6 +401,98 @@ def human(n: float) -> str:
     return ""
 
 
+# --- what a campaign actually costs on the node -----------------------------
+# §8.2 rule 2 keeps two pieces resident at a time. A chunked dataset therefore
+# costs two pieces, not all eight -- and during the EVAL phase it costs nothing,
+# because `_campaign_body.sh` runs `evict_data.sh --pieces-all` before it
+# evaluates.
+RESIDENT_PIECES = 2
+
+
+def n_campaigns() -> int:
+    """How many campaigns campaigns.sh declares -- read, never restated here."""
+    match = re.search(r'^N_CAMPAIGNS=(\d+)', CAMPAIGNS_SH.read_text(encoding="utf-8"), re.M)
+    if not match:
+        raise SystemExit("campaigns.sh does not declare N_CAMPAIGNS")
+    return int(match.group(1))
+
+# Fixed cost on the DGX, outside any dataset: the 5.7 GB `ecg_env` venv plus the
+# HuggingFace cache (pinned inside PROJECT_ROOT so `used_gb` sees it). MEASURED
+# 2026-09-30 from job 24639, which reported 19.0 GB used while holding campaign
+# 2's 9.4 GB of data and 2.4 GB of `c2test` outputs. Checkpoints are counted
+# separately because the table is budgeted to survive them.
+FIXED_GB = 7.2
+CHECKPOINTS_GB = 5.0
+CEILING_GB = 49.0
+
+
+def phase_bytes(dataset: str, phase: str) -> int:
+    """Bytes this dataset puts on the node in one phase, the way stage_data does.
+
+    Mirrors `campaigns.sh::phase_excludes` -- a derived container is
+    `<dataset>__<split>.<ext>`, a file with no `__<split>.` in its name is always
+    taken -- and the piece rule above. Derived from the files on disk rather than
+    typed into the table, because the table has drifted twice: once when a
+    campaign's dataset list grew and once when the lead split moved data
+    between campaigns.
+    """
+    if dataset == "results":
+        return 0
+    pairs = dataset_files(dataset)
+    if dataset.endswith("_pieces"):
+        if phase == "eval":
+            return 0                       # evict_data.sh --pieces-all, then evaluate
+        pieces = sorted((p.stat().st_size for p, _ in pairs
+                         if p.name.startswith("piece_")), reverse=True)
+        other = sum(p.stat().st_size for p, _ in pairs if not p.name.startswith("piece_"))
+        return sum(pieces[:RESIDENT_PIECES]) + other
+    total = 0
+    for path, _key in pairs:
+        name = path.name
+        if phase == "eval":
+            if "__train." in name or "__val." in name:
+                continue
+        elif "__test." in name:
+            continue
+        total += path.stat().st_size
+    return total
+
+
+def sizes_report(campaigns: list[int], overhead: float) -> int:
+    """Measured train/eval residency per campaign, and the require_fit verdict."""
+    print(f"Measured residency per campaign, GB. Ceiling {CEILING_GB:.0f} GB, "
+          f"non-dataset overhead {overhead:.1f} GB "
+          f"(fixed {FIXED_GB:.1f} + checkpoints {CHECKPOINTS_GB:.1f}).")
+    print(f"A chunked dataset counts {RESIDENT_PIECES} resident pieces in the train "
+          f"phase and nothing in the eval phase.\n")
+    print(f"{'n':>3}  {'train':>7} {'eval':>7}  {'verdict':<28} missing")
+    status = 0
+    for campaign in campaigns:
+        totals = {}
+        missing = []
+        for phase in ("train", "eval"):
+            total = 0
+            for dataset in campaign_datasets(campaign):
+                try:
+                    total += phase_bytes(dataset, phase)
+                except SystemExit as error:
+                    if dataset not in missing:
+                        missing.append(dataset)
+                    del error
+            totals[phase] = total / 1e9
+        worst = max(totals["train"], totals["eval"])
+        headroom = CEILING_GB - overhead - worst
+        verdict = (f"OK, {headroom:+.1f} GB spare" if headroom >= 0
+                   else f"REFUSES, {headroom:+.1f} GB over")
+        if headroom < 0:
+            status = 1
+        print(f"{campaign:>3}  {totals['train']:>7.1f} {totals['eval']:>7.1f}  "
+              f"{verdict:<28} {', '.join(missing) if missing else '-'}")
+    print("\nA `missing` dataset is one not yet built on this machine; its bytes "
+          "are absent from the row above, so that row is a LOWER BOUND.")
+    return status
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--campaign", type=int, help="upload this campaign's datasets")
@@ -375,7 +502,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="print sizes per dataset and what rclone would do")
     parser.add_argument("--skip-checksums", action="store_true",
                         help="stage without hashing (a size-only preview)")
+    parser.add_argument("--sizes", action="store_true",
+                        help="report measured train/eval residency per campaign "
+                             "and the require_fit verdict; uploads nothing")
+    parser.add_argument("--overhead", type=float, default=FIXED_GB + CHECKPOINTS_GB,
+                        help="non-dataset GB to charge against the ceiling in --sizes")
     args = parser.parse_args(argv)
+
+    if args.sizes:
+        return sizes_report(list(range(1, n_campaigns() + 1)), args.overhead)
 
     if args.campaign:
         wanted = campaign_datasets(args.campaign)
@@ -383,7 +518,10 @@ def main(argv: list[str] | None = None) -> int:
         wanted = args.dataset
     elif args.all:
         seen: list[str] = []
-        for campaign in range(1, 12):
+        # range(1, 12) predated the Lead-II split (open question 14), so --all
+        # silently skipped campaigns 12, 13 and 14 -- and with them, from open
+        # question 16, `images_scanlike_lead2_valtest`.
+        for campaign in range(1, n_campaigns() + 1):
             for dataset in campaign_datasets(campaign):
                 if dataset not in seen:
                     seen.append(dataset)

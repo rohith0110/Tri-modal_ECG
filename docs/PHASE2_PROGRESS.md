@@ -12,33 +12,56 @@ starting cold reads this first, works, then updates it before the session ends.
   no campaign stages it. `c2_images12` 24641 is HELD. A3 evals are far slower
   than planned (tf-idf ~34 d, BERT ~70 d left at the current rate). See the
   session 15 log.
-- **🔴 SESSION 16 (2026-09-30, laptop): THE SCANLIKE GAP CANNOT BE CLOSED BY A
-  SUBSET. MEASURED, AND IT NEEDS A DECISION — see open question 16.**
-  The A5/B4 scan-like rows are **one per anchor study, for every study in the
-  split**, so a "derived trainval subset" is not a subset: it is 599,470 of
-  749,112 studies (80.0 %). **`images_scanlike_12lead_trainval` would be
-  50.08 GB — more than the whole 49 GB ceiling before one other byte is
-  staged**; Lead-II would be 31.24 GB. **All six affected campaigns fail
-  `require_fit` in the train phase** (2 by ~18 GB, 3 by ~7, 8 by ~32, 11 by
-  ~21, 13 by ~19, 14 by ~21). Nothing was built and nothing was uploaded —
-  that was the instruction, and 81 GB of containers no campaign can hold is
-  a night of bandwidth spent on nothing. **The EVAL phase is fine and needs no
-  new data.** Four options are laid out in question 16; one of them changes
-  pixels, so AGENTS.md says halt and ask. Delivered instead: `smoke_test.py`
-  now follows the staged image layout, and the three machines now have a
-  written identity (`.machine`) and a git-sync contract (AGENTS.md).
-- **`max_steps_per_epoch` did nothing, and the smoke test was red on `main`
-  for every tier (fixed 2026-09-30).** `train()` sliced the cap off a
-  *flattened copy* of the epoch plan while `_run_windows` kept iterating the
-  untruncated one, so the cap only moved the progress-bar total.
-  `trainer._epoch_plan` now truncates the plan itself. **No paper number is
-  affected** — no campaign script passes the flag, it is `0` by default. But
-  **session 15's campaign-2 pre-flight timings are one FULL EPOCH, not 400
-  steps**: A1 4,109 steps ≈ 23 min + val = the 25 min logged, A3/A6 4,614 ≈
-  26 min + val = 33/28 min. `peak_gpu_gb 10.82` stands. Separately,
-  `build_tiny_trainer` never fitted the TF-IDF vectoriser, so three of the
-  crash-recovery checks could not run at all on the one tier whose encoder was
-  silently wrong once already (1e266f2). **All six tier families now PASS.**
+- **✅ SESSION 16 (2026-09-30, `data-laptop`): OPEN QUESTION 16 IS CLOSED, END
+  TO END. The A5/B4 scan-like gap is fixed, the campaign table was rebuilt from
+  MEASURED sizes, and three further latent staging bugs were found and closed.
+  The data laptop should not be needed again** — see
+  `docs/CAMPUS_LAPTOP_HANDOVER.md`, which is the operating manual for the
+  campus laptop and the DGX.
+  - **The gap.** A5/B4 fix the image rendering per ROW (`image_type_column`,
+    `task_dataset.py:524-528`), so every A5/B4 config that touches images reads
+    `image_scanlike_<layout>` too. A subset could not fix it: one scan-like row
+    per anchor and every study is an anchor, so train+val is **599,470 of
+    749,112 studies** — **50.08 GB** for 12-lead, more than the whole ceiling.
+  - **The fix (user's call, 2026-09-30): chunk it.** Scan-like TRAIN is cut at
+    **p8 for both layouts**, aligned with the three existing cuts (`plan`
+    reports **0 of 523,945** studies disagreeing, and a real round trip proves
+    the pieces byte-identical to the base shards). Val/test ship as **per-layout**
+    `images_scanlike_<layout>_valtest`, because `images_scanlike_test` holds
+    both layouts in one 20.33 GB tar.
+  - **Three more bugs of the same shape**, found by deriving each campaign's
+    real reads from its configs instead of trusting the table: **campaign 10**
+    staged no clean-image container though its A5/B4 runs read one;
+    **campaign 11** trains A5/B4, which are not L3 tasks, against the L3
+    subsets; and `--all` in `upload_data.py` skipped campaigns 12-14.
+  - **The size table is now measured, not maintained.** `upload_data.py
+    --sizes` derives every campaign's residency from the files. The old table
+    was wrong in both directions — campaign 12 was listed 29.4 and is 33.7,
+    campaign 9 was 18.5 and is 12.7, campaign 7 was 37.7 and is 40.5.
+  - **Two new mechanisms.** A piece swap now **evicts before it fetches** (it
+    held four pieces where the quota is sized for two), and campaigns 8 and 11
+    run **`val_mode=on_demand`**: they do not hold the val split while training,
+    fetching it at each epoch boundary and dropping it again. That is worth
+    15 GB and is what makes them fit.
+  - **Chunk cycling is now decided PER RUN**, not per campaign: a run cycles
+    only if it reads a kind actually staged as pieces. Campaign 2 stages clean
+    12-lead whole and scan-like as pieces, so A5/B4 cycle and A1/A3/A6 do not —
+    without this, nine already-planned runs would have silently changed
+    sampling regime.
+  - **`max_steps_per_epoch` never capped anything** (it was sliced off a
+    flattened *copy* of the epoch plan while the loop iterated the original).
+    No paper number is affected — no campaign script passes it. But **session
+    15's pre-flight timings are one FULL EPOCH, not 400 steps**: a full A1
+    epoch on an `a100_4g.20gb` slice is **~25 min including validation**.
+    Separately, `build_tiny_trainer` never fitted the TF-IDF vectoriser, so
+    three crash-recovery checks could not run at all on the one tier whose
+    encoder was silently wrong once already (1e266f2). All six tier families
+    now PASS.
+  - **The three machines now say which they are**: an untracked one-word
+    `.machine` (`data-laptop` / `campus-laptop` / `dgx`), a section in
+    `AGENTS.md` on what each may do, and a git contract — pull `--ff-only`
+    before reading this doc, push before the session ends, the DGX never
+    commits.
 - **RIGHT NOW: campaign 1 restarted after 12 idle days.** 32/36 runs and 8/12
   evals done (A1, A5, A6, B5). Running since 2026-09-28 ~10:06 UTC:
   - **`c1_B4` 24622** (dgxa slice, 7 d) — resumed B4 BERT seed 456 at epoch 3
@@ -799,8 +822,8 @@ split inherited and never re-split.
 
 ## 5. Open questions
 
-**🔴 QUESTION 16 BLOCKS SIX CAMPAIGNS AND NEEDS THE USER.** Everything else:
-questions 9 and 11 closed in session 2.
+**Nothing is open that blocks work.** Question 16 closed in session 16.
+Questions 9 and 11 closed in session 2.
 Session 3 built all thirteen Step-2 scripts, and in doing so resolved 1 and 3
 under their stated defaults, dissolved 2, confirmed 10 against the data, and
 applied the stated defaults for 12 and 13. Questions 4–8 are for the first DGX
@@ -823,7 +846,7 @@ session and touch no laptop work.
 | 13  | **B6 hard tier** — add a same-HR-bucket, SAME-SUBJECT swap? (Round 3 left it RESERVED.) | P2.2, B6 builder | **DEFAULT APPLIED 2026-08-27** — the hard tier ships empty. The tier name stays in `eval_keys.parquet`'s vocabulary, so adding it later rebuilds one small pointer table plus the matching B4 rows, and no trained model. |
 | 14  | **Campaigns 7, 8 and 11 read the Lead-II streams too, and did not fit.** Their configs include `multimodal_fusion_lead2` / `embedding_cosine_lead2`, so they needed both lead sets resident: campaign 7 measured **69 GB** against a 45 GB ceiling. | before campaign 7 | **CLOSED 2026-08-29. Split by lead subset.** `campaign_runs.py` now routes fusion and embedding tiers by lead subset as well as by tier: **7/8/11 are the 12-lead halves, 12/13/14 the Lead-II ones**, with `campaign_12/13/14.sbatch` written to match. `--table` still reports **104 configs and 312 runs** — no config renamed, no run dropped, no seed dropped. Residency was then re-derived from the files on disk rather than estimated, and a second lever was needed: a campaign does not hold its test split while it trains, so the table carries a train-phase and an eval-phase size and `stage_data.sh --phase` picks one (it filters on the `__<split>.` suffix the derived containers already carry, so no dataset had to be duplicated). **ACCEPTANCE MET: all 14 campaigns pass `require_fit` in both phases with 5 GB of checkpoints resident** — the largest is campaign 7 at 37.7 GB. |
 | 15  | **The chunked campaigns (6, 8, 9) could not run on pieces:** nothing read `piece_NNN.h5`, and pieces are cut from TRAIN only, so there was no val split to early-stop on and no test split to evaluate. | Step 7/8 planning | **15b CLOSED 2026-08-29, no chunking needed — the preferred outcome. MEASURED** off the containers: 12-lead int16 **101.6 KiB/study** (val 7.9 GB, test 15.6 GB), clean 12-lead images **11.7 KiB/study** (0.9 / 1.8 GB), raw 12-lead float32 **88.5 KiB/study** (6.8 / 13.6 GB). All of that fits beside two resident pieces, so val and test ship as PLAIN datasets (`signals_12lead_valtest`, `images_clean_12lead_valtest`, `signals_raw_valtest`) and nothing extra is cut. Campaign 6 is 21.0 GB training / 15.5 GB evaluating. **15a IMPLEMENTED 2026-08-29, VALIDATION BLOCKED ON QUESTION 4.** The read side is `_dataset_lib/chunk_pieces.py`: a piece already carries `study_id` per row, so it needs no new reader — an overlay makes `read_modality()` resolve it, and `modality.py` learned that a piece is stored channel-major (it carries the cutter's `piece_salt`) so it is not transposed twice. The cycling is `_train_lib/chunk_cycle.py` **in the training loop, not the Dataset**: staging is a transport call, and `stage_data.sh:51` is explicit that the loop asks for the next piece as it goes. Every piece appears once per epoch in a reshuffled order, two resident, rows shuffled inside the window; the sampling deviation and the transport are stamped into the run metadata. Both self-checks pass. **What is blocked:** fetching piece k+1 mid-epoch needs outbound internet (question 4). Written against `transport()`, so `rclone` (online) and `rclone-offline` + `TRIMODAL_SOURCE` (a mounted drive) are both expressible and the body warns on the offline one — but no mid-epoch fetch has been exercised on a real node. |
-| 16  | **The A5/B4 scan-like train/val images do not fit, and no subset makes them fit.** `image_type_column` (`task_dataset.py:524-528`) makes A5/B4 pick the rendering per row, so their scan-like rows need `image_scanlike_{12lead,lead2}` for TRAIN and VAL. R2 has only `images_scanlike_test`. | **NOW — it holds campaigns 2, 3, 8, 11, 13, 14** | **🔴 OPEN 2026-09-30 (session 16), MEASURED, NEEDS A DECISION.** A derived `*_trainval` subset was the plan and **it is not a subset**: there is exactly one scan-like row per anchor and every study in the split is an anchor, so the set is **599,470 of 749,112 studies (80.0 %)**. Measured off the manifest's `container_length` plus tar header/padding: **`images_scanlike_12lead_trainval` = 50.08 GB** (train 43.77 + val 6.31) and **`images_scanlike_lead2_trainval` = 31.24 GB** (27.30 + 3.94). The 12-lead figure is **larger than the entire 49 GB ceiling on its own**. Train-phase totals against 49 GB, using each campaign's current `resident_gb` and the ~7 GB of non-dataset cost measured in job 24639: campaign **2** 9.4+50.08 → over by ~18; **3** 17.6+31.24 → over by ~7; **8** 23.4+50.08 → over by ~32; **11** 12.2+50.08 → over by ~21; **13** 29.4+31.24 → over by ~19; **14** 31.4+31.24 → over by ~21. **Every one fails.** The **eval phase is fine** and needs no new data: scan-like test is 12.52 GB (12-lead) + 7.81 (Lead-II) and `images_scanlike_test` already holds both. Root cause of the size: scan-like is **JPEG RGB** at the same pixel size as clean (1016x504 / 1600x333) while clean is PNG — **80.8 KiB/study against 10.8** for 12-lead, 7.5x. **Four ways out, none of which this session may pick:** (a) **chunk** the scan-like train split the way 6/8/9 are chunked — `chunk_pieces.py` and `chunk_cycle.py` already exist, but the mid-epoch fetch is question 15a and still unvalidated; (b) **split A5/B4-image into its own per-layout campaign** staging nothing but `tasks index` + clean + scan-like — plausible for Lead-II, still impossible for 12-lead, where 50.08 GB alone exceeds the ceiling; (c) **re-encode the scan-like JPEGs at lower quality** — the model decodes and resizes to 384x512 before it sees a tensor, so most of those bytes never reach one, and nothing scan-like has trained yet, so it is cheap now and expensive later; it changes pixels, which is a data/spec change AGENTS.md says to halt and ask about; (d) **ask the facility for more than 50 GB**. Also measured: **D: has 25.1 GB free**, so option (a) or (b) must build with `TRIMODAL_DERIVED_BASE` on C:. |
+| 16  | **The A5/B4 scan-like train/val images do not fit, and no subset makes them fit.** `image_type_column` (`task_dataset.py:524-528`) makes A5/B4 pick the rendering per row, so their scan-like rows need `image_scanlike_{12lead,lead2}` for TRAIN and VAL. R2 had only `images_scanlike_test`. | was holding campaigns 2, 3, 8, 10, 11, 13, 14 | **✅ CLOSED 2026-09-30 (session 16). CHUNKED, on the user's decision.** The measurement first: there is exactly one scan-like row per anchor and every study in the split is an anchor, so train+val is **599,470 of 749,112 studies (80.0 %)** — **`images_scanlike_12lead` 50.08 GB** (train 43.77 + val 6.31) and **`images_scanlike_lead2` 31.24 GB** (27.30 + 3.94), the first of which exceeds the entire 49 GB ceiling on its own. Scan-like is JPEG RGB at the same pixel size as clean PNG, so it costs **80.8 KiB/study against 10.8**. The method cross-checks: 12.52 + 7.81 GB of test = **18.93 GiB**, which is exactly the `images_scanlike_test` container already in R2. **What was built:** scan-like TRAIN cut at **p8 for both layouts** (`make_chunks.py`, fairness PASS, piece sizes within 0.40 %, and **0 of 523,945 studies disagree** with the `preprocessed_12lead` / `image_clean_12lead` / `raw_12lead` cuts, so one resident window serves every modality); **per-layout** `images_scanlike_<layout>_valtest` for val and test; **`images_clean_lead2` chunked at p8** plus its valtest, for campaigns 13/14 only; and `signals_lead2` split into `_preprocessed` / `_raw` (12/13/14 were staging a 6.08 GB raw file they never read — no new bytes, the same remote keys). **Verified by round trip:** two real pieces staged the way `stage_data.sh` stages them, `install_overlays()` run, and `read_modality()` returns **byte-identical** payloads to the base shards, with studies outside the window still resolving to the base container. **Two mechanisms were needed:** `ChunkCycle.ensure()` now **evicts before it fetches** (it used to hold the outgoing and incoming pairs at once — four pieces against a quota sized for two), and campaigns 8 and 11 use **`val_mode=on_demand`**, staging the val split only at the epoch boundary. **All 14 campaigns now pass `require_fit` in both phases**, the thinnest being campaign 12 at 27.7 GB against a 36.8 GB budget. |
 
 ---
 
@@ -1491,18 +1514,21 @@ now happen inside Steps 2 and 3 rather than after Step 8.
       complete; B4 2/6, shard died on wall clock, not resubmitted).
       **Evaluation: 8 of 12 (task, tier) pairs done** — A1, A5, A6, B5; A3's
       two timed out at 7 days, B4's not started. See session 14.
-- [!] **Step 14 — 12-lead pictures** (15 runs, `campaign_runs.py 2`)
-      — **PARTLY BLOCKED on open question 16.** A1/A3/A6 (9 runs) can go now;
-      `c2_images12` 24641 is held for them. **A5/B4 (6 runs) cannot start**:
-      their scan-like train/val images are 50.08 GB, over the whole ceiling.
-- [!] **Step 15 — Lead-II pictures** (15 runs, `campaign_runs.py 3`)
-      — same split: A1/A3/A6 can go, A5/B4 blocked on question 16 (31.24 GB,
-      ~7 GB over). · [ ] **Step 16 — Lead-II signals** (33)
+- [ ] **Step 14 — 12-lead pictures** (15 runs, `campaign_runs.py 2`)
+      — **UNBLOCKED 2026-09-30.** Campaign 2 is 27.9 GB train / 23.2 eval and
+      stages `images_scanlike_12lead_pieces` + `_valtest`. A5/B4 chunk-cycle,
+      A1/A3/A6 do not. **Job 24641 is held and was submitted against the OLD
+      table — cancel it and submit fresh.**
+- [ ] **Step 15 — Lead-II pictures** (15 runs, `campaign_runs.py 3`)
+      — **UNBLOCKED 2026-09-30.** Campaign 3 is 31.0 / 28.1 GB.
+      · [ ] **Step 16 — Lead-II signals** (33)
 
 ### Part 5 — Campaigns 5–6 (~1 week)
 
-- [ ] **Step 17 — 12-lead signals, L3 tasks** (12, fits resident)
-- [ ] **Step 18 — 12-lead signals, full cohort** (18, chunked)
+- [ ] **Step 17 — 12-lead signals, L3 tasks** (12) — **now chunked.** Campaign 5
+      reads the FULL-cohort 12-lead pieces, not `signals_12lead_L3`: measured,
+      that subset is 35.35 GB resident and left 0.4 GB of margin. 22.7 GB now.
+- [ ] **Step 18 — 12-lead signals, full cohort** (18, chunked) — 22.7 GB
 
 ### Part 6 — Campaigns 7–8 and 12–13, the heart of the paper (~1.5 weeks)
 
@@ -1514,21 +1540,27 @@ the 12-lead halves, 12 and 13 the Lead-II ones. Project total is unchanged —
 
 - [ ] **Step 19 — End-to-end fusion, L3 tasks A1/A3/A6**
       — campaign 7 (12-lead, 18 runs) + campaign 12 (Lead-II, 18 runs)
-- [!] **Step 20 — End-to-end fusion, full cohort A5/B4/B5/B6**
-      — campaign 8 (12-lead, 15 runs, chunked) + campaign 13 (Lead-II, 15 runs)
-      — **BLOCKED on open question 16 for the A5/B4 configs**: a fusion tier
-      reads images, so `image_type_column` sends its scan-like rows to
-      `image_scanlike_*` exactly as the image tier does. B5/B6 are unaffected.
+- [ ] **Step 20 — End-to-end fusion, full cohort A5/B4/B5/B6**
+      — campaign 8 (12-lead, 15 runs) + campaign 13 (Lead-II, 15 runs)
+      — **UNBLOCKED 2026-09-30.** Campaign 8 is the first `val_mode=on_demand`
+      campaign: 27.4 GB train, and it fetches the 15.1 GB val split at each
+      epoch boundary rather than holding it. Campaign 13 is 24.3 GB and chunks
+      the clean Lead-II images as well as the scan-like ones.
 - [ ] **Step 21 — Frozen-fusion ablation** (near-free by-product)
 
 ### Part 7 — Campaigns 9–11 and 14 (~1.5 weeks)
 
-- [ ] **Step 22 — Re-training sweeps** · [ ] **Step 23 — Re-testing sweeps**
-- [!] **Step 24 — Final eval + calibration/threshold/reproducibility audits**
+- [ ] **Step 22 — Re-training sweeps** (campaign 9, 12.7 GB)
+- [ ] **Step 23 — Re-testing sweeps** (campaign 10, 27.8 GB) — it had staged
+      **no clean-image container at all**, though its A5/B4 scan-like runs read
+      one for their clean rows. Fixed 2026-09-30; see open question 16.
+- [ ] **Step 24 — Final eval + calibration/threshold/reproducibility audits**
       — campaign 11 (12-lead, 6 runs) + campaign 14 (Lead-II, 6 runs)
-      — **BLOCKED on open question 16 for A5/B4**: `embedding_cosine_*` reads
-      images too, so campaigns 11 and 14 need the same train/val scan-like
-      data. Confirmed off `campaign_runs.py`, not assumed.
+      — **UNBLOCKED 2026-09-30.** Both are A5/B4 only and both DO train
+      (20 epochs). Campaign 11 also had the wrong cohort: it staged the L3
+      subsets although A5/B4 are not L3 tasks. It now reads the full-cohort
+      12-lead pieces and is `val_mode=on_demand` (27.4 GB). Campaign 14 is
+      24.3 GB.
 - [ ] **Step 25 — Tables + figures** · [ ] **Step 26 — Release package**
 
 ### Audits that must all be PASS before submission (spec §1.2)
@@ -2670,27 +2702,22 @@ more 7-day continuations per tier than are queued; the eval method for A3
   `campaign_runs.py` takes `--tasks`, so campaign 2 can run A1/A3/A6 (9 runs)
   now and A5/B4 later.
 
-### Session 16 — 2026-09-30 — the scanlike numbers, and a three-machine contract
+### Session 16 — 2026-09-30 — open question 16, closed end to end
 
 On the **`data-laptop`** (`.machine`, new this session). Nothing was submitted,
-cancelled or polled on the DGX; nothing was built and nothing was uploaded.
+cancelled or polled on the DGX. The session ran in two halves: measure and stop,
+then — once the user chose chunking — build, upload, verify and rewire.
 
-**1. Measured the A5/B4 scan-like requirement, and the plan died on the
-numbers.** The task was to cut an `images_scanlike_{12lead,lead2}_trainval`
-subset the way `make_subsets.py` cut the L3 sets. It is not a subset:
+**1. The measurement that killed the original plan.** The task was to cut an
+`images_scanlike_{12lead,lead2}_trainval` subset the way `make_subsets.py` cut
+the L3 sets. It is not a subset:
 
 - A5 and B4 carry the **same** row table, and `image_type == 'scanlike'` is
   exactly **one row per anchor**, always `y_match == 1`; the other six rows per
   anchor are `clean` (one positive + five negatives).
 - Every study in the split is an anchor, so the scan-like study set **is the
   split**: train 523,945, val 75,525, test 149,642 — **599,470 of 749,112
-  studies (80.0 %)** for train+val. A5's set and B4's set are identical, and
-  both layouts need the same studies (the row fixes the rendering, the config
-  fixes the layout).
-
-Bytes, summed per study from the manifest's `container_length` plus tar header
-and padding — **not** a whole-shard size divided by a partial row count, which
-is the mistake `_bytes_per_study` documents:
+  studies (80.0 %)** for train+val.
 
 | kind                   | KiB/study | train    | val     | **trainval** | test     |
 | ---------------------- | --------- | -------- | ------- | ------------ | -------- |
@@ -2700,122 +2727,127 @@ is the mistake `_bytes_per_study` documents:
 | `image_clean_lead2`    | 22.5      | —        | —       | —            | —        |
 
 The method cross-checks: 12.52 + 7.81 = 20.33 GB = **18.93 GiB**, which is the
-18.9 GiB `images_scanlike_test` actually measured in R2 after being built. The
-size itself is a format difference — scan-like is **JPEG RGB** at the same
-pixel size as clean (1016x504 / 1600x333) while clean is PNG, so 12-lead
-scan-like costs **7.5x** per study.
+18.9 GiB `images_scanlike_test` measured in R2 after it was independently built.
+The size is a format difference — scan-like is **JPEG RGB** at the same pixel
+size as clean (1016x504 / 1600x333) while clean is PNG, so 12-lead scan-like
+costs **7.5x** per study. The 12-lead train+val container alone is larger than
+the entire 49 GB ceiling, so nothing was built and the numbers went to the user.
 
-**2. Corrected which campaigns are affected.** Read off `campaign_runs.py`
-rather than assumed: A5/B4 are in `FUSION_FULL_TASKS`, so the fusion campaigns
-that train them are **8 and 13**, not 7 and 12 (7/12 are the L3 halves, and
-A1/A3/A6 have no scan-like rows). The full set is **2, 3, 8, 11, 13, 14** —
-`embedding_cosine` reads images too. Campaign 10 is test-split only and already
-has its data.
+**2. The user chose chunking**, with the instruction to let the run wait while
+old pieces are deleted and new ones come down from R2.
 
-**3. Every affected campaign fails `require_fit` in the train phase.** Against
-the 49 GB ceiling, with each campaign's current `resident_gb` and the ~7 GB of
-non-dataset cost measured in job 24639 (19.0 GB used with 9.4 GB staged, of
-which 2.4 GB was the `c2test` outputs):
+**3. Deriving what each campaign REALLY reads, instead of trusting the table.**
+This is the check that should have existed before any of this: for every
+campaign, the union of `modality_kinds_read()` over its configs — which reads
+the ROW's `image_type`, not the config's `input_modality`. It found the
+scan-like gap in **2, 3, 8, 11, 13, 14** and **three more bugs of the same
+shape**:
 
-| campaign | now     | + scanlike | datasets | +overhead | verdict       |
-| -------- | ------- | ---------- | -------- | --------- | ------------- |
-| 2        | 9.4 GB  | 50.08      | 59.5     | ~66.7     | over by ~18   |
-| 3        | 17.6 GB | 31.24      | 48.8     | ~56.0     | over by ~7    |
-| 8        | 23.4 GB | 50.08      | 73.5     | ~80.7     | over by ~32   |
-| 11       | 12.2 GB | 50.08      | 62.3     | ~69.5     | over by ~21   |
-| 13       | 29.4 GB | 31.24      | 60.6     | ~67.8     | over by ~19   |
-| 14       | 31.4 GB | 31.24      | 62.6     | ~69.8     | over by ~21   |
+- **campaign 10** staged no clean-image container at all, though its A5/B4
+  scan-like runs read one for their clean rows;
+- **campaign 11** trains A5 and B4, which are **not** L3 tasks, against
+  `signals_12lead_L3` / `images_clean_12lead_L3`;
+- `upload_data.py --all` looped `range(1, 12)` — a leftover from before the
+  Lead-II split — so it had never uploaded campaigns 12-14's datasets.
 
-The 12-lead trainval container, **50.08 GB, is larger than the entire ceiling
-before one other byte is staged.** The **eval phase is fine** for all six and
-needs no new data at all.
+`TaskDataset.modality_kinds_read()` now exists as the single place that answers
+the question, and the chunk-cycling decision uses it too.
 
-**So nothing was built and nothing was uploaded, and `campaigns.sh` was not
-touched.** That is what the instruction said to do if a campaign did not fit,
-and it is also the right call on its own: ~81 GB of containers that no campaign
-can hold is a night of upload bandwidth and a standing R2 bill for a dataset
-that cannot be staged, and the resident figures to write into `campaigns.sh`
-depend on which option below is chosen. **Open question 16 records the four
-options and the numbers behind each.** D: is also down to **25.1 GB free**, so
-whichever option is taken has to build with `TRIMODAL_DERIVED_BASE` on C:.
+**4. The size table is measured now, not maintained.** `upload_data.py --sizes`
+reports every campaign's train/eval residency from the files on disk, applying
+the same phase filter `stage_data.sh` applies and counting two resident pieces
+for a chunked dataset. The hand-maintained numbers were wrong in **both**
+directions: campaign 12 listed 29.4, measured **33.7**; campaign 9 listed 18.5,
+measured **12.7**; campaign 7 listed 37.7, measured **40.5** — over the ceiling,
+which nobody knew.
 
-**4. `smoke_test.py` now follows the staged image layout.** Session 15 read the
-8/10 FAILs inside campaign 2 correctly — the harness hard-wired `lead2` image
-and fusion configs, and campaign 2 stages 12-lead only. It was a staging fact,
-not a code defect, but it is worth fixing rather than noting: spurious FAILs
-teach the reader to skim past FAIL lines. `TIER_PREFERENCE` and
-`RECOVERY_CHOICES` now carry a `{layout}` placeholder filled in by
-`staged_image_layout()`, which stats the container one manifest row names —
-overlays included, so a derived subset counts as present and an unstaged base
-shard does not. `--image-layout {lead2,12lead}` forces it. The probe has its own
-check in the `[1]` block (`test_layout_probe`), faked against a temp
-`DATA_PROCESSED` so it runs the same on a one-layout node and on this laptop.
-Lead-II first, so a machine holding everything behaves exactly as before.
-Verified: probe returns `lead2` here; A5 image smoke train+eval **PASS**; forced
-`--image-layout 12lead` correctly selects the 12-lead configs and then hits
-trap 21 (the `images_clean_12lead_valtest` container is not on this laptop).
+**5. What was built.** All at p8, all aligned:
 
-**5. The three machines now have a written identity and a git contract.** Two
-sessions in a row had to be told which machine they were on, and the DGX has
-twice run stale code. Added: an untracked one-word `.machine` at the repo root
-(`data-laptop` / `campus-laptop` / `dgx`, already ignored by `/*`, so a pull
-cannot overwrite it); an AGENTS.md section per machine saying what it can and
-cannot do; and an explicit sync loop — **pull `--ff-only` before reading the
-progress doc, push before the session ends, DGX pulls and never commits.**
-`CLAUDE.md` carries the short form so it is injected every session. §3 has the
-table and the reasoning.
+| dataset | bytes | for |
+| --- | --- | --- |
+| `images_scanlike_12lead_pieces` | 43.77 GB | 2, 8, 11 |
+| `images_scanlike_12lead_valtest` | 18.84 GB | 2, 8, 11 |
+| `images_scanlike_lead2_pieces` | 27.30 GB | 3, 13, 14 |
+| `images_scanlike_lead2_valtest` | 11.80 GB | 3, 13, 14 |
+| `images_clean_lead2_pieces` | 12.53 GB | 13, 14 |
+| `images_clean_lead2_valtest` | 5.32 GB | 10, 13, 14 |
+| `signals_lead2_preprocessed` / `_raw` | **0 new** | 4, 12, 13, 14 |
 
-**6. Verifying (4) found the smoke test red on `main` for every tier, and the
-cause was in the trainer.** `mid-epoch resume: resumed run did [6] batches,
-expected [1]` reproduced on the pre-change file too, so it was not this
-session's edit. **`max_steps_per_epoch` was being applied to the wrong
-object.** `train()` did:
+`make_chunks.py plan` reports fairness PASS with piece sizes within **0.40 %**,
+and **0 of 523,945 studies disagree** with the `preprocessed_12lead`,
+`image_clean_12lead` and `raw_12lead` cuts — the assignment is
+`blake2b(salt|study_id) % 8`, so piece *k* covers the same studies in every
+modality without the cutters ever coordinating. That is what lets one resident
+window serve a fusion batch.
 
-```python
-plan = self._epoch_plan(epoch)
-batches = [b for _w, wb in plan for b in wb]
-if config.max_steps_per_epoch:
-    batches = batches[:config.max_steps_per_epoch]      # a COPY
-...
-train_loss, ... = self._run_windows(plan, skip, len(batches))   # the ORIGINAL
-```
+`signals_lead2_preprocessed` / `_raw` are the same two files under separate
+dataset names, so they cost no upload: campaigns 12/13/14 read only the
+preprocessed copy and had been staging the 6.08 GB raw one for nothing.
 
-`_run_windows` iterates `plan`, so the cap only ever changed the number handed
-to the progress bar. It was lost in the chunk-cycling refactor, when the
-iteration moved from a flat batch list to `[(window, batches)]`.
-`_epoch_plan` now truncates the plan itself, through a `_truncate_plan` helper
-that keeps windows intact and drops a window that falls entirely past the cap
-(so a capped run on a chunked campaign is cheap, not merely short). The plan
-and its batch count can no longer disagree, because there is only one of them.
+**6. Proved by round trip, not asserted.** Two real pieces were staged exactly
+as `stage_data.sh` stages them (`<DATA_ROOT>/<base>/piece_NNN.tar`),
+`install_overlays()` was run, and `read_modality()` returned payloads
+**byte-identical** to the base shards for every sampled study, while studies
+outside the resident window still resolved to the base container.
 
-**What this does and does not invalidate.** **No trained result and no paper
-number is affected**: `max_steps_per_epoch` defaults to `0`, it is commented
-"smoke tests only", and no file under `scripts/dgx_portability/` or `config/`
-passes it — campaign 1's 36 runs never saw it. **What it does change is how to
-read session 15's campaign-2 pre-flight.** Jobs 24639/24640 passed
-`--max-steps-per-epoch`, so they ran **full epochs**, and the numbers in the
-session 15 log are per-epoch numbers: A1 4,109 steps at ~3.0 it/s ≈ 23 min,
-plus val, is the 25 min logged; A3/A6 4,614 steps ≈ 26 min, plus val, is the
-33 / 28 min logged. That is useful — **a full A1 epoch on an `a100_4g.20gb`
-slice is about 25 minutes including validation** — but it is not what the log
-said it was measuring. `peak_gpu_gb 10.82` is unaffected.
+**7. Two mechanisms had to change.**
 
-**7. `build_tiny_trainer` could not run the tf-idf tier at all.** It never
-fitted the vectoriser, so mid-epoch resume, epoch-boundary resume and
-determinism all raised `TF-IDF features not precomputed` under
-`--tiers text_tfidf` — three checks silently not running on the one tier whose
-encoder was already silently wrong once (1e266f2). It now makes the same two
-calls `30_train.py:prepare_tfidf` makes: fit on TRAIN, transform each split.
+- **`ChunkCycle.ensure()` evicted AFTER it fetched.** `windows()` hands out
+  disjoint pairs, so a swap held the outgoing pair and the incoming pair at
+  once — **four** pieces where the campaign is sized for two, 21.9 GB instead
+  of 10.9 on the 12-lead scan-like cut. It now evicts first and waits with
+  nothing resident while the next pair comes down. It also seeds its idea of
+  what is resident from the **disk**, so a run resuming after a crash does not
+  stage on top of the dead run's pieces.
+- **`val_mode=on_demand`** for campaigns 8 and 11. They hold 27.4 GB of
+  training data and need a further 15.1 GB of val containers; 42.5 GB does not
+  fit. The trainer now evicts the pieces at the epoch boundary, stages
+  `*__val.*`, validates, and drops it again (`trainer.py::_evaluate_val`,
+  `campaigns.sh` phases `train_only` and `val`, `evict_data.sh --split`). One
+  val fetch per epoch buys 15 GB. Every other campaign keeps val resident.
 
-**Verification, all on this laptop:** `--skip-train` block [1] is now green for
-all six tier families — `signal`, `image`, `fusion`, `fusion_notext`,
-`text_tfidf`, `text_bert` — six PASS each including the new layout probe. Plus
-`--tasks A5_cross_modal_verification --tiers image` train+eval PASS.
+**8. Chunk cycling is decided PER RUN.** `chunked=yes` only means the campaign
+stages pieces; a run cycles only if it reads a kind actually staged as pieces
+(`chunk_pieces.chunked_kinds()` against `modality_kinds_read()`). Campaign 2
+stages clean 12-lead **whole** and scan-like as **pieces**, so A5/B4 cycle and
+A1/A3/A6 do not. Without this, marking campaign 2 chunked would have silently
+changed the sampling regime of nine already-planned runs — each window sees 2 of
+8 pieces — which is a scientific change, not a staging detail.
 
-**Not done, and why:** steps 2 and 3 of the request (build the two derived
-datasets, register and upload them) and step 4 (add them to `campaigns.sh`).
-Blocked on question 16 — the artifact cannot be staged by any campaign that
-needs it, so building and uploading it would be work thrown away. Note also
-that the `resident_gb` figures to write into `campaigns.sh` depend on which of
-question 16's four options is chosen, so editing the table now would only be
-redone.
+**9. Campaigns 5 and 7 switched to the full-cohort 12-lead pieces.** Measured,
+`signals_12lead_L3` is **35.35 GB** resident, which put campaign 7 at 40.5 GB
+and campaign 5 at 36.4 with 0.4 GB to spare. The full-cohort pieces are a
+superset, already cut and already uploaded, and cost 13.7 GB for two.
+**`signals_12lead_L3` is now unused.** It is deliberately KEPT in R2 rather than
+deleted — it cost a night to upload, it is ~$0.53/month, and deleting data while
+unattended is not a call to make on my own. It is listed in the R2 inventory
+below as retained-but-unused.
+
+**10. Two other fixes, found while verifying.** `max_steps_per_epoch` was
+applied to a **flattened copy** of the epoch plan while `_run_windows` iterated
+the original, so the cap only moved the progress-bar total; `_epoch_plan` now
+truncates the plan itself. **No paper number is affected** — the flag defaults
+to 0 and no campaign script passes it — but **session 15's pre-flight timings
+are one full epoch, not 400 steps**: a full A1 epoch on an `a100_4g.20gb` slice
+is **~25 min including validation**. And `build_tiny_trainer` never fitted the
+TF-IDF vectoriser, so three crash-recovery checks could not run at all on the
+one tier whose encoder was silently wrong once already (1e266f2).
+`smoke_test.py` also follows the staged image layout now instead of hard-wiring
+Lead-II, which is what produced session 15's 8/10 FAILs inside campaign 2.
+
+**11. The three machines.** An untracked one-word `.machine` at the repo root
+(`data-laptop` / `campus-laptop` / `dgx`), already covered by `.gitignore`'s
+`/*` so a pull cannot overwrite it; an `AGENTS.md` section on what each machine
+may and may not do; and an explicit git contract — **pull `--ff-only` before
+reading this doc, push before the session ends, the DGX pulls and never
+commits.** `CLAUDE.md` carries the short form so it is injected every session.
+`docs/CAMPUS_LAPTOP_HANDOVER.md` is the operating manual for the other two
+machines and carries a ready-to-paste prompt.
+
+**Verification run on this laptop:** `campaigns.sh selfcheck` PASS,
+`chunk_cycle.py` self-check PASS (including the new peak-residency property —
+a swap never holds more than two pieces), `make_chunks.py` fairness PASS for
+both scan-like kinds, the piece round trip PASS, `smoke_test.py` block [1] green
+for all six tier families, and all four staging phases (`train`, `train_only`,
+`val`, `eval`) behaving correctly against a fake DATA_ROOT.
+

@@ -39,11 +39,18 @@ say which one it used.
 from __future__ import annotations
 
 import os
+import sys
 import subprocess
 from pathlib import Path
 from typing import Sequence
 
 import numpy as np
+
+# Running this file directly is the documented way to run its self-check, and
+# `python chunk_cycle.py` never worked: the sys.path fix sat under
+# `if __name__ == "__main__"`, below this import, so the import failed first.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _dataset_lib import chunk_pieces
 
@@ -67,6 +74,56 @@ def transport() -> str:
         return "none"
 
 
+def _shell(command: list[str], logger=None, dry_run: bool = False) -> None:
+    if logger:
+        logger.info("staging: %s", " ".join(str(c) for c in command))
+    if dry_run:
+        return
+    result = subprocess.run([str(c) for c in command], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"staging failed ({' '.join(str(c) for c in command)}):\n"
+                           f"{result.stderr[-2000:]}")
+
+
+def val_on_demand() -> bool:
+    """True when this campaign does not hold the val split while it trains.
+
+    Set by `_campaign_body.sh` from the campaign table's `val_mode` field. Only
+    the campaigns whose train+val does not fit use it, because it costs one
+    fetch of the val containers per epoch (open question 16).
+    """
+    return os.environ.get("TRIMODAL_VAL_ON_DEMAND", "") not in ("", "0", "false", "False")
+
+
+def stage_val(campaign: int, logger=None, dry_run: bool = False) -> None:
+    """Bring the val split onto the node for one validation pass."""
+    _shell(["bash", str(STAGE_DATA), str(campaign), "--phase", "val"], logger, dry_run)
+    _refresh_reader(logger)
+
+
+def evict_val(campaign: int, logger=None, dry_run: bool = False) -> None:
+    """Drop the val split again so the next epoch's pieces have room to land."""
+    # --force: mid-campaign there are always results not yet pushed, and the
+    # guard exists to protect RESULTS, not re-fetchable inputs.
+    _shell(["bash", str(EVICT_DATA), "--split", "val", "--force"], logger, dry_run)
+    _refresh_reader(logger)
+
+
+def _refresh_reader(logger=None) -> None:
+    """Forget cached container handles after the files underneath changed.
+
+    `modality.py` memoises the manifest index and keeps open file handles; a
+    container that has just been deleted and re-fetched is a different inode,
+    and a stale handle reads the old one or fails.
+    """
+    from _dataset_lib import modality as mod
+
+    mod._INDEX.clear()
+    mod.close_handles()
+    if logger:
+        logger.info("modality reader refreshed")
+
+
 class ChunkCycle:
     """The piece order for one epoch, and the staging calls that follow it."""
 
@@ -80,7 +137,13 @@ class ChunkCycle:
         self.dry_run = dry_run
         self.transport = transport()
         self.assignment = chunk_pieces.piece_of(self.study_ids, self.total)
-        self.staged: list[int] = []
+        # Seeded from the DISK, not from an empty list. A run that died mid-epoch
+        # leaves its two pieces staged; a fresh process that assumed nothing was
+        # resident would evict nothing and stage on top of them, which is how a
+        # resumed run exceeds the quota it was sized for.
+        self.staged: list[int] = self.resident_on_disk()
+        if self.staged and self.log:
+            self.log.info("chunk cycle: pieces already on disk: %s", self.staged)
 
     # -- the order -----------------------------------------------------------
     def piece_order(self, epoch: int) -> list[int]:
@@ -98,19 +161,57 @@ class ChunkCycle:
         return np.flatnonzero(np.isin(self.assignment, np.asarray(pieces, dtype="int32")))
 
     # -- staging -------------------------------------------------------------
+    def resident_on_disk(self) -> list[int]:
+        """Which piece indexes are staged right now, across every chunked base.
+
+        The cut is aligned, so piece k of the signals and piece k of the images
+        cover the same studies and are staged and evicted together; the union is
+        therefore the window, not a per-base detail.
+        """
+        found: set[int] = set()
+        for base in chunk_pieces.staged_bases():
+            found.update(int(p) for p in chunk_pieces.resident(base))
+        return sorted(found)
+
     def ensure(self, pieces: Sequence[int]) -> None:
-        """Make exactly these pieces resident: stage what is missing, evict the rest."""
+        """Make exactly these pieces resident: EVICT first, then fetch.
+
+        The order is the whole point. `windows()` hands out disjoint pairs, so
+        staging before evicting held the outgoing pair and the incoming pair at
+        once -- **four** pieces where the campaign was sized for two. On the
+        12-lead scan-like cut that is 21.9 GB instead of 10.9, which is not a
+        tight fit but a `require_fit` refusal (or, worse, a full disk mid-epoch
+        with no refusal left to give). Evicting first means the loop waits with
+        nothing resident while the next pair comes down from R2 -- slower per
+        swap, and the only version that fits.
+
+        Losing a piece to a failed fetch after it was evicted is safe: R2 is the
+        source of truth for pieces (storage rule 5, the DGX never holds the only
+        copy), the raise propagates out of the epoch, and the checkpoint from the
+        previous window boundary is what a resume picks up.
+        """
         want = sorted(int(p) for p in pieces)
         if want == self.staged:
             return
+        for piece in [p for p in self.staged if p not in want]:
+            self._evict(piece)
+            self.staged.remove(piece)
         for piece in want:
             if piece not in self.staged:
                 self._stage(piece)
-        for piece in list(self.staged):
-            if piece not in want:
-                self._evict(piece)
         self.staged = want
         chunk_pieces.install_overlays(self.log)     # the new piece becomes readable
+
+    def release(self) -> None:
+        """Evict every resident piece, keeping nothing.
+
+        Used by the val swap: the val containers do not fit beside the pieces on
+        the campaigns that need this, so the pieces go first and the next
+        epoch's `ensure()` fetches them again.
+        """
+        for piece in list(self.staged):
+            self._evict(piece)
+        self.staged = []
 
     def _run(self, command: list[str]) -> None:
         if self.log:
@@ -194,11 +295,33 @@ def _self_check() -> None:
     for window in cycle.windows(epoch=3):
         assert len(window) <= RESIDENT_PIECES
 
+    # 6. and never more than two DURING a swap: `ensure` must evict before it
+    #    fetches, or the outgoing and incoming windows overlap on disk. Replay
+    #    the calls against a counter rather than trusting the source.
+    swaps = ChunkCycle(8, np.arange(1000, 1400), seed=42, total_pieces=8, dry_run=True)
+    swaps.staged = []
+    on_disk: set[int] = set()
+    peak = 0
+    swaps._stage = lambda piece: on_disk.add(int(piece))                  # noqa: E731
+    swaps._evict = lambda piece: on_disk.discard(int(piece))              # noqa: E731
+    import _dataset_lib.chunk_pieces as _cp
+
+    real_install = _cp.install_overlays
+    _cp.install_overlays = lambda *a, **k: None
+    try:
+        for epoch in range(3):
+            for window in swaps.windows(epoch):
+                swaps.ensure(window)
+                peak = max(peak, len(on_disk))
+                assert on_disk == set(window), \
+                    f"after ensure({window}) the disk holds {sorted(on_disk)}"
+    finally:
+        _cp.install_overlays = real_install
+    assert peak <= RESIDENT_PIECES, \
+        f"{peak} pieces were resident at once; the quota is sized for {RESIDENT_PIECES}"
+
     print("chunk_cycle self-check PASS")
 
 
 if __name__ == "__main__":
-    import sys
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     _self_check()

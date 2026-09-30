@@ -1,17 +1,20 @@
-"""Build the three derived datasets the campaign table names but nothing produced.
+"""Build the derived datasets the campaign table names but nothing produced.
 
     ./ecg_env/Scripts/python.exe scripts/dgx_portability/make_subsets.py plan
     ./ecg_env/Scripts/python.exe scripts/dgx_portability/make_subsets.py build \
         --datasets signals_12lead_L3
     ./ecg_env/Scripts/python.exe scripts/dgx_portability/make_subsets.py verify
 
-Three datasets, all subsets of a modality already on disk:
+Each is a subset of a modality already on disk:
 
 | dataset                  | campaigns | contents                                     |
 | ------------------------ | --------- | -------------------------------------------- |
 | `signals_12lead_L3`      | 5, 7      | int16 12-lead preprocessed, L3 studies only   |
 | `images_clean_12lead_L3` | 7         | clean 12-lead tars, L3 studies only           |
 | `images_scanlike_test`   | 10        | scan-like tars (both layouts), TEST split only |
+| `images_scanlike_12lead_valtest` | 2, 8, 11 | scan-like 12-lead, VAL + TEST         |
+| `images_scanlike_lead2_valtest`  | 3, 13, 14 | scan-like Lead-II, VAL + TEST        |
+| `images_clean_lead2_valtest`     | 10, 13, 14 | clean Lead-II, VAL + TEST           |
 
 **The study list comes from the task parquets, not from re-derived linkage.**
 `signals_12lead_L3` / `images_clean_12lead_L3` are the union of the `is_primary`
@@ -114,6 +117,33 @@ DATASETS: dict[str, dict[str, Any]] = {
     },
     "images_clean_12lead_valtest": {
         "kind": "image_clean_12lead",
+        "cohort": "all",
+        "splits": ("val", "test"),
+    },
+    # --- val/test for the A5/B4 SCAN-LIKE reads (open question 16) -----------
+    # A5/B4 fix the rendering per ROW (`image_type_column`,
+    # `task_dataset.py:524-528`), so every A5/B4 config that touches images
+    # reads `image_scanlike_<layout>` for its scan-like rows as well as the
+    # clean container the config names. Their scan-like train+val set is 80 % of
+    # every study, so TRAIN is chunked (`make_chunks.py`, aligned at p8) and only
+    # val/test ship as plain containers -- which is what these two are.
+    # PER LAYOUT on purpose: `images_scanlike_test` holds both layouts in one
+    # tar (20.33 GB), so a 12-lead campaign staging it pays 7.81 GB for Lead-II
+    # bytes it will never open, and campaigns 13/14 cannot afford that at all.
+    "images_scanlike_12lead_valtest": {
+        "kind": "image_scanlike_12lead",
+        "cohort": "all",
+        "splits": ("val", "test"),
+    },
+    "images_scanlike_lead2_valtest": {
+        "kind": "image_scanlike_lead2",
+        "cohort": "all",
+        "splits": ("val", "test"),
+    },
+    # Campaigns 13/14 chunk the clean Lead-II train split, so they need its
+    # val/test halves as plain containers, exactly as the 12-lead campaigns do.
+    "images_clean_lead2_valtest": {
+        "kind": "image_clean_lead2",
         "cohort": "all",
         "splits": ("val", "test"),
     },

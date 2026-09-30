@@ -133,12 +133,18 @@ transport() {
 # phase is two rclone excludes rather than a second copy of every dataset under
 # a different name. A file with no `__<split>.` in its name -- every base
 # container, every parquet, every piece -- matches neither and is always taken.
+# Four phases, not two. `train_only` and `val` exist for the campaigns whose
+# train+val does not fit but whose train alone does: the run holds train data
+# while it trains, swaps the pieces out for the val split at the epoch boundary,
+# validates, and swaps back (open question 16). A campaign that fits with val
+# resident uses `train` and never pays for the swap.
 phase_excludes() {
-    if [ "${1:-train}" = "eval" ]; then
-        printf '%s\n' "--exclude" "*__train.*" "--exclude" "*__val.*"
-    else
-        printf '%s\n' "--exclude" "*__test.*"
-    fi
+    case "${1:-train}" in
+        eval)       printf '%s\n' "--exclude" "*__train.*" "--exclude" "*__val.*" ;;
+        val)        printf '%s\n' "--exclude" "*__train.*" "--exclude" "*__test.*" ;;
+        train_only) printf '%s\n' "--exclude" "*__val.*"   "--exclude" "*__test.*" ;;
+        *)          printf '%s\n' "--exclude" "*__test.*" ;;
+    esac
 }
 
 fetch() {
@@ -223,50 +229,90 @@ push() {
 # `chunked` is yes for the campaigns whose training data exceeds the quota
 # (6, 8, 9) -- those stage pieces, not whole files.
 #
-# AMENDED 2026-08-29 (Step 6, then open questions 14 and 15b). Every number
-# below is measured off the files on disk, not estimated, and every dataset list
-# is what that campaign's model configs actually read.
+# REBUILT 2026-09-30 (open question 16). Every number below is MEASURED off the
+# files, by `upload_data.py --sizes`, not estimated -- the hand-maintained
+# version had drifted in both directions (campaign 12 was listed at 29.4 and is
+# 33.7; campaign 9 was 18.5 and is 12.7). Re-run that command after any change
+# to a dataset and paste the numbers back here.
 #
-#   campaign_spec <n> -> "name|resident_gb|runs|gpu_hours|chunked|datasets|eval_gb"
+#   campaign_spec <n> -> "name|resident_gb|runs|gpu_hours|chunked|datasets|eval_gb|val_mode"
 #
-# TWO PHASES, because a campaign does not need its test split while it trains.
-# `resident_gb` is the TRAIN phase (train + val data); `eval_gb` is the EVAL
-# phase (test data), staged after the training runs finish and the train pieces
-# are evicted. stage_data.sh --phase picks one, and filters by the `__<split>.`
-# suffix the derived containers carry, so no dataset had to be split in two.
-# Without this campaigns 5, 7 and 8 exceed the ceiling on paper while
-# never actually needing that much at once.
+# PHASES. A campaign does not need its test split while it trains, so
+# `resident_gb` is the TRAIN phase and `eval_gb` the EVAL phase, and
+# `stage_data.sh --phase` filters on the `__<split>.` suffix the derived
+# containers carry. `val_mode` adds a third case: `on_demand` campaigns do not
+# hold the val split either -- see below.
 #
-# THE LEAD-II SPLIT (open question 14). Campaigns 7, 8 and 11 read a whole lead
-# set each, and their configs cover both, which put campaign 7 at 69 GB. They
-# are now split by lead subset: 7/8/11 are the 12-lead halves, 12/13/14 the
-# Lead-II ones. campaign_runs.py routes by lead subset to match. No config was
-# renamed, no run dropped, no seed dropped -- --table still reports 104 configs
-# and 312 runs.
+# THE LEAD-II SPLIT (open question 14). A fusion campaign reads a whole lead
+# set, which put campaign 7 at 69 GB, so 7/8/11 are the 12-lead halves and
+# 12/13/14 the Lead-II ones. `campaign_runs.py` routes to match. No config
+# renamed, no run dropped: still 104 configs, 312 runs.
 #
-# VAL/TEST FOR THE CHUNKED CAMPAIGNS (open question 15b). Pieces are cut from
-# TRAIN only, so 6, 8 and 9 had no val split to early-stop on and no test split
-# to evaluate. MEASURED: 12-lead int16 is 101.6 KiB/study (val 7.3 GiB, test
-# 14.5 GiB), clean 12-lead images 11.7 KiB/study (0.84 / 1.67 GiB), raw 12-lead
-# float32 88.5 KiB/study (6.4 / 12.6 GiB). All of that fits alongside two
-# resident pieces, so val and test are staged as PLAIN datasets and NOTHING
-# extra is chunked.
+# ---------------------------------------------------------------------------
+# WHAT CHANGED AT OPEN QUESTION 16, AND WHY (2026-09-30)
+# ---------------------------------------------------------------------------
+# A5 and B4 fix the image rendering PER ROW (`image_type_column`,
+# `task_dataset.py:524-528`), so every A5/B4 config that touches images reads
+# `image_scanlike_<layout>` as well as the clean container its config names.
+# Nothing staged it; that is what killed jobs 24639/24640. It is not a small
+# addition: there is one scan-like row per anchor and every study in the split
+# is an anchor, so scan-like train+val is 599,470 of 749,112 studies --
+# 50.08 GB for 12-lead, more than the whole ceiling, and 31.24 GB for Lead-II.
+#
+# Four consequences, all of them measured rather than assumed:
+#
+# 1. SCAN-LIKE TRAIN IS CHUNKED, at p8, aligned with the three existing cuts
+#    (`make_chunks.py plan` reports 0 of 523,945 studies disagreeing). Val and
+#    test ship as the per-layout `images_scanlike_<layout>_valtest` containers,
+#    because `images_scanlike_test` holds BOTH layouts in one 20.33 GB tar and
+#    a 12-lead campaign must not pay 7.81 GB for Lead-II bytes it never opens.
+#
+# 2. CAMPAIGNS 10 AND 11 WERE STAGING THE WRONG COHORT, found by deriving each
+#    campaign's real reads from its configs instead of trusting this table.
+#    Campaign 10's A5/B4 scan-like runs read the CLEAN container too, and it
+#    staged none; campaign 11 trains A5/B4, which are not L3 tasks, against the
+#    L3 subsets. Both would have died the same way the scan-like gap did.
+#
+# 3. CAMPAIGNS 5 AND 7 NOW READ THE FULL-COHORT 12-LEAD PIECES rather than
+#    `signals_12lead_L3`. Measured, that subset is 35.35 GB resident, which put
+#    campaign 7 at 40.5 GB and campaign 5 at 36.4 with 0.4 GB to spare. The
+#    pieces are a superset, already cut and already uploaded, and cost 13.7 GB
+#    for two. `signals_12lead_L3` is now UNUSED but deliberately kept in R2.
+#
+# 4. `signals_lead2` SPLIT IN TWO. Campaigns 12/13/14 read only the
+#    preprocessed copy, and were staging the 6.08 GB raw file for nothing. The
+#    two new dataset names point at files already in the bucket -- no upload.
+#
+# VAL ON DEMAND (`val_mode`). Campaigns 8 and 11 hold 27.4 GB of training data
+# and need a further 15.1 GB of val containers; 42.5 GB against a 49 GB ceiling
+# does not fit with checkpoints. They therefore stage the val split only at the
+# epoch boundary: the trainer evicts the pieces, fetches `*__val.*`, validates,
+# and drops it again (`_train_lib/trainer.py::_evaluate_val`). It costs one val
+# fetch per epoch and buys 15 GB. Every other campaign keeps val resident and
+# pays nothing.
+#
+# CHUNK CYCLING IS DECIDED PER RUN, NOT PER CAMPAIGN. `chunked=yes` only means
+# the campaign stages pieces; `trainer.py` turns cycling on for a run only if
+# that run actually reads a kind staged as pieces. Campaign 2 stages the clean
+# 12-lead container WHOLE and the scan-like one as pieces, so A5/B4 cycle and
+# A1/A3/A6 do not -- cycling a run that does not need it is not a slowdown, it
+# is a different sampling regime, and nine runs were planned without it.
 campaign_spec() {
     case "$1" in
-        1)  echo "text_models|1.1|36|23|no|code configs tasks fiducials index text|1.1" ;;
-        2)  echo "images_12lead|9.4|15|14|no|code configs tasks index images_clean_12lead|9.4" ;;
-        3)  echo "images_lead2|17.6|15|14|no|code configs tasks index images_clean_lead2|17.6" ;;
-        4)  echo "signals_lead2|13.6|78|8|no|code configs tasks index signals_lead2 signals_corrupted|13.6" ;;
-        5)  echo "signals_12lead_L3|33.9|12|6|no|code configs tasks index signals_12lead_L3|9.2" ;;
-        6)  echo "signals_12lead_full|21.0|18|10|yes|code configs tasks index signals_12lead_pieces signals_12lead_valtest|15.5" ;;
-        7)  echo "fusion_L3_12lead|37.7|18|20|no|code configs tasks index text signals_12lead_L3 images_clean_12lead_L3|10.2" ;;
-        8)  echo "fusion_full_12lead|23.4|15|30|yes|code configs tasks index text signals_12lead_pieces images_clean_12lead_pieces signals_12lead_valtest images_clean_12lead_valtest|17.2" ;;
-        9)  echo "retrain_sweeps|18.5|30|25|yes|code configs tasks index text signals_raw_pieces signals_raw_valtest|13.7" ;;
-        10) echo "test_sweeps|20.8|30|6|no|code configs tasks index images_scanlike_test signals_corrupted|20.8" ;;
-        11) echo "final_eval_12lead|12.2|6|4|no|code configs tasks index text results signals_12lead_L3 images_clean_12lead_L3|12.2" ;;
-        12) echo "fusion_L3_lead2|29.4|18|20|no|code configs tasks index text signals_lead2 images_clean_lead2|29.4" ;;
-        13) echo "fusion_full_lead2|29.4|15|30|no|code configs tasks index text signals_lead2 images_clean_lead2|29.4" ;;
-        14) echo "final_eval_lead2|31.4|6|4|no|code configs tasks index text results signals_lead2 images_clean_lead2|31.4" ;;
+        1)  echo "text_models|1.2|36|23|no|code configs tasks fiducials index text|1.2|resident" ;;
+        2)  echo "images_12lead|27.9|15|14|yes|code configs tasks index images_clean_12lead images_scanlike_12lead_pieces images_scanlike_12lead_valtest|23.2|resident" ;;
+        3)  echo "images_lead2|31.0|15|14|yes|code configs tasks index images_clean_lead2 images_scanlike_lead2_pieces images_scanlike_lead2_valtest|28.1|resident" ;;
+        4)  echo "signals_lead2|15.6|78|8|no|code configs tasks index signals_lead2_preprocessed signals_lead2_raw signals_corrupted|15.6|resident" ;;
+        5)  echo "signals_12lead_L3|22.7|12|6|yes|code configs tasks index signals_12lead_pieces signals_12lead_valtest|16.7|resident" ;;
+        6)  echo "signals_12lead_full|22.7|18|10|yes|code configs tasks index signals_12lead_pieces signals_12lead_valtest|16.7|resident" ;;
+        7)  echo "fusion_L3_12lead|26.8|18|20|yes|code configs tasks index text signals_12lead_pieces signals_12lead_valtest images_clean_12lead_L3|17.8|resident" ;;
+        8)  echo "fusion_full_12lead|27.4|15|30|yes|code configs tasks index text signals_12lead_pieces images_clean_12lead_pieces images_scanlike_12lead_pieces signals_12lead_valtest images_clean_12lead_valtest images_scanlike_12lead_valtest|31.1|on_demand" ;;
+        9)  echo "retrain_sweeps|12.7|30|25|yes|code configs tasks index text signals_raw_pieces signals_raw_valtest|9.6|resident" ;;
+        10) echo "test_sweeps|27.8|30|6|no|code configs tasks index images_scanlike_test images_clean_12lead_valtest images_clean_lead2_valtest signals_corrupted|27.8|resident" ;;
+        11) echo "final_eval_12lead|27.4|6|4|yes|code configs tasks index text results signals_12lead_pieces images_clean_12lead_pieces images_scanlike_12lead_pieces signals_12lead_valtest images_clean_12lead_valtest images_scanlike_12lead_valtest|31.1|on_demand" ;;
+        12) echo "fusion_L3_lead2|27.7|18|20|no|code configs tasks index text signals_lead2_preprocessed images_clean_lead2|27.7|resident" ;;
+        13) echo "fusion_full_lead2|24.3|15|30|yes|code configs tasks index text signals_lead2_preprocessed images_clean_lead2_pieces images_clean_lead2_valtest images_scanlike_lead2_pieces images_scanlike_lead2_valtest|20.0|resident" ;;
+        14) echo "final_eval_lead2|24.3|6|4|yes|code configs tasks index text results signals_lead2_preprocessed images_clean_lead2_pieces images_clean_lead2_valtest images_scanlike_lead2_pieces images_scanlike_lead2_valtest|20.0|resident" ;;
         *)  return 1 ;;
     esac
 }
@@ -281,9 +327,17 @@ campaign_hours()     { campaign_field "$1" 4; }
 campaign_chunked()   { campaign_field "$1" 5; }
 campaign_datasets()  { campaign_field "$1" 6; }
 campaign_eval_gb()   { campaign_field "$1" 7; }
+# `resident` keeps the val split staged for the whole run; `on_demand` stages it
+# at each epoch boundary and drops it again. Only the campaigns that do not fit
+# the other way pay the per-epoch transfer.
+campaign_val_mode()  { campaign_field "$1" 8; }
 
 # resident GB for one phase: train (train+val data) or eval (test data).
 campaign_phase_gb() {
+    # `resident_gb` is the PEAK of the training phase under this campaign's val
+    # mode -- for an `on_demand` campaign that is the train-only working set,
+    # and the val sub-phase is smaller by construction, so one number still
+    # gates both.
     if [ "${2:-train}" = "eval" ]; then campaign_eval_gb "$1"; else campaign_resident "$1"; fi
 }
 

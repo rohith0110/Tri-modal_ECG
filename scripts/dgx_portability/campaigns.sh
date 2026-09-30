@@ -229,6 +229,13 @@ push() {
 # `chunked` is yes for the campaigns whose training data exceeds the quota
 # (6, 8, 9) -- those stage pieces, not whole files.
 #
+# AFTER EDITING THIS TABLE, RUN BOTH:
+#   upload_data.py --sizes            -- does every campaign still fit?
+#   check_campaign_data.py            -- does every campaign stage what it READS?
+# The second exists because four campaigns were wrong at once and nothing
+# noticed until a job died on the DGX; it replays those four failures as its own
+# self-check, so it cannot quietly stop working.
+#
 # REBUILT 2026-09-30 (open question 16). Every number below is MEASURED off the
 # files, by `upload_data.py --sizes`, not estimated -- the hand-maintained
 # version had drifted in both directions (campaign 12 was listed at 29.4 and is

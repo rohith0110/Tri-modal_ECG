@@ -243,6 +243,11 @@ bash scripts/dgx_portability/campaigns.sh selfcheck
 python3 scripts/phase2_tasks_benchmark_and_paper/_train_lib/chunk_cycle.py
 python3 scripts/dgx_portability/make_chunks.py selfcheck
 
+# does every campaign stage everything its runs READ? (this is the check that
+# would have caught the whole of session 16 before a job died)
+python3 scripts/dgx_portability/check_campaign_data.py
+python3 scripts/dgx_portability/check_campaign_data.py --selfcheck
+
 # what the pieces and overlays on this node actually are
 ls ~/se23ucse027/data/processed/*/piece_*
 ls ~/se23ucse027/data/processed/manifest_overlays/

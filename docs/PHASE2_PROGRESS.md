@@ -4,7 +4,7 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-09-30 (session 16, `data-laptop` — every upload done, all checks green)
+- **Last updated:** 2026-10-05 (session 16 addendum, `data-laptop` — R2 audited against every campaign, PASS; nothing left to do on this machine)
 - **SESSION 15 (2026-09-30): campaign 1 training is DONE (36/36; `c1_B4` 24622
   COMPLETED 09-29). Campaign 2 pre-flight ran and found a DATA GAP — A5/B4
   image runs cannot train.** R2 holds only `images_scanlike_test`; A5/B4 read
@@ -524,7 +524,7 @@ it, and R2 holds what the DGX reads.** Nothing is duplicated between them.
 | `C:\trimodal_chunks\<kind>__train__p8` | the chunk cuts, one directory per kind | see below |
 | `C:\trimodal_derived\derived\<dataset>` | the derived val/test and subset containers | see below |
 | `C:\trimodal_chunks\_upload_stage` | hard-link staging the uploader builds. **Disposable** -- it shares inodes with the originals and costs no space. | 0 |
-| `r2:trimodal-data` | what the DGX stages from. The authority for anything staged. | **350.3 GiB, 664 objects** (`rclone size`, 2026-09-30 17:30 IST) |
+| `r2:trimodal-data` | what the DGX stages from. The authority for anything staged. | **350.3 GiB, 672 objects** (`rclone size`, 2026-10-05) |
 | `r2:trimodal-results` | what the DGX writes back; `push_results.sh` fills it | grows |
 
 **The C: directories are reached from D: through junctions** under
@@ -3005,3 +3005,20 @@ objects.** Final checks: `check_campaign_data.py` 15/15 and `--selfcheck` PASS;
 +5.7 GB, 3/15 at +5.8); `verify_piece_roundtrip.py image_clean_lead2` PASS;
 `smoke_test.py --tiers signal --skip-train` PASSED; `campaigns.sh selfcheck` and
 `chunk_cycle.py` PASS. `docs/SESSION16_RESUME.md` deleted.
+
+**Addendum, 2026-10-05 — R2 audited against what every campaign stages.**
+`--sizes` and `check_campaign_data.py` both read LOCAL files, so neither proves
+the bucket. One listing of `r2:trimodal-data` was compared against
+`dataset_files()` for every dataset of all 15 campaigns: each expected key
+present, each byte size equal to the local file, and each directory's checksum
+manifest present. **All 20 data datasets PASS** (`signals_raw_pieces` has no
+local copy any more and was checked by presence: 11 objects, 29.20 GB). The only
+differences were `code` and `configs`, whose bucket copies predated session 16.
+A git checkout skips them (`stage_data.sh`), so no run was at risk, but the
+`TRIMODAL_FORCE_CODE_STAGE=1` fallback would have reverted every staging fix of
+this session. Both were re-uploaded from `5b1a2e0` (1.7 MB) and the audit
+re-run: **PASS, 22/22**. They go stale again with the next commit that touches
+`scripts/` or `config/`, which is why git stays the source of truth.
+**Nothing is left to do on the data laptop.** Next action is on the campus
+laptop: `docs/CAMPUS_LAPTOP_HANDOVER.md` §0, then cancel held job 24641 and
+submit campaign 2 fresh.

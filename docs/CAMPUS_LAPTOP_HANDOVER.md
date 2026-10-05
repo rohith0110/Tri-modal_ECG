@@ -6,8 +6,14 @@ DGX needs is in R2. The data laptop is not needed again** — no re-chunking, no
 re-upload, no rebuild. If you find yourself wanting it, something has gone
 wrong and the last section says what to check first.
 
-Read `docs/PHASE2_PROGRESS.md` for the full state; this file is the operating
-manual for the two machines that are not the data laptop.
+Read `docs/PHASE2_PROGRESS.md` for the full state and
+**`docs/SESSION16_POSTMORTEM.md` for what went wrong, what was fixed and what is
+still unproven on the DGX**; this file is the operating manual for the two
+machines that are not the data laptop.
+
+**Updated 2026-10-05:** every upload finished, and the bucket was audited
+against what every campaign stages (`check_r2_complete.py`, 22/22 datasets).
+R2 is 350.3 GiB.
 
 ---
 
@@ -61,7 +67,7 @@ So, measured and rebuilt:
 | scan-like TRAIN, both layouts | **chunked at p8**, aligned with the three existing cuts (0 of 523,945 studies disagree) |
 | scan-like VAL/TEST | `images_scanlike_<layout>_valtest`, **per layout** — the old `images_scanlike_test` held both layouts in one 20.3 GB tar |
 | clean Lead-II TRAIN | chunked at p8 as well, for campaigns 13/14 only |
-| `signals_lead2` | split into `..._preprocessed` and `..._raw`; 12/13/14 were staging a 6.08 GB raw file they never read |
+| `signals_lead2` | split into `..._preprocessed` and `..._raw`; 12/13/14 were staging a 6.08 GB raw file they never read. Both live under their own prefixes in R2; the old `signals_lead2/` is unused and kept |
 | campaigns 5 and 7 | now read the **full-cohort** 12-lead pieces instead of `signals_12lead_L3` (35.35 GB resident, which put campaign 7 at 40.5) |
 | campaigns 8 and 11 | **val on demand** — they do not hold the val split while training |
 | campaign 10 | **it trains on scan-like images**, it is not a re-testing sweep, so it was split by layout into 10 (12-lead) and **15** (Lead-II). 15 campaigns now; still 104 configs and 312 runs |
@@ -156,8 +162,14 @@ A1/A3/A6 (9 runs, no cycling) separate from A5/B4 (6 runs, cycling):
 
 ```bash
 TRIMODAL_TASKS="A1_ecg_diagnosis A3_lab_abnormality A6_risk_stratification" \
-  sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1 \n         --export=ALL scripts/dgx_portability/slurm/campaign_02.sbatch
+  sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1 \
+         --export=ALL scripts/dgx_portability/slurm/campaign_02.sbatch
 ```
+
+**Campaign 2 is also the first real test of the chunk swap.** Its A5/B4 runs
+evict two pieces and fetch two from R2 mid-epoch, which has only ever run on the
+data laptop. Read the first swap in the log before queuing campaign 3 — see
+`docs/SESSION16_POSTMORTEM.md` §5.
 
 ### Before every campaign
 
@@ -259,14 +271,14 @@ ls ~/se23ucse027/data/processed/manifest_overlays/
 | `REFUSING TO START (spec §8.1…)` | the quota gate, working. Read the used-GB number; something is on the disk that should not be. |
 | `chunk cycling OFF for this run` | correct for a run that reads no chunked kind (all of campaign 2's A1/A3/A6). |
 | `chunk pieces are not modality-aligned` | a cut was made with a different `--pieces` count. Every cut in R2 is p8. |
-| a `*_pieces` dataset is missing from R2 | it is not; `rclone lsd r2:trimodal-data/chunks` lists all five. |
+| a `*_pieces` dataset is missing from R2 | it is not; `rclone lsd r2:trimodal-data/chunks` lists all six. |
 | `transport=none` inside a job | rclone is not on PATH in a non-interactive shell. `resolve_rclone()` handles it; if it still fails, check `~/se23ucse027/bin/rclone`. |
 
 **You should not need the data laptop.** The only reasons that would change:
 a cut has to be made at a different piece count, or a modality has to be
 re-rendered. Neither is expected — every campaign was measured to fit at p8
-with margin, the thinnest being campaign 12 at 27.7 GB against a 36.8 GB
-budget.
+with margin, the thinnest being campaigns 8 and 11 with 5.7 GB spare against a
+36.8 GB data budget.
 
 ---
 
@@ -275,32 +287,43 @@ budget.
 Paste this as the first message:
 
 > Read `.machine` first, then `git pull --ff-only origin main`, then read
-> `docs/PHASE2_PROGRESS.md` (header plus the session 16 log) and
-> `docs/CAMPUS_LAPTOP_HANDOVER.md`. Per `AGENTS.md` this is the `campus-laptop`:
-> it drives the DGX and has no `data/processed`, so anything that reads a
-> container fails here by design.
+> `docs/PHASE2_PROGRESS.md` (header plus the session 16 log),
+> `docs/SESSION16_POSTMORTEM.md` and `docs/CAMPUS_LAPTOP_HANDOVER.md`. Per
+> `AGENTS.md` this is the `campus-laptop`: it drives the DGX and has no
+> `data/processed`, so anything that reads a container fails here by design.
 >
-> Context: session 16 on the data laptop closed open question 16 — the A5/B4
-> scan-like data gap that killed the campaign 2 pre-flight. Scan-like train is
-> now chunked at p8 for both layouts, val/test ship as per-layout containers,
-> the campaign table was rebuilt from measured sizes, and three more
-> staging/cohort bugs were fixed. All of it is in R2 and on `main`.
+> Context: session 16 on the data laptop fixed the data gap that killed the
+> campaign 2 pre-flight, plus three more campaigns with the same bug, the size
+> table and four staging mechanisms. The post-mortem lists all of it. All data
+> is in R2 (350.3 GiB, audited against every campaign on 2026-10-05) and all
+> code is on `main`. Nothing has run on the DGX since.
 >
-> What I want:
+> What I want, in this order:
 > 1. Check the DGX state — `squeue`, and `sacct` since 2026-09-28 — and tell me
 >    where campaign 1's B4 evals and the A3 evals actually got to.
-> 2. Pull on the DGX, confirm `campaigns.sh selfcheck` passes, and dry-run
->    `stage_data.sh 2 --pieces 0 1`. Report the quota numbers before staging.
-> 3. Job 24641 is held and was submitted against the old campaign table —
->    cancel it and submit campaign 2 fresh.
-> 4. Then work down the queue in `docs/CAMPUS_LAPTOP_HANDOVER.md` §2.
+> 2. Pull on the DGX, set `.machine` to `dgx` if it is missing, and confirm
+>    `campaigns.sh selfcheck`, `chunk_cycle.py` and `check_campaign_data.py`
+>    all pass there.
+> 3. Dry-run `stage_data.sh 2 --pieces 0 1` and report the quota numbers before
+>    staging anything. If it refuses, tell me what is on the disk; do not evict
+>    or delete anything I have not agreed to.
+> 4. Job 24641 is held and was submitted against the old campaign table —
+>    cancel it and submit campaign 2 fresh, with
+>    `--partition=gpu_student --gres=gpu:a100_4g.20gb:1`.
+> 5. **Stop there and watch campaign 2.** Its A5/B4 runs are the first real
+>    mid-epoch piece swap on the DGX (post-mortem §5). Report the first swap:
+>    did it evict two pieces, fetch two, stay within quota and resume training?
+>    Do not queue campaign 3 or anything else until I have seen that.
+> 6. Only after that, work down the queue in `docs/CAMPUS_LAPTOP_HANDOVER.md` §2.
 >
 > Rules: work on `main`, never branch. Pull before every DGX submit; the DGX
 > never commits. Update `docs/PHASE2_PROGRESS.md` and push before the session
-> ends — the data laptop and I can only see what is on `main`. Do not propose
-> re-chunking or re-uploading data: that was finished on the data laptop and
-> every campaign was measured to fit. If a campaign refuses at the quota gate,
-> report the numbers rather than shrinking anything.
+> ends — the other machines and I can only see what is on `main`. Do not
+> propose re-chunking or re-uploading data: every campaign was measured to fit
+> and the bucket was audited. If a campaign refuses at the quota gate or a run
+> dies on a missing file, report the numbers and the log rather than shrinking
+> data, relaxing the gate or patching the caller. Ask me before cancelling any
+> job other than 24641 and before deleting anything on the DGX or in R2.
 
-Swap step 3 for whatever is actually true when you get there — `squeue` is the
+Swap step 4 for whatever is actually true when you get there — `squeue` is the
 authority, not this file.

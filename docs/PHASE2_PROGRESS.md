@@ -5,6 +5,10 @@ starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
 - **Last updated:** 2026-10-05 (session 16 addendum, `data-laptop` — R2 audited against every campaign, PASS; nothing left to do on this machine)
+- **NEXT ACTION (campus laptop): read `docs/SESSION16_POSTMORTEM.md`, then
+  `docs/CAMPUS_LAPTOP_HANDOVER.md` §0 and its §6 prompt. Cancel held job 24641,
+  submit campaign 2 fresh, and WATCH ITS FIRST PIECE SWAP before queuing
+  anything else** — the mid-epoch swap has never run on the DGX.
 - **SESSION 15 (2026-09-30): campaign 1 training is DONE (36/36; `c1_B4` 24622
   COMPLETED 09-29). Campaign 2 pre-flight ran and found a DATA GAP — A5/B4
   image runs cannot train.** R2 holds only `images_scanlike_test`; A5/B4 read
@@ -398,6 +402,7 @@ starting cold reads this first, works, then updates it before the session ends.
 | #   | Document                            | What it gives you                                                                                                                                                                                     |
 | --- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0   | **`docs/SESSION_12_HANDOVER.md`**   | **the narrative of sessions 12's nine days** — the eleven defects found (one of which produced a day and a half of wrong results), the measured cluster constraints, A1's numbers, the traps, and a ready-made prompt to resume. Read it once; this file stays the live state. |
+| 0b  | **`docs/SESSION16_POSTMORTEM.md`**  | **what went wrong in sessions 15–16, what was fixed, the checks that now guard it, the rules that follow, and what is still unproven on the DGX.** Read it before submitting or changing any campaign. |
 | 1   | **this file**                       | current state, what is done, what is next, decisions, open questions                                                                                                                                  |
 | 2   | `docs/PHASE2_SOURCE_OF_TRUTH.md`    | **binding science spec** — 12 tasks (A1–A6, B1–B6), cohorts, labels, input policies, model architectures, training/eval protocol, audit requirements. §12 holds locked decisions; §13 the open queue. |
 | 3   | `docs/PHASE2_EXECUTION_PLAN_DGX.md` | **operations** — which stage runs on DGX vs laptop, the campaign schedule, data staging, quota rules, access model                                                                                    |
@@ -3022,3 +3027,13 @@ re-run: **PASS, 22/22**. They go stale again with the next commit that touches
 **Nothing is left to do on the data laptop.** Next action is on the campus
 laptop: `docs/CAMPUS_LAPTOP_HANDOVER.md` §0, then cancel held job 24641 and
 submit campaign 2 fresh.
+
+**Addendum 2, 2026-10-05 — the record for the other machines.**
+`docs/SESSION16_POSTMORTEM.md` is new: the 20 things that went wrong across
+sessions 15–16, each with its fix, the checks that now guard them, eight rules
+for later sessions, and the four things still unproven on the DGX. The R2 audit
+is now a script, `scripts/dgx_portability/check_r2_complete.py`.
+`docs/CAMPUS_LAPTOP_HANDOVER.md` was corrected (six cuts not five, the thinnest
+campaign, a broken line continuation in the sharded `sbatch` example) and its
+§6 prompt now stops after campaign 2's first piece swap instead of running down
+the queue.

@@ -5,14 +5,18 @@ starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
 - **Last updated:** 2026-10-05 (session 17, `campus-laptop`)
-- **RIGHT NOW (session 17): CAMPAIGN 2 IS RUNNING as job 25576** (dgxa,
-  `gpu_student`, `a100_4g.20gb`, `--time=7-00:00:00`, submitted 2026-10-05
-  11:13 UTC from DGX checkout `71bde63`). Held job 24641 cancelled. Run order
-  is A1, A3, A6 (9 runs, no cycling) THEN A5, B4 (6 runs, cycling), so **the
-  first mid-epoch piece swap is ~2-4 days out**. **NEXT ACTION: watch 25576's
-  first A5 swap** (post-mortem §5) — evicted 2, fetched 2, within quota,
-  training resumed? **Do not queue campaign 3 or anything else until the user
-  has seen that.**
+- **RIGHT NOW (session 17): CAMPAIGN 2 FAILED AT STAGING — job 25576, 1 m 43 s,
+  nothing trained. Waiting on the user's go-ahead for a one-line fix.**
+  `stage_data.sh:106-107` fetches a piece as `.h5` and falls back to `.tar`
+  only if that fails — but **`rclone copy` of a missing S3 key exits 0 and
+  copies nothing** (verified: `piece_000.h5` dry-run EXIT=0, `piece_000.tar`
+  5.086 GiB present). So every IMAGE piece stages empty, then checksum
+  verification correctly refuses: `verified 0, absent 8 of 8 recorded`. Hits
+  campaigns 2, 3, 8, 10, 13, 14, 15 (all image-piece campaigns) and the
+  mid-epoch `--pieces-only` swap. Session 16's round trip used the `local`
+  transport, which errors on a missing file, so it never surfaced. Held job
+  24641 is cancelled; nothing of campaign 2 is queued. **Still do not queue
+  campaign 3 or anything else until the user has seen the first A5 swap.**
   - **🔴 The DGX cannot `git pull`: its GitHub token in
     `~/.git-credentials-trimodal` is rejected** ("Invalid username or token").
     Session 17 moved `main` over as a `git bundle` (same commits, fast-forward
@@ -3133,4 +3137,38 @@ grep -v "Transferr\|Elapsed time\|Checks:" trimodal_c2_25576.out | tail -40
 ls outputs/model_runs/*/ ; grep -h peak_gpu_gb outputs/model_runs/*/*/train_log.jsonl | tail
 grep -n -i "chunk\|piece\|evict\|swap\|quota" trimodal_c2_25576.err | tail -30   # the swap
 ```
+
+**5. 25576 FAILED at staging (11:15:32 UTC, exit 1, 1 m 43 s).** Everything
+else staged and verified (clean 12-lead 30/30, scan-like valtest, tasks,
+index), but `[11:14:02] staging images_scanlike_12lead piece_000` and
+`piece_001` each moved `0 B / 0 B` in 0.2 s, then
+`verifying images_scanlike_12lead against checksums.json — verified 0, absent
+8 of 8 recorded` -> `ERROR: the manifest lists files but NONE of them are on
+disk ... checksum verification FAILED -- do not train on this data.` The guard
+did its job.
+
+Cause, verified on the login node with `--dry-run` (nothing moved):
+`rclone copy r2:trimodal-data/chunks/images_scanlike_12lead/piece_000.h5 <dir>`
+-> **EXIT=0**, nothing listed; the same for `piece_000.tar` -> `size 5.086Gi`.
+`stage_data.sh:106-107` is
+
+```bash
+fetch "chunks/$base/$padded.h5" "$DATA_ROOT/$base"     || fetch "chunks/$base/$padded.tar" "$DATA_ROOT/$base"
+```
+
+and rclone treats a missing S3 key as an empty prefix, so the `||` never fires.
+Signal pieces (`.h5`) are unaffected; image pieces (`.tar`) always stage empty.
+All six cuts are in R2 (`rclone lsf r2:trimodal-data/chunks/` lists
+`images_clean_12lead images_clean_lead2 images_scanlike_12lead
+images_scanlike_lead2 signals_12lead signals_raw`; scan-like 12-lead has
+`piece_000..007.tar`, `assignment.parquet`, `checksums.json`,
+`fairness.json`). Not a data gap.
+
+Disk after the failure: `data/processed/derived` 5.9 GB (scan-like valtest),
+`images` 9.0 GB, `images_scanlike_12lead/` 4.1 MB (assignment + checksums
+only). Nothing deleted. Not patched — per the session rules, reported to the
+user first. Proposed fix: pick the extension from what exists rather than from
+the exit code (e.g. `images_*` -> `.tar`, `signals_*` -> `.h5`, or an
+`rclone lsf` probe), plus a regression case in a selfcheck that runs the
+rclone path, then pull (bundle) and resubmit with the same command.
 

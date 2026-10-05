@@ -100,11 +100,20 @@ for dataset in $DATASETS; do
             # stages them, and the val swap has just evicted them to make room.
             if [ "$PHASE" = "eval" ] || [ "$PHASE" = "val" ]; then continue; fi
             base="${dataset%_pieces}"
+            # The extension comes from the cut's name, never from trying one
+            # and falling back on failure: `rclone copy` of a MISSING S3 key
+            # exits 0 and copies nothing, so `fetch .h5 || fetch .tar` staged
+            # every image piece empty (job 25576, 2026-10-05). The size check
+            # below catches any other way a piece can arrive as nothing.
+            ext="$(piece_ext "$base")" || exit 1
             for piece in "${PIECES[@]}"; do
                 printf -v padded 'piece_%03d' "$piece"
-                log "staging $base $padded"
-                fetch "chunks/$base/$padded.h5" "$DATA_ROOT/$base" \
-                    || fetch "chunks/$base/$padded.tar" "$DATA_ROOT/$base"
+                log "staging $base $padded.$ext"
+                fetch "chunks/$base/$padded.$ext" "$DATA_ROOT/$base" || exit 1
+                [ -s "$DATA_ROOT/$base/$padded.$ext" ] || {
+                    echo "ERROR: $base/$padded.$ext is missing or empty after the fetch" >&2
+                    echo "       (r2 key: $R2_DATA/chunks/$base/$padded.$ext)" >&2
+                    exit 1; }
             done
             fetch "chunks/$base/checksums.json" "$DATA_ROOT/$base" || true
             fetch "chunks/$base/assignment.parquet" "$DATA_ROOT/$base" || true

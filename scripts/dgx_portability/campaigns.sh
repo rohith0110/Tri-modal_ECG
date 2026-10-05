@@ -422,6 +422,50 @@ used_gb_selfcheck() {
     return $rc
 }
 
+# piece_ext <cut base> -- the file extension of a chunked cut's pieces, decided
+# by name. Image cuts are tars, signal cuts are HDF5. Never infer it by trying a
+# fetch: rclone exits 0 on a missing S3 key (job 25576).
+piece_ext() {
+    case "$1" in
+        images_*)  echo tar ;;
+        signals_*) echo h5 ;;
+        *) echo "ERROR: no piece extension known for cut '$1'" >&2; return 1 ;;
+    esac
+}
+
+# Every chunked cut any campaign stages, one per line.
+chunked_bases() {
+    local n dataset
+    for n in $(seq 1 "$N_CAMPAIGNS"); do
+        for dataset in $(campaign_datasets "$n"); do
+            case "$dataset" in *_pieces) echo "${dataset%_pieces}" ;; esac
+        done
+    done | sort -u
+}
+
+# Every cut maps to an extension, and -- when rclone is reachable -- every
+# piece key that mapping names is actually in the bucket. The second half is
+# the check the `local` transport could never make.
+piece_ext_selfcheck() {
+    local base ext rc=0 listing n
+    for base in $(chunked_bases); do
+        ext="$(piece_ext "$base")" || { rc=1; continue; }
+        if resolve_rclone 2>/dev/null; then
+            listing="$("$RCLONE" lsf "$R2_DATA/chunks/$base/" 2>/dev/null)"
+            n="$(printf '%s\n' "$listing" | grep -c "^piece_[0-9]*\.$ext\$")"
+            if [ "$n" -eq 0 ]; then
+                echo "FAIL $base: no piece_*.$ext under $R2_DATA/chunks/$base/" >&2; rc=1
+            else
+                echo "ok   $base: $n piece_*.$ext in R2"
+            fi
+        else
+            echo "ok   $base -> .$ext (rclone not reachable; bucket not checked)"
+        fi
+    done
+    [ $rc -eq 0 ] && echo "piece_ext self-check PASS"
+    return $rc
+}
+
 # will_fit <additional_gb> -- true when used + additional stays under the ceiling
 will_fit() {
     local additional="$1" used
@@ -456,5 +500,5 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
 # Sourced by every launcher; run directly only for the self-check.
 if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "selfcheck" ]; then
-    used_gb_selfcheck
+    used_gb_selfcheck && piece_ext_selfcheck
 fi

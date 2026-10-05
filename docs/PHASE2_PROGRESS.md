@@ -4,11 +4,25 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-10-05 (session 16 addendum, `data-laptop` — R2 audited against every campaign, PASS; nothing left to do on this machine)
-- **NEXT ACTION (campus laptop): read `docs/SESSION16_POSTMORTEM.md`, then
-  `docs/CAMPUS_LAPTOP_HANDOVER.md` §0 and its §6 prompt. Cancel held job 24641,
-  submit campaign 2 fresh, and WATCH ITS FIRST PIECE SWAP before queuing
-  anything else** — the mid-epoch swap has never run on the DGX.
+- **Last updated:** 2026-10-05 (session 17, `campus-laptop`)
+- **RIGHT NOW (session 17): CAMPAIGN 2 IS RUNNING as job 25576** (dgxa,
+  `gpu_student`, `a100_4g.20gb`, `--time=7-00:00:00`, submitted 2026-10-05
+  11:13 UTC from DGX checkout `71bde63`). Held job 24641 cancelled. Run order
+  is A1, A3, A6 (9 runs, no cycling) THEN A5, B4 (6 runs, cycling), so **the
+  first mid-epoch piece swap is ~2-4 days out**. **NEXT ACTION: watch 25576's
+  first A5 swap** (post-mortem §5) — evicted 2, fetched 2, within quota,
+  training resumed? **Do not queue campaign 3 or anything else until the user
+  has seen that.**
+  - **🔴 The DGX cannot `git pull`: its GitHub token in
+    `~/.git-credentials-trimodal` is rejected** ("Invalid username or token").
+    Session 17 moved `main` over as a `git bundle` (same commits, fast-forward
+    to 71bde63). The user must put a fresh read-only token there before the next
+    pull; until then use the bundle recipe in the session 17 log.
+  - **Campaign 1 evals: B4 DONE** (24760 tf-idf 09-30, 24761 BERT 10-01;
+    `B4_cross_modal_verification.csv` written). **A3 still running** on dgxb as
+    continuations 24634 (tf-idf, 1,512/2,940 units) and 24637 (BERT,
+    1,071/2,940), last continuations 24635/24638 queued. dgxa NODE_FAILed
+    2026-10-04 20:07 and killed the first pair.
 - **SESSION 15 (2026-09-30): campaign 1 training is DONE (36/36; `c1_B4` 24622
   COMPLETED 09-29). Campaign 2 pre-flight ran and found a DATA GAP — A5/B4
   image runs cannot train.** R2 holds only `images_scanlike_test`; A5/B4 read
@@ -3037,3 +3051,86 @@ is now a script, `scripts/dgx_portability/check_r2_complete.py`.
 campaign, a broken line continuation in the sharded `sbatch` example) and its
 §6 prompt now stops after campaign 2's first piece swap instead of running down
 the queue.
+
+### Session 17 — 2026-10-05 — `campus-laptop`: campaign 2 submitted for real
+
+Ran the CAMPUS_LAPTOP_HANDOVER §6 prompt. Local pull to `71bde63`, `.machine`
+= `campus-laptop` (already set).
+
+**1. DGX state (11:11 UTC).**
+- `c1_B4` 24622 COMPLETED 09-29. B4 evals **done**: 24760 tf-idf COMPLETED
+  09-30 14:32 (23 h 37 m), 24761 BERT COMPLETED 10-01 20:36 (2 d 5 h 41 m).
+  `outputs/results/B4_cross_modal_verification.csv` written; y_match AUPRC
+  ~0.1997-0.1998 for both text tiers (chance floor, as expected for A5/B4 text).
+- A3 evals: **24633/24636 NODE_FAIL** at 2026-10-04 20:07 after 6 d 4 h
+  (dgxa node failure). Slurm requeued both onto dgxb; the requeued attempt ran
+  14 h and ended FAILED (exit 0:53) at 10-05 10:10, which fired the
+  `afternotok` continuations **24634 (tf-idf) and 24637 (BERT), now running on
+  dgxb** (8 CPU / 64G). Resumed at **tf-idf 1,512 / 2,940** and **BERT 1,071 /
+  2,940** units. Rate 09-30 -> 10-05: ~86 and ~80 units/day, so roughly
+  **~17 d (tf-idf) and ~23 d (BERT)** left — better than session 15's
+  extrapolation, but more than the two 7-day continuations each that remain
+  (24634+24635, 24637+24638). Expect one more resubmit per tier. A3 rethink
+  (post-mortem §5) still open.
+- dgxa back up (`mixed`).
+
+**2. DGX pull — the token is dead.** `git pull --ff-only origin main` on the
+DGX: `remote: Invalid username or token. Password authentication is not
+supported`. The credential helper is `store --file ~/.git-credentials-trimodal`
+(in `~/.gitconfig`). Not touched. Workaround used, which keeps git the source of
+truth (same commit hashes, fast-forward only):
+
+```bash
+# campus laptop
+git bundle create "$TEMP/claude/main.bundle" <dgx HEAD>..main
+scp.exe <that file> mudgx:/dgxa_home/se23ucse027/main.bundle
+# DGX
+cd ~/se23ucse027 && git bundle verify ~/main.bundle &&   git pull --ff-only ~/main.bundle main && rm ~/main.bundle
+```
+
+DGX went 7128da3 -> **71bde63**; no tracked changes on the DGX. `.machine`
+was missing there and is now `dgx` (ignored by `.gitignore:12`).
+**User action: put a fresh GitHub token (read-only, this repo) in
+`~/.git-credentials-trimodal` on the DGX.**
+
+**Checks on dgxa (srun job 25574, cpu_student):** `campaigns.sh selfcheck`
+PASS; `chunk_cycle.py` PASS; `check_campaign_data.py` **15/15** campaigns stage
+what they read; `--selfcheck` PASS (replays campaigns 2/10/11's failures).
+
+**3. Dry run (job 25575):** `stage_data.sh 2 --pieces 0 1 --dry-run` ->
+`quota OK: 19.79 GB used + 27.9 GB for campaign 2 (images_12lead), train phase
+<= 49 GB ceiling` (47.7 GB, 1.3 GB margin). Would stage `code configs tasks
+index images_clean_12lead images_scanlike_12lead_pieces
+images_scanlike_12lead_valtest`, pieces 0 1. On disk: project 20 GB — venv
+5.7, `data/processed/images` 9.0 (clean 12-lead from session 15),
+`outputs/model_runs` 3.1 (includes session 15's 2.4 GB `_dev/c2test*`;
+not deleted — ask the user).
+
+**4. Submitted.** `scancel 24641` (CANCELLED). Then from `~/se23ucse027`:
+
+```bash
+sbatch --parsable --partition=gpu_student --gres=gpu:a100_4g.20gb:1        --time=7-00:00:00 scripts/dgx_portability/slurm/campaign_02.sbatch
+```
+
+-> **25576**, RUNNING on dgxa within seconds. `--time` raised from the file's
+28 h because 15 runs (incl. B4-sized image epochs) cannot fit 28 h; 7 d is the
+`gpu_student` max and what campaign 1 and session 15 used. The job has
+`--requeue` and resumes from checkpoints. Logs: `~/se23ucse027/trimodal_c2_25576.{out,err}`.
+At 11:14 it was staging `images_scanlike_12lead_valtest` (5.9 GiB val tar at
+~48 MiB/s).
+
+**Run order** (`campaign_runs.py 2`): A1 x3, A3 x3, A6 x3, A5 x3, B4 x3
+(seeds 42/123/456). Only A5/B4 cycle, so the **first swap comes after the nine
+A1/A3/A6 runs**, ~2-4 days at ~25-33 min/epoch. Watching it is the next action.
+
+**How to check from a new session** (Windows: use
+`/c/WINDOWS/System32/OpenSSH/ssh.exe mudgx`, not git-bash `ssh` — session 12 trap):
+
+```bash
+squeue -u $USER; sacct -j 25576 -X -o JobID,State,Elapsed
+cd ~/se23ucse027
+grep -v "Transferr\|Elapsed time\|Checks:" trimodal_c2_25576.out | tail -40
+ls outputs/model_runs/*/ ; grep -h peak_gpu_gb outputs/model_runs/*/*/train_log.jsonl | tail
+grep -n -i "chunk\|piece\|evict\|swap\|quota" trimodal_c2_25576.err | tail -30   # the swap
+```
+

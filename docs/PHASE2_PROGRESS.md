@@ -6,13 +6,17 @@ starting cold reads this first, works, then updates it before the session ends.
 
 - **Last updated:** 2026-10-06 (session 18, `data-laptop` — a local disk
   cleanup only; **every DGX fact below is still session 17's**)
-- **SESSION 18 (2026-10-06, `data-laptop`): 147.7 GB of DGX-prep intermediates
-  deleted from D:, nothing in R2 and nothing of Phase 1 touched.** Gone: the five
+- **SESSION 18 (2026-10-06, `data-laptop`): 186.7 GB deleted from D: — 147.7 GB
+  of DGX-prep intermediates and 39.0 GB of dev-sample checkpoints. Nothing in R2
+  and nothing of Phase 1 touched.** Gone: the five
   whole int16 12-lead shards (83.2 GB — they exist as the p8 pieces plus
   `signals_12lead_valtest`), the two derived containers no campaign stages
   (`signals_12lead_L3` 44.2 GB, `images_scanlike_test` 20.3 GB, both
   hash-checked against R2 first) with their overlays, both hard-link upload
-  staging trees, and two dead junctions. D: went 14.9 -> **152.5 GB free**.
+  staging trees, two dead junctions, and every `checkpoint_*.pt` under
+  `outputs/model_runs/_dev`. D: went 14.9 -> **188.8 GiB free**. **The chunk
+  pieces on C: stay** — the user's rule is to delete only what will never have
+  to be rebuilt.
   `check_r2_complete.py`, `--sizes` and `check_campaign_data.py` print the same
   output before and after; every kind still reads through `read_modality()` in
   every split. **A rebuild of anything int16 12-lead now starts with
@@ -544,7 +548,9 @@ encoding moves every metric **0.42× as much as changing the training seed does*
 
 - i7-12700H, 14C/20T, 32 GB RAM, **RTX 3060 Laptop 6 GB**, NVMe SSD
 - Free space **(re-measured 2026-10-06, after the session 18 cleanup): D:
-  152.5 GB, C: 107.3 GB.** D: has room again, so a rebuilt int16 shard set
+  188.8 GiB.** C: was 107.3 GiB and the cleanup freed nothing there; other work
+  on this machine is using it, so measure before building onto it. D: has room
+  again, so a rebuilt int16 shard set
   (83 GB) fits where `make_int16.py` writes it. `TRIMODAL_DERIVED_BASE` still
   moves a derived container to C: when it does not.
 - **Always use `ecg_env`**: `./ecg_env/Scripts/python.exe` — Python 3.11.9,
@@ -3234,7 +3240,7 @@ reach it; `f190193`'s staging fix arrived by pull and is not this session's).
 | D: `signals_int16/` | 5 whole int16 12-lead shards + Lead-II | 90.66 |
 | D: `derived/` | `signals_12lead_L3`, `images_scanlike_test`, `images_clean_12lead_L3` | 69.53 |
 | D: `outputs/upload_stage` | hard links to the above and to Phase 1 files | 0 (114 apparent) |
-| D: `outputs/model_runs/_dev` | 80 dev-sample checkpoints, 2026-08-27/28 | 38.98 |
+| D: `outputs/model_runs/_dev` | 80 dev-sample and smoke-test checkpoints | 38.98 |
 | C: `trimodal_chunks/*__train__p8` | five cuts' pieces | 144.56 |
 | C: `trimodal_derived/derived` | six `*_valtest` containers | 74.92 |
 | C: `trimodal_chunks/_upload_stage` | hard links to both of the above | 0 (219 apparent) |
@@ -3242,7 +3248,7 @@ reach it; `f190193`'s staging fix arrived by pull and is not this session's).
 A scan of both whole drives for data-shaped files over 300 MB found no copy of
 anything outside these trees and `data/raw`.
 
-**Deleted (147.74 GB real, all on D:):**
+**Deleted (186.72 GB real, all on D:):**
 
 1. `signals_int16/twelve_lead_preprocessed_shard_{00..04}.h5` — 83.24 GB. No
    dataset uploads them; what a campaign reads of them is the p8 pieces and
@@ -3259,11 +3265,19 @@ anything outside these trees and `data/raw`.
 4. Two dead junctions in `data/processed`: `derived$d` (an unexpanded shell
    variable) and `signals_raw` (into a scratchpad from 2026-08-30 that no
    longer exists).
+5. The 80 `checkpoint_*.pt` files under `outputs/model_runs/_dev` — 38.98 GB of
+   `--dev` runs from 2026-08-27/28 and `smoke_test.py` leftovers. They reach no
+   paper number, `31_eval.py` reads predictions rather than checkpoints, and a
+   finished run's checkpoints are deleted by design (§8.1). Every
+   `run_summary.json`, log, config and predictions file stays (239 files, 8 MB).
 
 **Kept, deliberately:** the six `*_valtest` containers (their overlays are
 live locally — trap 21), `images_clean_12lead_L3` (campaign 7 stages it), the
-Lead-II int16 file (a dataset source), and — pending the user's word — the
-chunk pieces and the dev checkpoints.
+Lead-II int16 file (a dataset source), and **the chunk pieces (144.56 GB on
+C:)**. Asked whether the pieces should go too, the user's answer was: *delete
+only what we do not need and will not have to rebuild.* A cut is re-cuttable,
+but that is a rebuild, so the pieces stay — the signal pieces above all, now
+that their int16 source is gone.
 
 **Verified after:**
 
@@ -3274,7 +3288,7 @@ chunk pieces and the dev checkpoints.
 | `check_campaign_data.py` | identical; 15/15 |
 | `read_modality()`, 8 kinds x 3 splits x L3/non-L3, 3 studies each | all read, with and without `TRIMODAL_SIGNAL_INT16=1` (12-lead falls back to float32) |
 | Phase 1 trees | `signals/` 243.81 GB / 14 files and `images/` 137.76 GB / 202 files, unchanged |
-| free space | D: 14.87 -> **152.48 GB**; C: 107.3 GB, unchanged |
+| free space | D: 14.87 -> 152.48 GiB after items 1–4, **188.76 GiB** after item 5; C: untouched by any of it |
 
 **What this costs later:** rebuilding any int16 12-lead container starts with
 `make_int16.py` (resumable; ~6 h, read off the deleted shards' 2026-08-28 timestamps). The pieces and val/test

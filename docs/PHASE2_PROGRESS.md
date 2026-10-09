@@ -4,8 +4,19 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-10-06 (session 18, `data-laptop` — a local disk
-  cleanup only; **every DGX fact below is still session 17's**)
+- **Last updated:** 2026-10-09 (session 17, `campus-laptop`; session 18 on the `data-laptop` was a local disk cleanup, 2026-10-06)
+- **Last checked:** 2026-10-09 08:15 UTC (session 17, `campus-laptop`)
+- **RIGHT NOW (session 17): CAMPAIGN 2 RESUBMITTED as job 26896** (2026-10-09
+  ~08:13 UTC, dgxa, `gpu_student`, `a100_4g.20gb`, `--time=7-00:00:00`, DGX
+  checkout `f190193`). The first attempt 25576 died at staging — image pieces
+  fetched empty over rclone — fixed in **f190193** (`piece_ext`, a non-empty
+  check, and an R2 key check in `campaigns.sh selfcheck`: 6 cuts x 8 pieces
+  PASS). Then the quota gate refused (25.68 used + 27.9 > 49) because campaign
+  2's own leftovers were counted on top of its residency; **user approved
+  `evict_data.sh --all`** -> 9.76 GB used, gate OK. Run order A1, A3, A6 (no
+  cycling) then A5, B4 (cycling): **first piece swap ~2-4 days out. NEXT ACTION:
+  watch 26896's first A5 swap** (post-mortem §5). **Do not queue campaign 3 or
+  anything else until the user has seen it.**
 - **SESSION 18 (2026-10-06, `data-laptop`): 186.7 GB deleted from D: — 147.7 GB
   of DGX-prep intermediates and 39.0 GB of dev-sample checkpoints. Nothing in R2
   and nothing of Phase 1 touched.** Gone: the five
@@ -21,18 +32,6 @@ starting cold reads this first, works, then updates it before the session ends.
   output before and after; every kind still reads through `read_modality()` in
   every split. **A rebuild of anything int16 12-lead now starts with
   `make_int16.py` (~6 h).** Storage map: §3. Rules for the next cleanup: trap 22.
-- **RIGHT NOW (session 17): CAMPAIGN 2 FAILED AT STAGING — job 25576, 1 m 43 s,
-  nothing trained. Waiting on the user's go-ahead for a one-line fix.**
-  `stage_data.sh:106-107` fetches a piece as `.h5` and falls back to `.tar`
-  only if that fails — but **`rclone copy` of a missing S3 key exits 0 and
-  copies nothing** (verified: `piece_000.h5` dry-run EXIT=0, `piece_000.tar`
-  5.086 GiB present). So every IMAGE piece stages empty, then checksum
-  verification correctly refuses: `verified 0, absent 8 of 8 recorded`. Hits
-  campaigns 2, 3, 8, 10, 13, 14, 15 (all image-piece campaigns) and the
-  mid-epoch `--pieces-only` swap. Session 16's round trip used the `local`
-  transport, which errors on a missing file, so it never surfaced. Held job
-  24641 is cancelled; nothing of campaign 2 is queued. **Still do not queue
-  campaign 3 or anything else until the user has seen the first A5 swap.**
   - **🔴 The DGX cannot `git pull`: its GitHub token in
     `~/.git-credentials-trimodal` is rejected** ("Invalid username or token").
     Session 17 moved `main` over as a `git bundle` (same commits, fast-forward
@@ -3222,6 +3221,32 @@ user first. Proposed fix: pick the extension from what exists rather than from
 the exit code (e.g. `images_*` -> `.tar`, `signals_*` -> `.h5`, or an
 `rclone lsf` probe), plus a regression case in a selfcheck that runs the
 rclone path, then pull (bundle) and resubmit with the same command.
+
+**6. Fix and resubmit (user approved).** `f190193`: `piece_ext()` in
+`campaigns.sh` (`images_*` -> tar, `signals_*` -> h5, else error);
+`stage_data.sh` fetches `piece_NNN.<ext>` and exits if the file is missing or
+empty afterwards; `campaigns.sh selfcheck` now also runs `piece_ext_selfcheck`,
+which lists every staged cut's `piece_*.<ext>` in R2 when rclone resolves. On
+dgxa (srun 25604): all six cuts `8 piece_*.<ext> in R2`, PASS. Bundled to the
+DGX (71bde63 -> f190193; token still dead).
+
+Dry run then REFUSED: `Currently used: 25.68 GB` + 27.9 > 49. The extra was
+campaign 2's own data already on disk (clean 12-lead 9.0 GB from session 15,
+scan-like valtest 5.9 GB from 25576), which the gate adds again on top of the
+full residency. Gate not relaxed. **User approved `evict_data.sh --all`**
+(2026-10-09; checked first that the running A3 evals read only
+`outputs/model_runs` — `31_eval.py` touches `data/processed` only for B6). srun
+26895: `Used: 25.69 GB -> 9.76 GB`, guard passed without `--force`; dry run
+`quota OK: 9.76 GB used + 27.9 GB`. Resubmitted with the same command ->
+**26896**. Session 15's `_dev/c2test*` (2.4 GB) still kept.
+**Lesson:** evict between attempts of the same campaign as well as between
+campaigns — leftovers of a failed stage count twice at the gate.
+
+**A3 evals at 2026-10-09 08:12:** 24634 tf-idf 1,743/2,940 (230 of 1,428 in
+this job), 24637 BERT 1,260/2,940 (180 of 1,869), both ~4 d 3 h into 7 d. Rate
+fell again: ~58 and ~47 units/day -> **~21 d and ~36 d left**. Each has one
+continuation queued (24635, 24638); both tiers will need more. Raise the A3
+redesign with the user.
 
 
 ### Session 18 — 2026-10-06 — `data-laptop`: a disk cleanup, nothing else

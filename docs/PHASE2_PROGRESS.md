@@ -4,9 +4,25 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-10-09 (session 17, `campus-laptop`; session 18 on the `data-laptop` was a local disk cleanup, 2026-10-06)
-- **Last checked:** 2026-10-09 08:15 UTC (session 17, `campus-laptop`)
-- **RIGHT NOW (session 17): CAMPAIGN 2 RESUBMITTED as job 26896** (2026-10-09
+- **Last updated:** 2026-10-14 (session 19, `campus-laptop`, read-only DGX check)
+- **Last checked:** 2026-10-13 20:30 UTC (session 19, `campus-laptop`)
+- **RIGHT NOW (session 19): CAMPAIGN 2 JOB 26896 FAILED (exit 1, 2026-10-10
+  20:48 UTC, 1 d 10 h). 9 of 15 runs are DONE and pushed (A1, A3, A6 x 3
+  seeds, `image_resnet50_12lead_clean`); all 6 A5/B4 runs died at batch 0.**
+  Cause: chunk cycling never turned on for A5/B4. `trainer.py:236` gates it on
+  `"study_id" in train_dataset.frame.columns`, and the A5/B4 frames are keyed
+  `anchor_study_id` / `image_id` (`task_spec.py:264-266, 320-322`), so the run
+  fell through to plain shuffling and asked for
+  `images/scanlike_12lead_shard_013.tar`, a base shard no campaign stages. The
+  log line is misleading: it prints "nothing in common" next to two lists that
+  share `image_scanlike_12lead`. **Not patched, nothing resubmitted.** The swap
+  that session 17 set out to watch never happened. Evals: A1 and A6 image
+  COMPLETED (27048, 27047); A5/B4 image evals 27049/27051 failed in seconds (no
+  predictions); **three A3 evals are running and none will finish inside its
+  7-day limit, with no continuation queued behind them** — see the session 19
+  log. **NEXT ACTION: the user decides the fix for the cycling gate and whether
+  to chain more A3 continuations.**
+- **SESSION 17 (superseded by session 19 above): CAMPAIGN 2 RESUBMITTED as job 26896** (2026-10-09
   ~08:13 UTC, dgxa, `gpu_student`, `a100_4g.20gb`, `--time=7-00:00:00`, DGX
   checkout `f190193`). The first attempt 25576 died at staging — image pieces
   fetched empty over rclone — fixed in **f190193** (`piece_ext`, a non-empty
@@ -3320,3 +3336,76 @@ that their int16 source is gone.
 containers already built do not need it.
 
 **Next action is unchanged and is not on this machine** — see the header.
+
+### Session 19 — 2026-10-14 — `campus-laptop`: a read-only check; campaign 2 died at A5
+
+Read-only over `ssh mudgx` (`squeue`, `sacct`, log reads). Nothing submitted,
+cancelled, evicted or patched. DGX checkout is still `f190193`. Checked
+2026-10-13 20:30 UTC. `sacct` prints IST; the campaign `.out` prints UTC.
+
+**1. Campaign 2 (26896): FAILED, exit 1, after 1 d 10 h 29 m.**
+
+| runs | state |
+|---|---|
+| A1, A3, A6 x seeds 42/123/456 (`image_resnet50_12lead_clean`) | DONE — `run_summary.json`, val/test predictions, thresholds; ~3.5-4.7 h each; `push verified` for all nine |
+| A5, B4 x seeds 42/123/456 | FAILED at batch 0 of epoch 0, each within ~20 s; only `train_config.yaml` in the run directory |
+
+The six failures are one error:
+
+```
+FileNotFoundError: .../data/processed/images/scanlike_12lead_shard_013.tar   (also _016, _017)
+  task_dataset.py:556 _read_image -> modality.py:396 _read_image -> modality.py:244 _tar
+```
+
+preceded in every one of them by
+
+```
+chunk cycling OFF for this run: it reads ['image_clean_12lead', 'image_scanlike_12lead'],
+and what is staged as pieces here is ['image_scanlike_12lead'] -- nothing in common
+```
+
+The two lists do have a kind in common, so `needs_cycle` was True. The branch
+was lost on the other condition at `trainer.py:236`:
+`"study_id" in train_dataset.frame.columns`. A5 and B4 are the two specs with
+`id_column="anchor_study_id"` and `image_id_column="image_id"`
+(`task_spec.py:264-266`, `320-322`). With cycling off, no manifest overlay
+points the scan-like rows at the pieces, and the read goes to the base shard
+path. **Read off the code and the log; the frame's columns were not inspected
+on the DGX.** Staging itself worked this time: `piece_000.tar` and
+`piece_001.tar` fetched at 5.086 GiB each and verified `ok`.
+
+A fix is more than deleting the column test: `ChunkCycle` is handed
+`frame["study_id"]` to build its windows, and for A5/B4 the id that decides
+which piece a row needs is `image_id` (mismatched pairs read another study's
+image), and only for rows whose `image_type` is scan-like. `selfcheck` and the
+dry run passed because neither builds an A5/B4 trainer with pieces staged.
+
+**2. After the failure** the body evicted the pieces and the `__val`
+containers (36.31 -> 20.23 GB), pushed 46 runs with 0 failures, and submitted
+the five image evals. Quota now 31.89 of 49 GB; `data/processed` 22 GB (clean
+12-lead shards 9.0 GB, `derived` 12 GB).
+
+**3. Evals.**
+
+| job | task / tier | state | progress | rate | finishes inside the limit? |
+|---|---|---|---|---|---|
+| 27048 | A1 / image 12-lead clean | COMPLETED 21 h 40 m | | | |
+| 27047 | A6 / image 12-lead clean | COMPLETED 22 h 10 m | | | |
+| 27049, 27051 | A5, B4 / image | FAILED in 8 s / 5 s | no `test_predictions.parquet` | | consequence of item 1 |
+| 27050 | A3 / image, 4 CPU / 32G, dgxb | RUNNING 2 d 23 h | 160 / 2,940 units | ~2.2 units/h | no — ~52 days of work left, times out ~2026-10-17 20:48 UTC |
+| 24635 | A3 / tf-idf, 8 CPU / 64G, dgxa | RUNNING 1 d 15 h | 150 / 1,088 left | ~3.8 units/h | no — ~10 days left, times out 2026-10-19 04:41 UTC |
+| 24638 | A3 / BERT, 8 CPU / 64G, dgxb | RUNNING 1 d 15 h | 230 / 1,519 left | ~5.8 units/h | no — ~9 days left, times out 2026-10-19 04:41 UTC |
+
+24634 and 24637 TIMEOUT at 7 d on 2026-10-12 as planned and handed over to
+24635/24638, which are the last links of both chains. **Nothing is queued
+behind any of the three.** The rates are two readings of a 10-unit log step
+each, so they are rough.
+
+**Open, for the user:**
+
+1. How to fix the cycling gate for A5/B4 (item 1), then resubmit campaign 2
+   for the six missing runs — the nine finished ones are skipped on resume.
+2. Whether to chain continuations behind 24635, 24638 and 27050 before they
+   time out, and whether 27050 at 4 CPU is worth running at ~52 days.
+3. Still open from session 17: the DGX's GitHub token is rejected, so a fix
+   reaches it by `git bundle`.

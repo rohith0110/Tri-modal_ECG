@@ -119,7 +119,13 @@ for dataset in $DATASETS; do
             fetch "chunks/$base/assignment.parquet" "$DATA_ROOT/$base" || true
             ;;
         code|configs)
-            if [ "$PIECES_ONLY" = "1" ]; then continue; fi
+            # No `--pieces-only` shortcut ahead of the git test below. It used
+            # to `continue` here, before SKIP_CODE_VERIFY was set, so a
+            # mid-epoch piece fetch went on to judge git's code against R2's
+            # manifest and every swap failed with `CHECKSUM MISMATCH:
+            # chunk_pieces.py` (job 27463, 2026-10-13 -- the first swap any
+            # campaign ever reached).
+            #
             # These are repo paths (`scripts/`, `config/`), not data paths, and
             # the loader resolves them under PROJECT_ROOT. Everything else keeps
             # its path relative to data/processed and unpacks into DATA_ROOT,
@@ -144,6 +150,7 @@ for dataset in $DATASETS; do
                 SKIP_CODE_VERIFY=1
                 continue
             fi
+            if [ "$PIECES_ONLY" = "1" ]; then continue; fi
             log "staging $dataset into $PROJECT_ROOT"
             fetch "$dataset" "$PROJECT_ROOT" "$PHASE"
             ;;

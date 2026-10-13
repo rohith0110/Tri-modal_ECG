@@ -459,7 +459,15 @@ def _split_row_filter(config_dict: dict[str, Any], split: str) -> str | None:
     regime = config_dict.get("regime")
     if not regime or config_dict["task"] != "B2_noise_robustness":
         return None
-    if split == "train":
+    # Train AND val. The frozen corrupted grid, its clean references and the
+    # natural rows are all test-split only, so every regime validates on the
+    # B1 val rows -- read clean, because augmentation is applied to the train
+    # split alone. Val used to fall through to the regime filter below, which
+    # for regime_1 selects nothing outside the test split: both regime_1
+    # configs died at `B2_noise_robustness/val is empty after filtering`
+    # (pre-flight 27467, 2026-10-13). regime_2's val rows are unchanged -- its
+    # val split holds only these rows. Decided by the user, 2026-10-14.
+    if split in ("train", "val"):
         return "row_role == 'augment_on_the_fly'"
     if regime == "regime_3":
         return "regime == 'regime_3'"

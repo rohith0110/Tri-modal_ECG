@@ -50,7 +50,7 @@ from torch.utils.data import DataLoader
 
 from _dataset_lib import chunk_pieces
 from _train_lib import chunk_cycle as chunk_cycle_lib
-from _train_lib.chunk_cycle import RESIDENT_PIECES as CHUNK_RESIDENT, ChunkCycle
+from _train_lib.chunk_cycle import RESIDENT_PIECES as CHUNK_RESIDENT, ChunkCycle, row_key_ids
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -233,11 +233,15 @@ class Trainer:
                  if hasattr(train_dataset, "modality_kinds_read") else set())
         staged_as_pieces = chunk_pieces.chunked_kinds()
         needs_cycle = bool(reads & staged_as_pieces)
-        if chunk_pieces.enabled() and "study_id" in train_dataset.frame.columns \
-                and needs_cycle:
+        if chunk_pieces.enabled() and needs_cycle:
+            # Windowed by the id each row READS from a piece, not by a column
+            # named `study_id`: A5/B4 have none, and the old test on that name
+            # left them un-cycled and reading an unstaged shard (job 26896).
             self.cycle = ChunkCycle(
                 campaign=int(os.environ.get("CAMPAIGN", "0")),
-                study_ids=train_dataset.frame["study_id"].to_numpy(),
+                study_ids=row_key_ids(
+                    train_dataset.chunk_key_ids(staged_as_pieces),
+                    train_dataset.frame[spec.id_column].to_numpy()),
                 seed=config.seed, logger=logger)
             ok, detail = chunk_pieces.check_alignment()
             self.log.info("chunk cycling ON: %d pieces, %d resident, transport=%s; "

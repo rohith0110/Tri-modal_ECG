@@ -124,6 +124,42 @@ def _refresh_reader(logger=None) -> None:
         logger.info("modality reader refreshed")
 
 
+def row_key_ids(keys: Sequence[np.ndarray], fallback: np.ndarray,
+                total_pieces: int | None = None) -> np.ndarray:
+    """One study id per row whose piece is the piece that row needs resident.
+
+    ``keys`` is `TaskDataset.chunk_key_ids()`: per chunked read, the id each row
+    asks for, ``-1`` where it does not make that read. A row that reads nothing
+    chunked keeps its ``fallback`` id -- it can train in any window, and hashing
+    its own id spreads those rows evenly over the windows instead of piling
+    them into one.
+
+    A row with two chunked reads needs both pieces resident together. The cut
+    is a function of study_id, so that holds whenever the ids agree; where they
+    differ (a mismatched A5/B4 pair) the pieces are compared, and a row split
+    across two pieces is refused here rather than faulting mid-epoch.
+    """
+    total = int(total_pieces or chunk_pieces.n_pieces())
+    out = np.asarray(fallback, dtype="int64").copy()
+    claimed = np.zeros(len(out), dtype=bool)
+    for ids in keys:
+        ids = np.asarray(ids, dtype="int64")
+        reads = ids >= 0
+        differ = reads & claimed & (ids != out)
+        if differ.any():
+            split = int((chunk_pieces.piece_of(out[differ], total)
+                         != chunk_pieces.piece_of(ids[differ], total)).sum())
+            if split:
+                raise RuntimeError(
+                    f"{split} row(s) read two chunked modalities from different pieces, "
+                    f"so no window holds both. This task cannot chunk-cycle against "
+                    f"what is staged as pieces here; stage one of the kinds whole.")
+        take = reads & ~claimed
+        out[take] = ids[take]
+        claimed |= reads
+    return out
+
+
 class ChunkCycle:
     """The piece order for one epoch, and the staging calls that follow it."""
 
@@ -319,6 +355,27 @@ def _self_check() -> None:
         _cp.install_overlays = real_install
     assert peak <= RESIDENT_PIECES, \
         f"{peak} pieces were resident at once; the quota is sized for {RESIDENT_PIECES}"
+
+    # 7. a row is windowed by the id it READS, not by its own (A5/B4, job 26896).
+    #    Rows 0-2 read a chunked image of another study, row 3 reads nothing
+    #    chunked and keeps its own id.
+    own = np.array([10, 11, 12, 13])
+    image = np.array([20, 21, 22, -1])
+    assert row_key_ids([image], own, 8).tolist() == [20, 21, 22, 13]
+    # no chunked read at all, and one key equal to the row id: both leave the
+    # assignment exactly as it was before this function existed
+    assert np.array_equal(row_key_ids([], ids, 8), ids)
+    assert np.array_equal(row_key_ids([ids, ids], ids, 8), ids)
+    # two chunked reads in different pieces cannot share a window: refuse
+    a = np.arange(5000, 5064)
+    b = a + 1_000_000
+    assert (chunk_pieces.piece_of(a, 8) != chunk_pieces.piece_of(b, 8)).any()
+    try:
+        row_key_ids([a, b], a, 8)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("a row split across two pieces must be refused")
 
     print("chunk_cycle self-check PASS")
 

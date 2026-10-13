@@ -17,8 +17,12 @@ set -euo pipefail
 # Raised 45 -> 49 on 2026-08-30: `used_gb()` sums PROJECT_ROOT, which now also
 # holds the 5.7 GB `ecg_env` venv and the HuggingFace cache. Campaign 7 stages
 # 37.7 GB, so the old ceiling left ~1 GB of margin on a fixed, non-staged cost.
-QUOTA_TOTAL_GB="${QUOTA_TOTAL_GB:-50}"
-QUOTA_CEILING_GB="${QUOTA_CEILING_GB:-49}"
+# Raised 49 -> 99 on 2026-10-14 (user's call): a second account, se23ucse034,
+# brings a second 50 GB allocation and both are spent in this one folder. Not
+# confirmed with the admins that allocations pool, and nothing enforces either
+# number -- see docs/DGX_ACCOUNTS.md.
+QUOTA_TOTAL_GB="${QUOTA_TOTAL_GB:-100}"
+QUOTA_CEILING_GB="${QUOTA_CEILING_GB:-99}"
 
 # ---------------------------------------------------------------------------
 # roots -- resolved, never assumed

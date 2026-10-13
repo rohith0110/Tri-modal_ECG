@@ -541,6 +541,38 @@ class TaskDataset(Dataset):
                 kinds.add(self.plan.image_kind)
         return kinds
 
+    def chunk_key_ids(self, chunked_kinds: set[str]) -> list[np.ndarray]:
+        """Per chunked read this dataset makes, the study id each row asks for.
+
+        One int64 array per modality whose kind is staged as pieces, row-aligned
+        with the frame; ``-1`` marks a row that does not make that read. The
+        piece a row needs is the piece of the id it READS, which is not the
+        row's own id: A5/B4 are keyed `anchor_study_id` and read the image of
+        `image_id`, and only the rows whose `image_type` is the chunked
+        rendering read a piece at all. Cycling used to be keyed on a `study_id`
+        column, which those two frames do not have, so it silently stayed off
+        and job 26896 lost all six A5/B4 runs on an unstaged base shard.
+
+        Mirrors `_read_signal` / `_read_image`; keep the three in step.
+        """
+        keys: list[np.ndarray] = []
+        signal_kind = getattr(self.plan, "signal_kind", None)
+        if signal_kind and signal_kind in chunked_kinds:
+            keys.append(self.frame[self.spec.signal_id_column].to_numpy(dtype="int64"))
+        image_kind = getattr(self.plan, "image_kind", None)
+        if image_kind:
+            ids = self.frame[self.spec.image_id_column].to_numpy(dtype="int64")
+            column = self.spec.image_type_column
+            if column and column in self.frame.columns:
+                layout = "12lead" if image_kind.endswith("12lead") else "lead2"
+                row_kinds = "image_" + self.frame[column].astype(str) + "_" + layout
+                reads = row_kinds.isin(chunked_kinds).to_numpy()
+                if reads.any():
+                    keys.append(np.where(reads, ids, -1))
+            elif image_kind in chunked_kinds:
+                keys.append(ids)
+        return keys
+
     def _read_image(self, row: pd.Series) -> torch.Tensor:
         if self._image_transform is None:
             self._image_transform = build_image_transform(

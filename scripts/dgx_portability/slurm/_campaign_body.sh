@@ -126,6 +126,12 @@ if [ "$CHUNKED" = "yes" ]; then
 else
     stage "$CAMPAIGN" --phase "$TRAIN_PHASE"
 fi
+# The test split, beside the training data: 30_train.py writes test predictions
+# at the end of every run (see `campaign_test_gb`). A campaign with no
+# `_valtest` container adds nothing here and the call is a no-op.
+if [ "$(campaign_test_gb "$CAMPAIGN")" != "0" ]; then
+    stage "$CAMPAIGN" --phase test
+fi
 
 # ---- point the loader at the staged data ----------------------------------
 # The loader resolves everything under $PROJECT_ROOT/data/processed
@@ -193,7 +199,7 @@ while read -r task tier seed config; do
     SUMMARY="$RESULTS_ROOT/model_runs/$task/$tier/seed_$seed/run_summary.json"
     if [ -z "${TRIMODAL_FORCE_RERUN:-}" ] && [ -f "$SUMMARY" ]        && grep -q '"status": *"complete"' "$SUMMARY" 2>/dev/null; then
         log "--- skip  $task / $tier / seed $seed (already complete) ---"
-        evaluated["$task|$tier"]=1
+        evaluated["$task|$tier"]="${evaluated["$task|$tier"]:-skipped}"
         continue
     fi
 
@@ -202,11 +208,12 @@ while read -r task tier seed config; do
         # §8.1: push and free the checkpoints as each run finishes, not at the
         # end of the campaign. Three fusion checkpoints resident is the cap.
         "$HERE/push_results.sh" || status=1
+        evaluated["$task|$tier"]=trained
     else
         log "TRAIN FAILED: $task / $tier / seed $seed (continuing)"
         status=1
+        evaluated["$task|$tier"]="${evaluated["$task|$tier"]:-skipped}"
     fi
-    evaluated["$task|$tier"]=1
 done < <(python3 "$PROJECT_ROOT/scripts/dgx_portability/campaign_runs.py"              "$CAMPAIGN" ${TRIMODAL_TASKS:+--tasks $TRIMODAL_TASKS})
 
 # ---- swap to the EVAL phase ------------------------------------------------
@@ -249,12 +256,32 @@ stage "$CAMPAIGN" --phase eval || status=1
 # facility raises the cap, or for a lone eval with no training queued behind it.
 for key in "${!evaluated[@]}"; do
     task="${key%%|*}"; tier="${key##*|}"
+    # One eval per (task, tier) at a time, and none that is already done. A
+    # resubmitted or chained campaign job walks its finished runs again; it
+    # used to queue their evals again too, beside the ones still running, both
+    # writing the same `.eval_checkpoints` file (A3 image, 2026-10-13). A tier
+    # this job TRAINED is re-evaluated even if an older eval finished -- its
+    # seeds have changed -- but never while one is still in the queue.
+    if eval_in_flight "$task" "$tier"; then
+        log "--- eval $task / $tier: one is already queued or running, not submitting another ---"
+        continue
+    fi
+    if [ "${evaluated[$key]}" != "trained" ] && [ -f "$(eval_marker "$task" "$tier").done" ]; then
+        log "--- eval $task / $tier: already done, nothing trained since ---"
+        continue
+    fi
+    if ! ls "$RESULTS_ROOT/model_runs/$task/$tier"/seed_*/test_predictions.parquet >/dev/null 2>&1; then
+        log "--- eval $task / $tier: no seed has predictions, nothing to evaluate ---"
+        continue
+    fi
+    rm -f "$(eval_marker "$task" "$tier").done"
     if [ -n "${TRIMODAL_EVAL_INLINE:-}" ]; then
         log "--- eval $task / $tier (all seeds, inline) ---"
         python3 "$EVAL" --task "$task" --arch-tier "$tier" || status=1
         continue
     fi
     if jid=$(sbatch --parsable --export=ALL,TASK="$task",TIER="$tier"                     --cpus-per-task="${TRIMODAL_EVAL_CPUS:-4}"                     "$HERE/slurm/eval_task.sbatch" 2>&1); then
+        eval_record_job "$task" "$tier" "$jid"
         log "--- eval $task / $tier queued on cpu_student as job $jid ---"
     else
         log "SUBMIT FAILED for eval $task / $tier ($jid); running it inline instead"

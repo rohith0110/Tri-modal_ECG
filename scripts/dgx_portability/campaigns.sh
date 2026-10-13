@@ -11,6 +11,20 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# per-account settings (docs/DGX_ACCOUNTS.md)
+# ---------------------------------------------------------------------------
+# Two DGX accounts run this code from two separate checkouts. Whatever differs
+# between them -- the quota ceiling, where results are pushed -- lives in an
+# UNTRACKED `.account_env` at the root of each checkout, sourced here so every
+# launcher, the trainer's staging calls and the eval jobs all see the same
+# values. No file: the defaults below, which are account 1's.
+_ACCOUNT_ENV="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.account_env"
+if [ -f "$_ACCOUNT_ENV" ]; then
+    # shellcheck disable=SC1090
+    . "$_ACCOUNT_ENV"
+fi
+
+# ---------------------------------------------------------------------------
 # quota
 # ---------------------------------------------------------------------------
 # §8.0: 50 GB total. §8.1/§8.2: refuse to start above the ceiling.
@@ -145,6 +159,8 @@ transport() {
 phase_excludes() {
     case "${1:-train}" in
         eval)       printf '%s\n' "--exclude" "*__train.*" "--exclude" "*__val.*" ;;
+        # The test containers and nothing else, ADDED to a staged train phase.
+        test)       printf '%s\n' "--include" "*__test.*" ;;
         val)        printf '%s\n' "--exclude" "*__train.*" "--exclude" "*__test.*" ;;
         train_only) printf '%s\n' "--exclude" "*__val.*"   "--exclude" "*__test.*" ;;
         *)          printf '%s\n' "--exclude" "*__test.*" ;;
@@ -168,9 +184,11 @@ fetch() {
                       take=1
                       case "$(basename "$f")" in
                           *__test.*)
-                              if [ "$phase" != "eval" ]; then take=0; fi ;;
+                              if [ "$phase" != "eval" ] && [ "$phase" != "test" ]; then take=0; fi ;;
                           *__train.*|*__val.*)
-                              if [ "$phase" = "eval" ]; then take=0; fi ;;
+                              if [ "$phase" = "eval" ] || [ "$phase" = "test" ]; then take=0; fi ;;
+                          *)
+                              if [ "$phase" = "test" ]; then take=0; fi ;;
                       esac
                       if [ "$take" = "1" ]; then
                           mkdir -p "$dest/$(dirname "$f")" && cp "$f" "$dest/$f"
@@ -360,7 +378,43 @@ campaign_phase_gb() {
     # mode -- for an `on_demand` campaign that is the train-only working set,
     # and the val sub-phase is smaller by construction, so one number still
     # gates both.
-    if [ "${2:-train}" = "eval" ]; then campaign_eval_gb "$1"; else campaign_resident "$1"; fi
+    case "${2:-train}" in
+        eval) campaign_eval_gb "$1" ;;
+        test) campaign_test_gb "$1" ;;
+        *)    campaign_resident "$1" ;;
+    esac
+}
+
+# campaign_test_gb <n> -- what the `test` phase ADDS to a staged train phase:
+# the `__test` file of each val/test container the campaign reads. MEASURED off
+# R2 on 2026-10-14 (`rclone lsf -R --format ps`), in decimal GB, rounded up.
+#
+# WHY THIS PHASE EXISTS. `30_train.py` writes test predictions as the last step
+# of every run, so the test split has to be on the node WHILE a campaign
+# trains, not only afterwards. The train phase excludes `*__test.*`, and
+# nothing noticed because the first campaigns read containers that hold every
+# split in one file. A campaign whose test rows live in a `_valtest` container
+# -- A5/B4's scan-like images in campaign 2 -- trains to convergence, some
+# thirty hours a run, and then dies opening a test tar that was never fetched.
+# `_campaign_body.sh` now stages this phase right after the train phase, so a
+# campaign that cannot hold both is refused at its first minute instead.
+campaign_test_gb() {
+    local dataset total=0 gb
+    for dataset in $(campaign_datasets "$1"); do
+        case "$dataset" in
+            images_scanlike_12lead_valtest) gb=12.6 ;;
+            images_scanlike_lead2_valtest)  gb=7.9 ;;
+            signals_12lead_valtest)         gb=15.7 ;;
+            images_clean_12lead_valtest)    gb=1.8 ;;
+            images_clean_lead2_valtest)     gb=3.6 ;;
+            signals_raw_valtest)            gb=8.5 ;;
+            *_valtest)
+                echo "campaign_test_gb: no measured size for $dataset" >&2; return 1 ;;
+            *) continue ;;
+        esac
+        total="$(awk -v a="$total" -v b="$gb" 'BEGIN { printf "%.1f", a + b }')"
+    done
+    printf '%s\n' "$total"
 }
 
 # ---------------------------------------------------------------------------
@@ -501,6 +555,46 @@ MSG
 }
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+# ---------------------------------------------------------------------------
+# eval bookkeeping -- one eval per (task, tier) at a time
+# ---------------------------------------------------------------------------
+# A campaign job submits an eval for every (task, tier) it touched, and a
+# resubmitted or chained campaign job touches the finished ones again. Without
+# a record, the second submission runs BESIDE the first and both write the same
+# `.eval_checkpoints` file. `$STATE_DIR/evals/<task>__<tier>.jobs` lists the job
+# ids ever queued for that eval; `.done` is written when one exits 0.
+eval_marker() { printf '%s/evals/%s__%s' "$STATE_DIR" "$1" "$2"; }
+
+# eval_in_flight <task> <tier> -- true while any recorded job is still queued
+eval_in_flight() {
+    local file id
+    file="$(eval_marker "$1" "$2").jobs"
+    [ -f "$file" ] || return 1
+    while read -r id; do
+        [ -n "$id" ] || continue
+        if [ -n "$(squeue -h -j "$id" -o %i 2>/dev/null)" ]; then return 0; fi
+    done < "$file"
+    return 1
+}
+
+eval_record_job() {
+    mkdir -p "$STATE_DIR/evals"
+    printf '%s\n' "$3" >> "$(eval_marker "$1" "$2").jobs"
+}
+
+# campaign_complete <n> -- true when every run of the campaign has a complete
+# run_summary.json. Needs a python that can import campaign_runs.py.
+campaign_complete() {
+    local task tier seed config summary listed=0
+    while read -r task tier seed config; do
+        [ -n "${task:-}" ] || continue
+        listed=1
+        summary="$RESULTS_ROOT/model_runs/$task/$tier/seed_$seed/run_summary.json"
+        grep -q '"status": *"complete"' "$summary" 2>/dev/null || return 1
+    done < <(python3 "$PROJECT_ROOT/scripts/dgx_portability/campaign_runs.py" "$1")
+    [ "$listed" = "1" ]
+}
 
 # Sourced by every launcher; run directly only for the self-check.
 if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "selfcheck" ]; then

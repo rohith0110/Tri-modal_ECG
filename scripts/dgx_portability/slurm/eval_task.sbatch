@@ -54,9 +54,41 @@ export TOKENIZERS_PARALLELISM=false
 export R2_RESULTS="${R2_RESULTS:-r2-results:trimodal-results}"
 
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] eval $TASK / $TIER on $(hostname) job ${SLURM_JOB_ID:-none}"
+
+# ---- continuation, queued up front -----------------------------------------
+# The big evals outlive the 7-day partition limit (A3 is 2,940 units), and a
+# TIMEOUT with nothing behind it sits idle until someone on campus notices. So
+# each eval queues its own successor before it starts work: `afternotok` runs
+# it only if this job times out or fails, it resumes from `.eval_checkpoints`,
+# and this job cancels it on success. EVAL_CHAIN bounds the chain, so an eval
+# that fails in its first seconds respawns that many times and then stops.
+# shellcheck source=../campaigns.sh
+. "$HERE/campaigns.sh"
+chain_left="${EVAL_CHAIN:-2}"
+next_job=""
+if [ -n "${SLURM_JOB_ID:-}" ] && [ "$chain_left" -gt 0 ]; then
+    if next_job=$(sbatch --parsable --dependency="afternotok:$SLURM_JOB_ID" \
+            --cpus-per-task="${SLURM_CPUS_PER_TASK:-4}" \
+            ${SLURM_MEM_PER_NODE:+--mem="${SLURM_MEM_PER_NODE}M"} \
+            --export=ALL,TASK="$TASK",TIER="$TIER",EVAL_CHAIN="$((chain_left - 1))" \
+            "$HERE/slurm/eval_task.sbatch" 2>&1); then
+        eval_record_job "$TASK" "$TIER" "$next_job"
+        echo "continuation queued as job $next_job (EVAL_CHAIN left: $((chain_left - 1)))"
+    else
+        echo "WARNING: could not queue a continuation: $next_job"
+        next_job=""
+    fi
+fi
+
+# `&& ... ||`, not a bare call: under `set -e` a failing eval used to end the
+# script on that line, before the push below and before the status was read.
 python3 "$PROJECT_ROOT/scripts/phase2_tasks_benchmark_and_paper/31_eval.py" \
-        --task "$TASK" --arch-tier "$TIER"
-status=$?
+        --task "$TASK" --arch-tier "$TIER" && status=0 || status=$?
+if [ "$status" -eq 0 ]; then
+    mkdir -p "$STATE_DIR/evals"
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$(eval_marker "$TASK" "$TIER").done"
+    if [ -n "$next_job" ]; then scancel "$next_job" 2>/dev/null || true; fi
+fi
 
 # Push whatever this eval completed. push_results only frees a run's
 # checkpoints once its artifacts verify in R2, so an eval that failed leaves

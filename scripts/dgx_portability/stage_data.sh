@@ -55,7 +55,17 @@ NAME="$(campaign_name "$CAMPAIGN")"
 RESIDENT="$(campaign_phase_gb "$CAMPAIGN" "$PHASE")"
 CHUNKED="$(campaign_chunked "$CAMPAIGN")"
 DATASETS="$(campaign_datasets "$CAMPAIGN")"
+# Decided HERE, once, and not inside the dataset loop. It used to be set only
+# when the loop reached the `code|configs` case, so every call that leaves the
+# loop early for those datasets -- `--pieces-only`, `--only-datasets`, the
+# `test` phase -- went on to hash git's checkout against R2's older manifest
+# and failed (job 27463). In a git checkout the bucket's code manifest never
+# describes the code on disk, whatever this call happens to be staging.
 SKIP_CODE_VERIFY=""
+if [ -z "${TRIMODAL_FORCE_CODE_STAGE:-}" ] \
+   && git -C "$PROJECT_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    SKIP_CODE_VERIFY=1
+fi
 
 log "campaign $CAMPAIGN ($NAME) phase=$PHASE: resident ~${RESIDENT} GB, chunked=$CHUNKED"
 log "transport=$(transport)  DATA_ROOT=$DATA_ROOT"
@@ -93,6 +103,11 @@ for dataset in $DATASETS; do
         wanted=0
         for name in "${ONLY[@]}"; do [ "$name" = "$dataset" ] && wanted=1; done
         [ "$wanted" = "1" ] || continue
+    fi
+    # The `test` phase adds the `__test` containers to an already staged train
+    # phase; only the val/test datasets have one.
+    if [ "$PHASE" = "test" ]; then
+        case "$dataset" in *_valtest) ;; *) continue ;; esac
     fi
     case "$dataset" in
         *_pieces)

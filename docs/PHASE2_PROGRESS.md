@@ -4,25 +4,7 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-10-14 (session 19, `campus-laptop`, read-only DGX check)
-- **Last checked:** 2026-10-13 20:30 UTC (session 19, `campus-laptop`)
-- **RIGHT NOW (session 19): CAMPAIGN 2 JOB 26896 FAILED (exit 1, 2026-10-10
-  20:48 UTC, 1 d 10 h). 9 of 15 runs are DONE and pushed (A1, A3, A6 x 3
-  seeds, `image_resnet50_12lead_clean`); all 6 A5/B4 runs died at batch 0.**
-  Cause: chunk cycling never turned on for A5/B4. `trainer.py:236` gates it on
-  `"study_id" in train_dataset.frame.columns`, and the A5/B4 frames are keyed
-  `anchor_study_id` / `image_id` (`task_spec.py:264-266, 320-322`), so the run
-  fell through to plain shuffling and asked for
-  `images/scanlike_12lead_shard_013.tar`, a base shard no campaign stages. The
-  log line is misleading: it prints "nothing in common" next to two lists that
-  share `image_scanlike_12lead`. **Not patched, nothing resubmitted.** The swap
-  that session 17 set out to watch never happened. Evals: A1 and A6 image
-  COMPLETED (27048, 27047); A5/B4 image evals 27049/27051 failed in seconds (no
-  predictions); **three A3 evals are running and none will finish inside its
-  7-day limit, with no continuation queued behind them** — see the session 19
-  log. **NEXT ACTION: the user decides the fix for the cycling gate and whether
-  to chain more A3 continuations.**
-- **SESSION 17 (superseded by session 19 above): CAMPAIGN 2 RESUBMITTED as job 26896** (2026-10-09
+- **SESSION 17 (superseded by session 19 above): campaign 2 resubmitted as job 26896** (2026-10-09
   ~08:13 UTC, dgxa, `gpu_student`, `a100_4g.20gb`, `--time=7-00:00:00`, DGX
   checkout `f190193`). The first attempt 25576 died at staging — image pieces
   fetched empty over rclone — fixed in **f190193** (`piece_ext`, a non-empty
@@ -640,6 +622,10 @@ storage is about $0.53/month; nothing reads it. Delete it only deliberately.
   forever, on a shared box — and Slurm reports it as *"Nodes required for job
   are DOWN, DRAINED or reserved"*, blaming the nodes rather than the request.
   All 14 `.sbatch` files now carry `--mem=64G`.
+- **Two accounts since 2026-10-14** (`se23ucse027`, `se23ucse034`) — usernames,
+  aliases, caps, what each can write and the account 2 setup list are in
+  `docs/DGX_ACCOUNTS.md`. **The ceiling is now 99 GB**, in account 1's folder;
+  every "49 GB" below this line is history.
 - **50 GB storage quota** — the constraint the whole execution plan is built
   around. `/home` shows 238 GB in `df`; that is the filesystem, not the quota,
   and there is no `quota` command, so **`du` is the only measure** — which is
@@ -3409,3 +3395,71 @@ each, so they are rough.
    time out, and whether 27050 at 4 CPU is worth running at ~52 days.
 3. Still open from session 17: the DGX's GitHub token is rejected, so a fix
    reaches it by `git bundle`.
+
+**Session 19, continued — the user's four decisions, and what was done.**
+(1) fix cycling by keying it on `image_id`; (2) chain A3 continuations now;
+(3) one folder, raise the ceiling now; (4) accounts in a new file with a
+pointer from the header.
+
+**4. Continuations (account 1).** Six `afternotok` jobs, each a copy of its
+parent's submit line: 27456 -> 27457 behind 24635, 27458 -> 27459 behind 24638,
+27460 -> 27461 behind 27050.
+
+**5. The cycling fix — `e3a2538`.** `TaskDataset.chunk_key_ids()` returns, per
+chunked read, the id each row asks for (`-1` where the row does not make that
+read); `chunk_cycle.row_key_ids()` folds those into one id per row, falls back
+to the row's own id for rows that read nothing chunked, and refuses a row whose
+two chunked reads sit in different pieces. `trainer.py` no longer tests for a
+column called `study_id`. A task keyed on `study_id` gets the identical
+assignment it had before. Checked on dgxa (srun 27462) against the real tables:
+
+| | A5 | B4 |
+|---|---|---|
+| train rows | 3,667,615 | 3,667,615 |
+| `study_id` column in the frame | **no** (the cause, now seen directly) | **no** |
+| rows that read a scan-like image | 523,945 | 523,945 |
+| ... whose `image_id` is in the cut, in the piece the hash gives | 523,945 | 523,945 |
+| epoch 0 covers every row once; rows per window | 915,523 / 917,084 / 917,203 / 917,805 | same |
+
+A1 reports zero chunked reads, so it stays un-cycled. `chunk_cycle.py`
+self-check PASS (case 7 is new), `campaigns.sh selfcheck` PASS.
+`python chunk_pieces.py` fails on its relative import — it did before this
+session too, and was not touched.
+
+**6. Ceiling 49 -> 99 GB** in `campaigns.sh` and `upload_data.py`. First gate
+under it: `quota OK: 31.89 GB used + 27.9 GB ... <= 99 GB ceiling`.
+
+**7. 27463 (first resubmission) failed at the first swap — a second bug,
+`6da9bf8`.** Cycling came ON, the trainer evicted and fetched, and
+`stage_data.sh 2 --pieces 6 --pieces-only` exited with `CHECKSUM MISMATCH:
+chunk_pieces.py`, `chunk_cycle.py`. With `--pieces-only` the `code|configs` case
+hit `continue` before the git test that sets `SKIP_CODE_VERIFY`, so the verify
+pass judged git's code against R2's `checksums_code.json`. Any file committed
+since the last code upload trips it, so this would have stopped every chunked
+campaign at its first swap; 27463 was the first job to reach one. Cancelled
+after two runs had failed the same way.
+
+**8. `3e090e7`:** the cancel left `piece_002.tar.<hash>.partial`, and
+`chunk_pieces.resident()` counted it as piece 2, which would have made the next
+run skip the fetch. `resident()` now counts only `.h5` / `.tar`; the stale
+partial was removed by hand.
+
+**9. 27465 is the live job** — header. Seen so far: `chunk cycle: pieces
+already on disk: [0, 1]`, `chunk cycling ON`, `epoch 0: 8 pieces in 4 windows,
+3193572 rows covered`, evict 1 / fetch 2, `resident=[0, 2], 130789 studies
+readable`, then 409 batches in 2 m 32 s.
+
+**Open after this session:**
+
+1. Not yet observed in 27465: a mid-epoch window swap, validation with pieces
+   resident, a resume after TIMEOUT.
+2. **Possible repeat of the 26896 failure in campaigns 8 and 11**
+   (`val_mode=on_demand`): `ChunkCycle.release()` evicts every piece for the val
+   swap, and the next run's trainer decides whether to cycle from
+   `chunk_pieces.chunked_kinds()`, which reads what is on disk. If a run ends
+   with nothing resident, the next one would start un-cycled. Read off the code
+   only; check before either campaign is queued.
+3. Account 2: the user installs the key (`docs/DGX_ACCOUNTS.md`), then decide
+   what it runs and where it writes.
+4. Whether the admins accept 99 GB in one account's folder.
+5. The A3 image eval's ~52 days.

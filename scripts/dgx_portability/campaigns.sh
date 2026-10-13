@@ -385,6 +385,34 @@ campaign_phase_gb() {
     esac
 }
 
+# campaign_pieces_gb <n> <count> -- what fetching <count> more pieces of every
+# chunked base of the campaign adds. The LARGEST piece of each cut, measured
+# off R2 on 2026-10-14, decimal GB rounded up.
+#
+# A mid-epoch swap (`stage_data.sh --pieces k --pieces-only`) used to be gated
+# on the campaign's whole residency, on top of a disk that already held the
+# campaign: 33.93 GB used + 31.0 GB > 49 GB, refused, and every A5/B4 run of
+# campaign 3 died at its first swap (pre-flight 27468). It only ever passed
+# where the ceiling had that much slack.
+campaign_pieces_gb() {
+    local dataset total=0 gb count="${2:-1}"
+    for dataset in $(campaign_datasets "$1"); do
+        case "$dataset" in
+            images_scanlike_12lead_pieces) gb=5.6 ;;
+            images_scanlike_lead2_pieces)  gb=3.5 ;;
+            images_clean_12lead_pieces)    gb=0.8 ;;
+            images_clean_lead2_pieces)     gb=1.6 ;;
+            signals_12lead_pieces)         gb=6.9 ;;
+            signals_raw_pieces)            gb=3.7 ;;
+            *_pieces)
+                echo "campaign_pieces_gb: no measured size for $dataset" >&2; return 1 ;;
+            *) continue ;;
+        esac
+        total="$(awk -v a="$total" -v b="$gb" -v n="$count" 'BEGIN { printf "%.1f", a + b * n }')"
+    done
+    printf '%s\n' "$total"
+}
+
 # campaign_test_gb <n> -- what the `test` phase ADDS to a staged train phase:
 # the `__test` file of each val/test container the campaign reads. MEASURED off
 # R2 on 2026-10-14 (`rclone lsf -R --format ps`), in decimal GB, rounded up.

@@ -55,6 +55,11 @@ NAME="$(campaign_name "$CAMPAIGN")"
 RESIDENT="$(campaign_phase_gb "$CAMPAIGN" "$PHASE")"
 CHUNKED="$(campaign_chunked "$CAMPAIGN")"
 DATASETS="$(campaign_datasets "$CAMPAIGN")"
+# A mid-epoch swap adds the pieces it asks for and nothing else, so that is
+# what the gate weighs -- not the campaign's residency a second time.
+if [ "$PIECES_ONLY" = "1" ]; then
+    RESIDENT="$(campaign_pieces_gb "$CAMPAIGN" "${#PIECES[@]}")" || exit 1
+fi
 # Decided HERE, once, and not inside the dataset loop. It used to be set only
 # when the loop reached the `code|configs` case, so every call that leaves the
 # loop early for those datasets -- `--pieces-only`, `--only-datasets`, the

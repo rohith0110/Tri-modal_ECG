@@ -109,6 +109,11 @@ def resident(base: str) -> list[int]:
         return []
     out = []
     for path in sorted(directory.glob("piece_*")):
+        # Only the piece itself. A fetch killed part-way leaves
+        # `piece_002.tar.<hash>.partial`, and counting that as resident makes
+        # the cycle skip the fetch and read a piece that is not there.
+        if path.suffix not in (".h5", ".tar"):
+            continue
         stem = path.name.split(".")[0]                 # piece_003.h5 -> piece_003
         try:
             out.append(int(stem.split("_")[1]))

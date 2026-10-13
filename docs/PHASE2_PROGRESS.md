@@ -4,6 +4,37 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
+- **Last updated:** 2026-10-14 (session 19, `campus-laptop`)
+- **Last checked:** 2026-10-13 20:56 UTC (session 19, `campus-laptop`)
+- **TWO DGX ACCOUNTS NOW: `se23ucse027` (`ssh mudgx`) and `se23ucse034`
+  (`ssh mudgx2`). Read `docs/DGX_ACCOUNTS.md`.** Every job below is tagged with
+  its account. Account 2 is not usable yet (the user still has to install its
+  SSH key) and cannot write into account 1's folder. **Ceiling is 99 GB**, all
+  in account 1's folder (user's call; not confirmed with the admins).
+- **RIGHT NOW (session 19): CAMPAIGN 2 IS RUNNING AGAIN as job 27465**
+  (account 1, dgxa, `gpu_student`, `a100_4g.20gb`, 7 d, submitted 2026-10-13
+  20:48 UTC, DGX checkout `3e090e7`). It skipped the 9 finished runs and is on
+  **A5 seed 42 with chunk cycling ON**; the first piece swap (evict 1, fetch 2)
+  worked and batches are moving at ~3 it/s, 49,902 per epoch, **~4.7 h per
+  epoch**. Two things nobody has seen yet: **a swap at a window boundary inside
+  an epoch** (first one ~22:05 UTC on 10-13) and **the end-of-epoch validation
+  with pieces resident**. **NEXT ACTION: check 27465's `.err` for the second
+  window and the first `epoch 1/30` line.** 6 runs x at least 6 epochs is more
+  than 7 days, so this job will TIMEOUT part-way and must be resubmitted (it
+  resumes from checkpoint).
+  - 26896 (the 10-09 submission) failed at A5 because cycling never turned on
+    for A5/B4; 27463 then failed at the first swap on a staging bug. Both fixed
+    (`e3a2538`, `6da9bf8`, `3e090e7`) — session 19 log.
+  - **A3 evals, account 1:** 24635 (tf-idf, dgxa), 24638 (BERT, dgxb), 27050
+    (image, dgxb) RUNNING; none finishes inside its 7 days, so continuations
+    are chained `afternotok`: **27456 -> 27457** (tf-idf), **27458 -> 27459**
+    (BERT), **27460 -> 27461** (image). The image eval is ~52 days of work at
+    4 CPU — still open whether to rerun it bigger on account 2.
+  - **The DGX still cannot `git pull`**: `~/.git-credentials-trimodal` is empty
+    (git erased the rejected token). The user is putting in a new fine-grained
+    token; until then code moves by `git bundle` (session 17 recipe).
+  - A5/B4 image evals 27049/27051 failed for want of predictions; the campaign
+    body resubmits them when the runs finish.
 - **SESSION 17 (superseded by session 19 above): campaign 2 resubmitted as job 26896** (2026-10-09
   ~08:13 UTC, dgxa, `gpu_student`, `a100_4g.20gb`, `--time=7-00:00:00`, DGX
   checkout `f190193`). The first attempt 25576 died at staging — image pieces

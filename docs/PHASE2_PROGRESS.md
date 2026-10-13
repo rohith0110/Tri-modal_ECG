@@ -11,6 +11,33 @@ starting cold reads this first, works, then updates it before the session ends.
   its account. Account 2 is not usable yet (the user still has to install its
   SSH key) and cannot write into account 1's folder. **Ceiling is 99 GB**, all
   in account 1's folder (user's call; not confirmed with the admins).
+- **UNATTENDED RUN, 2026-10-14 to about 10-24: the user is off campus and the
+  DGX cannot be reached from outside. State when this was written (10-13 22:55
+  UTC, DGX checkouts: account 1 `3e090e7`, account 2 `c7b95fc`):**
+  - **Campaign split: account 1 owns campaigns 2 and 10; account 2 owns 4, 3
+    and 15.** Do not run one account's campaign on the other.
+  - **Account 2 (`mudgx2`), set up this session as a separate workflow** (own
+    checkout, 49 GB ceiling, results under `acct2/` in R2 — `DGX_ACCOUNTS.md`).
+    Queued: pre-flight of campaign 3 **27468 RUNNING**, then three chained links
+    of `campaign_chain.sbatch` with `CAMPAIGNS="4 3 15"`: **27474 -> 27475 ->
+    27476** (`afterany`, 7 d each, `a100_4g.20gb`, no node pinned).
+  - **Pre-flight results.** Campaign 4 (27467): **24 of 26 configs PASS end to
+    end** on 4,000 rows, and the kill-and-resume test PASS. **The 2 failures are
+    real: both `B2 ..._regime_1` configs die in 3 s with `B2_noise_robustness/val
+    is empty after filtering`** — the regime_1 val filter selects rows that
+    exist only in the test split. 6 of campaign 4's 78 runs will fail fast and
+    the campaign moves on; what regime_1 should validate on is the user's call.
+    Campaign 3 (27468): staging incl. the new test phase OK (37.1 of 49 GB), A1
+    and A3 PASS; **the two chunk-cycling configs (A5, B4) and the resume test had
+    not run yet when this was written — read `trimodal_preflight_27468.out`
+    first.**
+  - **Account 1 (`mudgx`): campaign 2 job 27465 RUNNING**, A5 seed 42, cycling
+    on, two piece windows done cleanly, ~4.7 h per epoch. **NOT DONE: account
+    1's checkout is not updated to `c7b95fc` and no chain link is queued behind
+    27465**, so when it hits its 7-day limit (~10-20 20:48 UTC) account 1's GPU
+    goes idle. To finish: bundle `3e090e7..main` to account 1, pull, then
+    `CAMPAIGNS="2 10"` links with `--dependency=afterany:27465` (session 19
+    log). The A3 evals and their continuations are unaffected.
 - **RIGHT NOW (session 19): CAMPAIGN 2 IS RUNNING AGAIN as job 27465**
   (account 1, dgxa, `gpu_student`, `a100_4g.20gb`, 7 d, submitted 2026-10-13
   20:48 UTC, DGX checkout `3e090e7`). It skipped the 9 finished runs and is on
@@ -3494,3 +3521,54 @@ readable`, then 409 batches in 2 m 32 s.
    what it runs and where it writes.
 4. Whether the admins accept 99 GB in one account's folder.
 5. The A3 image eval's ~52 days.
+
+**Session 19, part 3 — preparing 1.5 weeks of unattended running on two accounts.**
+The user installed account 2's key and is leaving campus for about ten days.
+Commit `c7b95fc`. What the audit found, beyond the three fixes above:
+
+- **The test split was never on the node while a campaign trained.**
+  `30_train.py:431-436` writes test predictions as the last step of every run;
+  the train phase excludes `*__test.*`. A1/A3/A6 never noticed because the
+  clean image container holds every split in one file. A5/B4's scan-like test
+  rows live in `images_scanlike_12lead_valtest__test.tar` (12.5 GB), so each of
+  those runs would have trained ~30 h and died at the end. Account 1 is safe by
+  accident: 26896's eval phase left that tar on disk. Fix: a `test` staging
+  phase (`campaign_test_gb`, sizes measured off R2), staged by the body right
+  after the train phase and gated against the quota at the first minute.
+  **Campaigns 8 and 11 need 30.1 GB of test data beside 27.4 GB of training
+  data — they fit only under the 99 GB ceiling.**
+- **`SKIP_CODE_VERIFY` is now decided once, before the dataset loop**, so no
+  early `continue` can bring back the 27463 failure.
+- **Evals:** the body resubmitted every eval on every resubmission, beside the
+  ones still running. `.campaign_state/evals/<task>__<tier>.jobs|.done` now
+  records them (seeded by hand on account 1 for the three A3 chains and the
+  finished A1/A6 image evals). `eval_task.sbatch` queues its own `afternotok`
+  continuation, bounded by `EVAL_CHAIN` (default 2), cancels it on success, and
+  no longer exits under `set -e` before its push when the eval fails.
+- **`campaign_chain.sbatch`** runs a list of campaigns in one job, skips a
+  finished campaign before staging, pushes and evicts before each one (the
+  quota gate double-counts leftovers), and is safe to submit as `afterany`
+  links. **`preflight.sbatch`** trains every config of a campaign end to end on
+  a few thousand rows and then kills and resumes one.
+- **Untested as of this entry:** a chain link in production (27474 is the
+  first), the eval de-duplication, the eval self-continuation, chunk cycling
+  through validation and through a resume.
+
+**How to finish account 1** (not done — see header):
+
+```bash
+# campus laptop
+git bundle create "$TEMP/claude/main.bundle" 3e090e7..main
+scp.exe <that file> mudgx:/dgxa_home/se23ucse027/main.bundle
+# account 1
+cd ~/se23ucse027 && git pull --ff-only ~/main.bundle main && rm ~/main.bundle
+export CAMPAIGNS="2 10"
+a=$(sbatch --parsable --partition=gpu_student --gres=gpu:a100_4g.20gb:1 \
+      --dependency=afterany:27465 scripts/dgx_portability/slurm/campaign_chain.sbatch)
+sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1 --dependency=afterany:$a \
+      scripts/dgx_portability/slurm/campaign_chain.sbatch
+```
+
+The pull changes `stage_data.sh` under the live job 27465, whose next piece
+swap will run the new version. Its train and test paths passed on account 2;
+its `--pieces-only` path is what pre-flight 27468 exercises.

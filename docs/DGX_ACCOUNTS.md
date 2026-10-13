@@ -1,9 +1,10 @@
 # DGX accounts
 
-**There are two DGX accounts as of 2026-10-14.** This file holds what does not
-change from day to day: who they are, how to reach them, what each can touch.
-**Which job is running on which account is live state and lives in the header
-of `PHASE2_PROGRESS.md`** — every job listed there is tagged with its account.
+**There are two DGX accounts as of 2026-10-14, and they run as two separate
+workflows in parallel.** This file holds what does not change from day to day:
+who they are, how to reach them, what each owns. **Which job is running on
+which account is live state and lives in the header of `PHASE2_PROGRESS.md`** —
+every job listed there is tagged with its account.
 
 Passwords are not in this repo and never go in it. Both accounts are reached by
 SSH key from the `campus-laptop`.
@@ -14,64 +15,68 @@ SSH key from the `campus-laptop`.
 | SSH alias (`~/.ssh/config`) | `mudgx` | `mudgx2` |
 | key | `~/.ssh/mudgx` | `~/.ssh/mudgx2` |
 | home | `/dgxa_home/se23ucse027` | `/dgxa_home/se23ucse034` |
-| project checkout | `~/se23ucse027` (code, `ecg_env`, staged data, results) | none yet |
+| project checkout | `~/se23ucse027` | `~/se23ucse027` (same folder name, its own home) |
+| Python env | `~/se23ucse027/ecg_env` | **symlink** to account 1's `ecg_env` (read-only use) |
+| quota ceiling | 99 GB (see below) | 49 GB, from `.account_env` |
+| results in R2 | `r2-results:trimodal-results/` | `r2-results:trimodal-results/acct2/`, from `.account_env` |
 | Slurm association | `student`, QOS `normal` | `student`, QOS `normal` |
 | Slurm cap (`GrpTRES`, per user) | cpu=32, gres/gpu=1, mem=256G | cpu=32, gres/gpu=1, mem=256G |
-| storage allocation | 50 GB | 50 GB |
-| rclone / R2 tokens | configured | not configured |
-| GitHub credential | `~/.git-credentials-trimodal` | none |
-| set up and tested | yes, since 2026-08-30 | **no** — see "Account 2 setup" |
+| rclone remotes | `r2`, `r2-results` | same config, copied 2026-10-14 |
+| GitHub credential | `~/.git-credentials-trimodal` (empty since 10-05) | none — pulls from account 1's checkout |
 
 Login node for both: `10.59.121.172`. From Windows git-bash call
 `/c/WINDOWS/System32/OpenSSH/ssh.exe mudgx` (or `mudgx2`), not `/usr/bin/ssh` —
-the key sits in the Windows `ssh-agent`, which git-bash's ssh cannot reach.
+the keys sit in the Windows `ssh-agent`, which git-bash's ssh cannot reach.
 
-## What the second account buys
+## How the two stay apart
 
-- **Compute, for certain.** The Slurm cap is per user (`sacctmgr show assoc`),
-  so account 2 has its own 32 CPU / 1 GPU / 256G on top of account 1's.
-- **Storage, on paper.** Nothing on `/dgxa_home` enforces either 50 GB; the
-  only gate is our own `QUOTA_CEILING_GB` in `scripts/dgx_portability/campaigns.sh`,
-  measured with `du` over the project folder.
+- **Campaigns are split, never shared.** A campaign belongs to one account from
+  its first run to its last eval. The split in force is in the progress doc
+  header. Two accounts training the same campaign would both write
+  `model_runs/<task>/<tier>/seed_<n>` and the second would silently win.
+- **Folders.** Each account stages data, writes checkpoints and writes results
+  in its own home. Account 2 can *read* account 1's folder (`drwxrwxr-x`, group
+  of one) and cannot write it; account 1 cannot read account 2's home
+  (`drwxr-x---`). That is why account 2 has its own checkout rather than
+  sharing one.
+- **`.account_env`.** An untracked file at the root of a checkout, sourced by
+  `scripts/dgx_portability/campaigns.sh`, holding whatever differs between the
+  accounts. Account 1 has none and gets the defaults. Account 2's is:
+  ```bash
+  export QUOTA_TOTAL_GB=50
+  export QUOTA_CEILING_GB=49
+  export R2_RESULTS=r2-results:trimodal-results/acct2
+  ```
+- **R2 results.** Account 2 pushes everything under `acct2/`. `results/<task>.csv`
+  holds one task's rows for every tier, so two accounts evaluating different
+  tiers of the same task into one path would overwrite each other's file on
+  every push. **Merging `acct2/` into the root is a step still to be written**
+  — `model_runs/` is a plain copy (the run paths are disjoint), but the
+  per-task CSVs need their rows combined, and campaigns 11 and 14 stage
+  `results` from the root, so it has to happen before either of those.
+- **GPUs.** Each account may hold one GPU slice. Slurm gives each job its own
+  slice, so the two never share a device; the only contention is for a free
+  `a100_4g.20gb` slice (2 on dgxa, 1 on dgxb), where one of them queues.
+  `campaign_chain.sbatch` pins no node for that reason.
+- **Code.** Account 1's checkout gets `main` by `git pull`, or by `git bundle`
+  while its token is dead. Account 2 pulls from account 1's checkout, which it
+  can read: `git pull --ff-only acct1 main` (the remote `acct1` is already set).
+  Update account 1 first.
 
-## Storage: one folder, 99 GB ceiling (user's decision, 2026-10-14)
+## Storage
 
-Everything stays in account 1's `~/se23ucse027`, and the ceiling there went
-49 -> 99 GB (`campaigns.sh`, and `CEILING_GB` in `upload_data.py`). Know what
-that does and does not mean:
+Nothing on `/dgxa_home` enforces a quota; the only gate is our own
+`QUOTA_CEILING_GB`, measured with `du` over the project folder.
 
-- **Not confirmed with the admins that the two allocations pool.** Every file in
-  that folder is owned by `se23ucse027`. If usage is counted per user, account 1
-  can show up to 99 GB against a 50 GB allocation while account 2 shows none.
-  If the admins object, the fallback is a second checkout in account 2's home
-  with 49 GB each.
-- **Account 2 cannot write there.** The folder is `drwxrwxr-x
-  se23ucse027:se23ucse027` and that group has one member, so account 2 can read
-  it and nothing more. A job submitted as `se23ucse034` cannot stage data, write
-  a checkpoint or write results into it. Until an admin adds a shared group (or
-  account 2 gets its own checkout), account 2 can only run work that writes
-  somewhere of its own.
-- Account 2's home is `drwxr-x---`, so account 1 cannot read it either.
-
-## Account 2 setup
-
-Done so far: the `mudgx2` block is in the campus laptop's `~/.ssh/config`. The
-account exists on the DGX (uid 1347) with an empty home.
-
-Still to do, in order:
-
-1. **User:** create the key, install it, load it into the agent (PowerShell):
-   ```powershell
-   ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\mudgx2 -C "mu-dgx se23ucse034"
-   type $env:USERPROFILE\.ssh\mudgx2.pub | ssh se23ucse034@10.59.121.172 "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
-   ssh-add $env:USERPROFILE\.ssh\mudgx2
-   ssh mudgx2 hostname
-   ```
-   The second command asks for the account password once; nothing asks again.
-2. Decide what account 2 runs and where it writes (see the storage section),
-   then give it what that needs: a checkout or read access, an rclone config
-   with the DGX-scoped R2 tokens, and a Python environment.
-3. Record the outcome in the table above.
+- **Account 2: 49 GB**, its own allocation. `ecg_env` is a symlink, so the
+  5.7 GB venv is not counted there.
+- **Account 1: 99 GB** (user's decision, 2026-10-14, made when the plan was one
+  shared folder). **Not confirmed with the admins**, and now that account 2
+  stages its own data, account 1 above 50 GB plus account 2's 49 GB is more
+  than the two allocations together. Campaign 2 peaks near 52 GB on account 1
+  (data 40.5 + outputs and venv). If the admins object, set
+  `QUOTA_CEILING_GB=49` in an `.account_env` on account 1 — campaign 2 then
+  no longer fits with its test split and needs rethinking.
 
 ## Rules for both accounts
 
@@ -80,3 +85,4 @@ Still to do, in order:
 - When a job is submitted, write its account next to its job id in the progress
   doc header. A job id alone no longer says whose queue to look in:
   `squeue -u se23ucse027` and `squeue -u se23ucse034` are separate lists.
+- Do not submit a campaign on one account that the header assigns to the other.

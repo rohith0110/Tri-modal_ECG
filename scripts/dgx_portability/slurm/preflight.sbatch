@@ -111,7 +111,7 @@ while read -r task tier seed config; do
         resume_config="$config"; resume_task="$task"; resume_tier="$tier"
     fi
     rm -f "$outdir"/checkpoint_*.pt
-done < <(python3 "$HERE/campaign_runs.py" "$CAMPAIGN")
+done < <(python3 "$HERE/campaign_runs.py" "$CAMPAIGN" ${PREFLIGHT_TASKS:+--tasks $PREFLIGHT_TASKS})
 
 # ---- kill it part-way, start it again ---------------------------------------
 if [ -n "$resume_config" ]; then

@@ -12,33 +12,41 @@ starting cold reads this first, works, then updates it before the session ends.
   SSH key) and cannot write into account 1's folder. **Ceiling is 99 GB**, all
   in account 1's folder (user's call; not confirmed with the admins).
 - **UNATTENDED RUN, 2026-10-14 to about 10-24: the user is off campus and the
-  DGX cannot be reached from outside. State when this was written (10-13 22:55
-  UTC, DGX checkouts: account 1 `3e090e7`, account 2 `c7b95fc`):**
+  DGX cannot be reached from outside. Everything below was queued on 10-13
+  ~23:30 UTC; both DGX checkouts are at `92c21e1`.**
   - **Campaign split: account 1 owns campaigns 2 and 10; account 2 owns 4, 3
     and 15.** Do not run one account's campaign on the other.
-  - **Account 2 (`mudgx2`), set up this session as a separate workflow** (own
-    checkout, 49 GB ceiling, results under `acct2/` in R2 — `DGX_ACCOUNTS.md`).
-    Queued: pre-flight of campaign 3 **27468 RUNNING**, then three chained links
-    of `campaign_chain.sbatch` with `CAMPAIGNS="4 3 15"`: **27474 -> 27475 ->
-    27476** (`afterany`, 7 d each, `a100_4g.20gb`, no node pinned).
-  - **Pre-flight results.** Campaign 4 (27467): **24 of 26 configs PASS end to
-    end** on 4,000 rows, and the kill-and-resume test PASS. **The 2 failures are
-    real: both `B2 ..._regime_1` configs die in 3 s with `B2_noise_robustness/val
-    is empty after filtering`** — the regime_1 val filter selects rows that
-    exist only in the test split. 6 of campaign 4's 78 runs will fail fast and
-    the campaign moves on; what regime_1 should validate on is the user's call.
-    Campaign 3 (27468): staging incl. the new test phase OK (37.1 of 49 GB), A1
-    and A3 PASS; **the two chunk-cycling configs (A5, B4) and the resume test had
-    not run yet when this was written — read `trimodal_preflight_27468.out`
-    first.**
-  - **Account 1 (`mudgx`): campaign 2 job 27465 RUNNING**, A5 seed 42, cycling
-    on, two piece windows done cleanly, ~4.7 h per epoch. **NOT DONE: account
-    1's checkout is not updated to `c7b95fc` and no chain link is queued behind
-    27465**, so when it hits its 7-day limit (~10-20 20:48 UTC) account 1's GPU
-    goes idle. To finish: bundle `3e090e7..main` to account 1, pull, then
-    `CAMPAIGNS="2 10"` links with `--dependency=afterany:27465` (session 19
-    log). The A3 evals and their continuations are unaffected.
-- **RIGHT NOW (session 19): CAMPAIGN 2 IS RUNNING AGAIN as job 27465**
+  - **Account 1 (`ssh mudgx`, `se23ucse027`), GPU:** campaign 2 job **27465
+    RUNNING** (A5 seed 42, cycling on, three piece windows done, ~4.7 h per
+    epoch), then chain links **27480 -> 27481** (`campaign_chain.sbatch`,
+    `CAMPAIGNS="2 10"`, `afterany`, 7 d each). 27465 times out ~10-20 20:48
+    UTC; 27480 resumes campaign 2 from checkpoint. **CPU:** A3 evals 24635
+    (tf-idf), 24638 (BERT), 27050 (image) RUNNING, continuations 27456 -> 27457,
+    27458 -> 27459, 27460 -> 27461.
+  - **Account 2 (`ssh mudgx2`, `se23ucse034`), GPU:** chain links **27474
+    RUNNING -> 27475 -> 27476**, `CAMPAIGNS="4 3 15"`. Campaign 4 is on its
+    first run at ~4 min per epoch; 78 runs, so roughly a week. Its evals queue
+    on account 2's `cpu_student` as the tiers finish. Results go to
+    `r2-results:trimodal-results/acct2/` (`docs/DGX_ACCOUNTS.md`).
+  - **FIRST THING ON RETURN, per account:** `squeue -u $USER`, then
+    `grep -- "--- \|===\|FAILED" trimodal_chain_*.out trimodal_c2_27465.out`
+    for which runs trained, were skipped or failed, and `sacct -u $USER -S
+    2026-10-13 -X -o JobID,JobName%20,State,Elapsed` for timeouts. If a chain's
+    last link has ended and work remains, submit another link (the line is in
+    `campaign_chain.sbatch`'s header).
+  - **Known going in:** (1) B2 `regime_1` was failing on an empty val split;
+    patched in `e39d4a0` to validate on the clean val rows (user's decision) —
+    dataset construction checked, **a full regime_1 run has not been seen**.
+    (2) Account 1's ceiling is 99 GB and campaign 2 peaks near 52 GB there
+    while account 2 uses up to 49 GB of its own; the user accepted going over
+    the two allocations for this run. (3) Account 2's results must be merged
+    from `acct2/` before campaigns 11 or 14 — not written yet. (4) First
+    production use, unobserved when this was written: a chain link switching
+    campaigns, the eval de-duplication and self-continuation, chunk cycling
+    through a resume on GPU. (5) Campaigns 8 and 11 (`val_mode=on_demand`) are
+    NOT ready: their val swap is gated on the full residency and they may start
+    a run un-cycled — session 19 log.
+- **Earlier in session 19 (superseded by the block above): campaign 2 resubmitted as job 27465**
   (account 1, dgxa, `gpu_student`, `a100_4g.20gb`, 7 d, submitted 2026-10-13
   20:48 UTC, DGX checkout `3e090e7`). It skipped the 9 finished runs and is on
   **A5 seed 42 with chunk cycling ON**; the first piece swap (evict 1, fetch 2)
@@ -3572,3 +3580,36 @@ sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1 --dependency=afterany:$
 The pull changes `stage_data.sh` under the live job 27465, whose next piece
 swap will run the new version. Its train and test paths passed on account 2;
 its `--pieces-only` path is what pre-flight 27468 exercises.
+
+**Session 19, part 4 — what the pre-flights found, and what was queued.**
+
+| pre-flight | account | result |
+|---|---|---|
+| 27467, campaign 4, GPU, 4,000 rows x 2 epochs | 2 | 24 of 26 configs PASS end to end (train, val, thresholds, test predictions, `status: complete`); peak GPU 1.1-2.0 GB; kill-and-resume PASS (`checkpoint_last=yes`, `resumed=yes`). Both B2 `regime_1` configs FAIL: `val is empty after filtering` |
+| 27468, campaign 3, GPU | 2 | train phase + new test phase staged, 37.1 of 49 GB. A1, A3, A6 PASS (peak GPU 8.4 GB). **A5, B4 FAIL at the first swap: the quota gate refused it** |
+| 27479, campaign 3 A5 only, CPU, scratch checkout `~/pf` | 2 | after the gate fix: epoch 0's four windows all swapped (`resident=[0,2]`, `[1,7]`, `[3,4]`, `[5,6]`). Validation, test and the resume test still running when this was written — `~/pf/trimodal_preflight_27479.out` |
+
+- **B2 regime_1 (`e39d4a0`, user's decision).** `_split_row_filter` sent val
+  through the regime filter; regime_1's rows are test-only. Train and val now
+  share `row_role == 'augment_on_the_fly'` for every regime. regime_2's val
+  rows are the same set as before. Checked: both regimes now build train, val
+  and test datasets (600 rows each); the run itself could not be tried because
+  campaign 4's data had just been evicted for the campaign 3 pre-flight.
+- **Piece-fetch gate (`6608528`).** `stage_data.sh --pieces-only` weighed the
+  campaign's whole residency on top of a disk already holding it (33.93 + 31.0
+  > 49). It now weighs the pieces asked for (`campaign_pieces_gb`, largest
+  piece per cut measured off R2). Account 1 never saw this because of its
+  ceiling.
+- **`92c21e1`:** an eval job stands down if another recorded job for the same
+  (task, tier) is RUNNING — for evals queued by 27465, whose body was loaded
+  before the de-duplication existed.
+- **Account 1 updated under the live job.** Pulled to `8364ff8` then `92c21e1`
+  between piece swaps; 27465 went on into its third window
+  (`resident=[3, 4]`) afterwards.
+- **Not fixed, campaigns 8 and 11:** `stage_val` calls
+  `stage_data.sh --phase val`, which is still gated on the full residency, and
+  the "starts un-cycled when nothing is resident" question from part 1 is still
+  open. Neither campaign is queued.
+- **Scratch to delete on return:** `~/pf` on account 2 (a second checkout with
+  ~36 GB of campaign 3 data, used only by 27479) and `outputs/preflight/` in
+  account 2's main checkout.

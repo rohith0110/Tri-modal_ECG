@@ -64,6 +64,21 @@ echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] eval $TASK / $TIER on $(hostname) job ${S
 # that fails in its first seconds respawns that many times and then stops.
 # shellcheck source=../campaigns.sh
 . "$HERE/campaigns.sh"
+# Second line of defence against two evals of one (task, tier) running side by
+# side: whoever submitted this job, stand down if another recorded job for the
+# same eval is RUNNING right now. (A predecessor in this job's own chain has
+# finished by the time this one starts; its successor is only pending.)
+if [ -n "${SLURM_JOB_ID:-}" ] && [ -f "$(eval_marker "$TASK" "$TIER").jobs" ]; then
+    while read -r other; do
+        [ -n "$other" ] && [ "$other" != "$SLURM_JOB_ID" ] || continue
+        if [ "$(squeue -h -j "$other" -o %T 2>/dev/null)" = "RUNNING" ]; then
+            echo "eval $TASK / $TIER is already running as job $other -- this job stands down"
+            exit 0
+        fi
+    done < "$(eval_marker "$TASK" "$TIER").jobs"
+fi
+if [ -n "${SLURM_JOB_ID:-}" ]; then eval_record_job "$TASK" "$TIER" "$SLURM_JOB_ID"; fi
+
 chain_left="${EVAL_CHAIN:-2}"
 next_job=""
 if [ -n "${SLURM_JOB_ID:-}" ] && [ "$chain_left" -gt 0 ]; then

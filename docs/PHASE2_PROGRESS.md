@@ -13,7 +13,7 @@ starting cold reads this first, works, then updates it before the session ends.
   ceiling is 99 GB (user's call; not confirmed with the admins).
 - **UNATTENDED RUN, 2026-10-14 to about 10-24: the user is off campus and the
   DGX cannot be reached from outside. Everything below was queued on 10-13
-  ~23:30 UTC; both DGX checkouts are at `92c21e1`.**
+  ~23:30 UTC; both DGX checkouts are at `59e7832`.**
   - **Campaign split: account 1 owns campaigns 2 and 10; account 2 owns 4, 3
     and 15.** Do not run one account's campaign on the other.
   - **Account 1 (`ssh mudgx`, `se23ucse027`), GPU:** campaign 2 job **27465
@@ -3613,3 +3613,23 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
 - **Scratch to delete on return:** `~/pf` on account 2 (a second checkout with
   ~36 GB of campaign 3 data, used only by 27479) and `outputs/preflight/` in
   account 2's main checkout.
+
+**Session 19, part 5 — the resume path, tested and fixed (`59e7832`).**
+
+- **27479 finished: the cycled A5 config PASSES end to end** on the 49 GB
+  account — 2 epochs, 15 piece fetches, validation with pieces resident
+  (`epoch 1/2 ... val_AUPRC_y_match`), test predictions, `status: complete`.
+- **Its kill-and-resume test FAILED**, and this is the path a 7-day TIMEOUT
+  takes: the second run resumed (`skipping 3 of 6 batches`) and died on
+  `images_scanlike_lead2/piece_007.tar` — a piece the overlay still listed and
+  the disk no longer held. `ChunkCycle.ensure()` returned early when the wanted
+  pieces were already resident, trusting an overlay an earlier process wrote.
+  It now installs the overlay at least once per process.
+- **Re-test 27489 (`RESUME_ONLY=1`, CPU, `~/pf`):** TERM landed mid-swap,
+  leaving only piece 3 on disk. The second run logged `pieces already on disk:
+  [3]`, `resumed from checkpoint_last.pt: epoch 0, batch 3`, fetched piece 4,
+  `resident=[3, 4]`, trained that window and moved on to the next. Its final
+  PASS line had not printed when this was written.
+- Both accounts pulled `59e7832`. 27465 (account 1) loaded the old
+  `chunk_cycle.py` and keeps it until it ends; **27480, which resumes campaign
+  2 after the timeout, starts with the fix.**

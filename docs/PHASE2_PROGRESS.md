@@ -8,9 +8,9 @@ starting cold reads this first, works, then updates it before the session ends.
 - **Last checked:** 2026-10-13 20:56 UTC (session 19, `campus-laptop`)
 - **TWO DGX ACCOUNTS NOW: `se23ucse027` (`ssh mudgx`) and `se23ucse034`
   (`ssh mudgx2`). Read `docs/DGX_ACCOUNTS.md`.** Every job below is tagged with
-  its account. Account 2 is not usable yet (the user still has to install its
-  SSH key) and cannot write into account 1's folder. **Ceiling is 99 GB**, all
-  in account 1's folder (user's call; not confirmed with the admins).
+  its account. They run as two separate workflows: account 2 has its own
+  checkout, a 49 GB ceiling and its own results prefix in R2. Account 1's
+  ceiling is 99 GB (user's call; not confirmed with the admins).
 - **UNATTENDED RUN, 2026-10-14 to about 10-24: the user is off campus and the
   DGX cannot be reached from outside. Everything below was queued on 10-13
   ~23:30 UTC; both DGX checkouts are at `92c21e1`.**

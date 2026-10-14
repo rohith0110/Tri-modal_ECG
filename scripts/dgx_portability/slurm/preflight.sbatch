@@ -102,6 +102,11 @@ resume_config=""; resume_task=""; resume_tier=""
 while read -r task tier seed config; do
     [ "${seed:-}" = "42" ] || continue
     outdir="$OUT/$task/$tier"; mkdir -p "$(dirname "$outdir")"
+    # RESUME_ONLY=1: skip the per-config runs and go straight to the resume test.
+    if [ -n "${RESUME_ONLY:-}" ]; then
+        resume_config="$config"; resume_task="$task"; resume_tier="$tier"
+        continue
+    fi
     started=$SECONDS
     one_run "$config" "$outdir" --force-restart
     verdict "$task" "$tier" "$outdir" "$((SECONDS - started))" "" || failures=$((failures + 1))

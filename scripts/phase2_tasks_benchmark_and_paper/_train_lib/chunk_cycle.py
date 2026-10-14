@@ -178,6 +178,7 @@ class ChunkCycle:
         # resident would evict nothing and stage on top of them, which is how a
         # resumed run exceeds the quota it was sized for.
         self.staged: list[int] = self.resident_on_disk()
+        self._overlays_current = False      # see ensure()
         if self.staged and self.log:
             self.log.info("chunk cycle: pieces already on disk: %s", self.staged)
 
@@ -227,7 +228,14 @@ class ChunkCycle:
         previous window boundary is what a resume picks up.
         """
         want = sorted(int(p) for p in pieces)
-        if want == self.staged:
+        # "Already resident" is only a reason to return once THIS process has
+        # written the overlay. The pieces on disk and the overlay that points
+        # reads at them are separate files, and a run killed between a fetch
+        # and `install_overlays` -- or resumed onto pieces a different window
+        # left behind -- finds the right pieces under an overlay that names
+        # others: the resume test of pre-flight 27479 died on `piece_007.tar`,
+        # which the overlay listed and the disk no longer held.
+        if want == self.staged and self._overlays_current:
             return
         for piece in [p for p in self.staged if p not in want]:
             self._evict(piece)
@@ -237,6 +245,7 @@ class ChunkCycle:
                 self._stage(piece)
         self.staged = want
         chunk_pieces.install_overlays(self.log)     # the new piece becomes readable
+        self._overlays_current = True
 
     def release(self) -> None:
         """Evict every resident piece, keeping nothing.

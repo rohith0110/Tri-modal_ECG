@@ -56,6 +56,7 @@ from _dataset_lib.task_spec import get_task                            # noqa: E
 from _model_lib.model_configs import load_model_config                 # noqa: E402
 from _model_lib.task_models import build_model, train_class_stats      # noqa: E402
 from _train_lib import calibration as cal                              # noqa: E402
+from _train_lib import chunk_cycle as chunk_cycle_lib                  # noqa: E402
 from _train_lib import threshold as th                                 # noqa: E402
 from _train_lib.seed import environment_fingerprint, set_seed          # noqa: E402
 from _train_lib.trainer import (TrainConfig, Trainer, collect_predictions,  # noqa: E402
@@ -407,8 +408,21 @@ def main(argv: list[str] | None = None) -> int:
         model.load_state_dict(best["model_state_dict"])
         log.info("loaded checkpoint_best from epoch %d", best.get("epoch", -1))
 
-    val_predictions = collect_predictions(model, spec, datasets["val"], config,
-                                          trainer.device, trainer.amp_dtype)
+    # An on_demand campaign (8, 11) holds neither val nor test while it trains:
+    # the pieces go, each split comes in for its predictions and goes again.
+    # `_campaign_body.sh` restages the first window before the next run.
+    on_demand = chunk_cycle_lib.val_on_demand()
+    campaign = int(os.environ.get("CAMPAIGN", "0"))
+    if on_demand:
+        if trainer.cycle is not None:
+            trainer.cycle.release()
+        chunk_cycle_lib.stage_val(campaign, log)
+    try:
+        val_predictions = collect_predictions(model, spec, datasets["val"], config,
+                                              trainer.device, trainer.amp_dtype)
+    finally:
+        if on_demand:
+            chunk_cycle_lib.evict_val(campaign, log)
     threshold_records = select_thresholds(spec, val_predictions, config)
     calibrators = fit_calibrators(spec, val_predictions, log)
     val_predictions = apply_calibrators(spec, val_predictions, calibrators)
@@ -429,8 +443,14 @@ def main(argv: list[str] | None = None) -> int:
     trainer.save_best(extras)
 
     if not args.skip_test:
-        test_predictions = collect_predictions(model, spec, datasets["test"], config,
-                                               trainer.device, trainer.amp_dtype)
+        if on_demand:
+            chunk_cycle_lib.stage_test(campaign, log)
+        try:
+            test_predictions = collect_predictions(model, spec, datasets["test"], config,
+                                                   trainer.device, trainer.amp_dtype)
+        finally:
+            if on_demand:
+                chunk_cycle_lib.evict_test(campaign, log)
         test_predictions = apply_calibrators(spec, test_predictions, calibrators)
         test_predictions = label_with_thresholds(spec, test_predictions, threshold_records)
         write_parquet(test_predictions, output_dir / "test_predictions.parquet")

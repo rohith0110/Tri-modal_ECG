@@ -129,7 +129,10 @@ fi
 # The test split, beside the training data: 30_train.py writes test predictions
 # at the end of every run (see `campaign_test_gb`). A campaign with no
 # `_valtest` container adds nothing here and the call is a no-op.
-if [ "$(campaign_test_gb "$CAMPAIGN")" != "0" ]; then
+# An `on_demand` campaign does not hold it either: campaign 8's test split is
+# 30.1 GB on top of a 27.4 GB working set. 30_train.py stages it after training,
+# once the pieces are gone, and drops it again (TRIMODAL_VAL_ON_DEMAND).
+if [ "$VAL_MODE" != "on_demand" ] && [ "$(campaign_test_gb "$CAMPAIGN")" != "0" ]; then
     stage "$CAMPAIGN" --phase test
 fi
 
@@ -203,6 +206,15 @@ while read -r task tier seed config; do
         continue
     fi
 
+    # The trainer decides whether to cycle from the pieces it finds on disk
+    # (chunk_pieces.chunked_kinds). An on_demand run ends with every piece
+    # evicted for its val/test predictions, and so can a run killed mid-swap,
+    # so the next run would start un-cycled and read an unstaged shard. Put the
+    # first window back before every run of a chunked campaign.
+    if [ "$CHUNKED" = "yes" ] && [ -z "$(find "$DATA_ROOT" \( -name 'piece_*.h5' -o -name 'piece_*.tar' \) -print -quit 2>/dev/null)" ]; then
+        log "no chunk piece on disk -- restaging pieces ${PIECES:-0 1} before this run"
+        stage "$CAMPAIGN" --phase "$TRAIN_PHASE" --pieces ${PIECES:-0 1} --pieces-only || status=1
+    fi
     log "--- train $task / $tier / seed $seed ---"
     if python3 "$TRAIN" --model-config "$config_path" --seed "$seed"; then
         # §8.1: push and free the checkpoints as each run finishes, not at the

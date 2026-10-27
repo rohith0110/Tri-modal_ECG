@@ -425,7 +425,7 @@ def n_campaigns() -> int:
 # separately because the table is budgeted to survive them.
 FIXED_GB = 7.2
 CHECKPOINTS_GB = 5.0
-CEILING_GB = 99.0          # campaigns.sh QUOTA_CEILING_GB; 49 -> 99 on 2026-10-14
+CEILING_GB = 49.0          # campaigns.sh QUOTA_CEILING_GB; 49 -> 99 on 2026-10-14, back to 49 on 2026-10-27
 
 
 def _keep(name: str, phase: str) -> bool:

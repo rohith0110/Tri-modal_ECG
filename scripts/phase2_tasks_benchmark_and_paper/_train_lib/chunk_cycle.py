@@ -109,6 +109,23 @@ def evict_val(campaign: int, logger=None, dry_run: bool = False) -> None:
     _refresh_reader(logger)
 
 
+def stage_test(campaign: int, logger=None, dry_run: bool = False) -> None:
+    """Bring the test split onto the node for the end-of-run test predictions.
+
+    The on_demand counterpart of the `test` phase `_campaign_body.sh` stages
+    beside training for every other campaign; campaign 8's test split alone is
+    30.1 GB, which does not fit beside its pieces.
+    """
+    _shell(["bash", str(STAGE_DATA), str(campaign), "--phase", "test"], logger, dry_run)
+    _refresh_reader(logger)
+
+
+def evict_test(campaign: int, logger=None, dry_run: bool = False) -> None:
+    """Drop the test split so the next run's pieces have room to land."""
+    _shell(["bash", str(EVICT_DATA), "--split", "test", "--force"], logger, dry_run)
+    _refresh_reader(logger)
+
+
 def _refresh_reader(logger=None) -> None:
     """Forget cached container handles after the files underneath changed.
 

@@ -35,8 +35,11 @@ fi
 # brings a second 50 GB allocation and both are spent in this one folder. Not
 # confirmed with the admins that allocations pool, and nothing enforces either
 # number -- see docs/DGX_ACCOUNTS.md.
-QUOTA_TOTAL_GB="${QUOTA_TOTAL_GB:-100}"
-QUOTA_CEILING_GB="${QUOTA_CEILING_GB:-99}"
+# Back to 49 on 2026-10-27 (user): allocations do not pool, each account has
+# its own 50 GB. The ceiling is in GiB, the unit `used_gb` reports and `du -sh`
+# shows; `will_fit` converts the decimal-GB sizes in the campaign table to match.
+QUOTA_TOTAL_GB="${QUOTA_TOTAL_GB:-50}"
+QUOTA_CEILING_GB="${QUOTA_CEILING_GB:-49}"
 
 # ---------------------------------------------------------------------------
 # roots -- resolved, never assumed
@@ -381,6 +384,7 @@ campaign_phase_gb() {
     case "${2:-train}" in
         eval) campaign_eval_gb "$1" ;;
         test) campaign_test_gb "$1" ;;
+        val)  campaign_val_gb "$1" ;;
         *)    campaign_resident "$1" ;;
     esac
 }
@@ -438,6 +442,31 @@ campaign_test_gb() {
             signals_raw_valtest)            gb=8.5 ;;
             *_valtest)
                 echo "campaign_test_gb: no measured size for $dataset" >&2; return 1 ;;
+            *) continue ;;
+        esac
+        total="$(awk -v a="$total" -v b="$gb" 'BEGIN { printf "%.1f", a + b }')"
+    done
+    printf '%s\n' "$total"
+}
+
+# campaign_val_gb <n> -- what the `val` phase ADDS: the `__val` file of each
+# val/test container. Only an `on_demand` campaign stages this phase, at every
+# epoch boundary and once more for the end-of-run val predictions, onto a disk
+# its pieces have just left; gating it on the whole residency (the old `*`
+# branch of campaign_phase_gb) refused campaigns 8 and 11 at their first
+# validation. MEASURED off R2 on 2026-10-27, decimal GB, rounded up.
+campaign_val_gb() {
+    local dataset total=0 gb
+    for dataset in $(campaign_datasets "$1"); do
+        case "$dataset" in
+            images_scanlike_12lead_valtest) gb=6.4 ;;
+            images_scanlike_lead2_valtest)  gb=4.0 ;;
+            signals_12lead_valtest)         gb=7.9 ;;
+            images_clean_12lead_valtest)    gb=0.9 ;;
+            images_clean_lead2_valtest)     gb=1.9 ;;
+            signals_raw_valtest)            gb=4.3 ;;
+            *_valtest)
+                echo "campaign_val_gb: no measured size for $dataset" >&2; return 1 ;;
             *) continue ;;
         esac
         total="$(awk -v a="$total" -v b="$gb" 'BEGIN { printf "%.1f", a + b }')"
@@ -553,8 +582,15 @@ piece_ext_selfcheck() {
 }
 
 # will_fit <additional_gb> -- true when used + additional stays under the ceiling
+# The campaign table and the piece/test sizes are DECIMAL GB measured off R2;
+# `used_gb` is GiB (du bytes / 2^30). Adding the two unconverted overstated
+# every campaign by 7 %: campaign 10's 27.9 + 12.6 GB staged as 26.0 + 11.7 GiB
+# on account 1 (job 27480), and the raw sum refused it under a 49 ceiling.
+gb_to_gib() { awk -v g="$1" 'BEGIN { printf "%.2f", g * 1000000000 / 1073741824 }'; }
+
 will_fit() {
-    local additional="$1" used
+    local additional used
+    additional="$(gb_to_gib "$1")"
     used="$(used_gb)"
     awk -v u="$used" -v a="$additional" -v c="$QUOTA_CEILING_GB" \
         'BEGIN { exit !(u + a <= c) }'
@@ -564,8 +600,8 @@ require_fit() {
     local additional="$1" label="$2" used
     used="$(used_gb)"
     if will_fit "$additional"; then
-        printf 'quota OK: %.2f GB used + %s GB for %s <= %s GB ceiling\n' \
-            "$used" "$additional" "$label" "$QUOTA_CEILING_GB"
+        printf 'quota OK: %.2f GiB used + %s GB (%s GiB) for %s <= %s GiB ceiling\n' \
+            "$used" "$additional" "$(gb_to_gib "$additional")" "$label" "$QUOTA_CEILING_GB"
         return 0
     fi
     cat >&2 <<MSG

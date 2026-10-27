@@ -13,8 +13,14 @@
 # campaign by hand:
 #
 #   sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1 \
-#          --export=ALL,CAMPAIGNS="4 3 15" campaign_chain.sbatch
+#          --export=ALL,CAMPAIGNS="10 4 3 15 5 6 7 9 12 13 8" campaign_chain.sbatch
 #   sbatch --dependency=afterany:<that job> ...the same line...      # link 2
+#
+# BOTH accounts submit the same CAMPAIGNS list: each campaign is claimed in R2
+# by whichever account reaches it first with room for it (see "claims" below).
+# 11 and 14 (final evals) are left out on purpose -- they need every other
+# campaign's evals finished and account 2's results merged into the root
+# first (merge_acct2_results.py), so they are submitted by hand.
 #
 # Each link walks CAMPAIGNS in order. A campaign whose runs are all complete is
 # skipped before a byte is staged; otherwise `_campaign_body.sh` runs it, which
@@ -49,12 +55,75 @@ export R2_RESULTS="${R2_RESULTS:-r2-results:trimodal-results}"
 . "$HERE/campaigns.sh"
 set +e                      # campaigns.sh turns -e on; one campaign failing must not end the chain
 
-log "=== chain [$CAMPAIGNS] on $(hostname), job ${SLURM_JOB_ID:-none}, account $(id -un) ==="
+# ---- claims: which account runs which campaign -----------------------------
+# Campaigns are taken on availability, not assigned up front (user, 2026-10-27).
+# Both accounts' chains walk the SAME list; before starting a campaign a chain
+# claims it with a small file in R2, and the other account skips anything the
+# first has claimed. A claim is for the campaign's whole life -- two accounts
+# training one campaign would both write model_runs/<task>/<tier>/seed_<n>.
+# Claims sit at one fixed path, NOT under an account's own R2_RESULTS prefix,
+# so both accounts read the same files. Line format: `<user> <state> <utc>`,
+# state `running` or `done`. Unreadable claims (R2 down) mean: run only what
+# this account already owned, never take something new.
+CLAIMS="${R2_CLAIMS:-r2-results:trimodal-results/claims}"
+ME="$(id -un)"
+resolve_rclone || { log "no rclone: cannot read claims"; exit 1; }
+claim_read() {          # prints "<user> <state>" or nothing; exit 1 if R2 unreadable
+    local listing
+    listing="$("$RCLONE" lsf "$CLAIMS/" 2>/dev/null)" || return 1
+    printf '%s\n' "$listing" | grep -qx "campaign_$1" || return 0
+    "$RCLONE" cat "$CLAIMS/campaign_$1" 2>/dev/null | awk 'NR==1 { print $1, $2 }'
+}
+claim_write() {         # claim_write <n> <state>
+    printf '%s %s %s\n' "$ME" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        | "$RCLONE" rcat --s3-no-check-bucket "$CLAIMS/campaign_$1"
+}
+# True when any run of the campaign has a run directory on this account.
+campaign_started_here() {
+    local task tier seed config
+    while read -r task tier seed config; do
+        [ -n "${task:-}" ] || continue
+        [ -d "$RESULTS_ROOT/model_runs/$task/$tier/seed_$seed" ] && return 0
+    done < <(python3 "$PROJECT_ROOT/scripts/dgx_portability/campaign_runs.py" "$1")
+    return 1
+}
+# Data a campaign must hold at once: the train phase plus, unless it is
+# on_demand, the test split staged beside it (see _campaign_body.sh).
+campaign_peak_gb() {
+    local train test=0
+    train="$(campaign_phase_gb "$1" "$(
+        [ "$(campaign_val_mode "$1")" = "on_demand" ] && echo train_only || echo train)")"
+    [ "$(campaign_val_mode "$1")" = "on_demand" ] || test="$(campaign_test_gb "$1")"
+    awk -v a="$train" -v b="$test" 'BEGIN { printf "%.1f", a + b }'
+}
+
+log "=== chain [$CAMPAIGNS] on $(hostname), job ${SLURM_JOB_ID:-none}, account $ME ==="
 overall=0
 for campaign in $CAMPAIGNS; do
+    if ! claim="$(claim_read "$campaign")"; then
+        claim="unknown unknown"
+        log "claims unreadable in $CLAIMS -- campaign $campaign only if this account already has runs of it"
+    fi
+    owner="${claim%% *}"; state="${claim##* }"
+    if [ "$state" = "done" ]; then
+        log "=== campaign $campaign: done (claim by $owner), skipping ==="
+        continue
+    fi
+    if [ -n "$owner" ] && [ "$owner" != "$ME" ] && [ "$owner" != "unknown" ]; then
+        log "=== campaign $campaign: claimed by $owner, skipping ==="
+        continue
+    fi
     if campaign_complete "$campaign"; then
         log "=== campaign $campaign: every run is complete, skipping ==="
+        [ "$owner" = "$ME" ] && claim_write "$campaign" done
         continue
+    fi
+    if [ "$owner" = "unknown" ]; then
+        if ! campaign_started_here "$campaign"; then
+            log "=== campaign $campaign: claims unreadable and no run of it here, skipping ==="
+            continue
+        fi
+        owner="$ME"           # ours already; carry on without touching the claim
     fi
     # Start every campaign from an empty data root. The quota gate adds the
     # campaign's residency to what is already on disk, so data left behind by
@@ -64,12 +133,32 @@ for campaign in $CAMPAIGNS; do
     # file is newer than the last successful push.
     "$HERE/push_results.sh" || log "push reported a problem before campaign $campaign"
     "$HERE/evict_data.sh" --all || log "eviction refused or failed; campaign $campaign's quota gate decides"
+    # Take a new campaign only if it fits THIS account's ceiling with the disk
+    # as it is now (base: venv, cache, outputs). A claim on something that
+    # cannot stage would hold it away from the account that could run it.
+    if [ "$owner" != "$ME" ]; then
+        peak="$(campaign_peak_gb "$campaign")"
+        if ! will_fit "$peak"; then
+            log "=== campaign $campaign: needs ${peak} GB, does not fit here ($(used_gb) GiB used, ceiling ${QUOTA_CEILING_GB}), leaving it ==="
+            continue
+        fi
+        claim_write "$campaign" running || { log "could not write claim for $campaign, skipping"; continue; }
+        # Two chains reaching the same free campaign within seconds: the later
+        # write wins, and the earlier one sees that and stands down.
+        sleep 20
+        if [ "$(claim_read "$campaign" | cut -d' ' -f1)" != "$ME" ]; then
+            log "=== campaign $campaign: lost the claim race, skipping ==="
+            continue
+        fi
+        log "=== campaign $campaign: claimed by $ME ==="
+    fi
     # The body is written to be sourced by a one-campaign sbatch file and ends
     # in `exit`, so it gets a subshell of its own.
     ( export CAMPAIGN="$campaign"; . "$HERE/slurm/_campaign_body.sh" )
     rc=$?
     if campaign_complete "$campaign"; then
         log "=== campaign $campaign: complete (body exit $rc) ==="
+        claim_write "$campaign" done || log "could not mark campaign $campaign done in $CLAIMS"
     else
         log "=== campaign $campaign: NOT complete (body exit $rc) -- moving on; a later link retries it ==="
         overall=1

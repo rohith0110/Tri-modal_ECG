@@ -4,8 +4,34 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-10-14 (session 19, `campus-laptop`)
-- **Last checked:** 2026-10-13 20:56 UTC (session 19, `campus-laptop`)
+- **Last updated:** 2026-10-27 (session 20, `campus-laptop`)
+- **Last checked:** 2026-10-27 08:40 UTC (session 20, `campus-laptop`)
+- **SESSION 20 CHECK (2026-10-27, read-only; supersedes the job list below):**
+  - **🔴 Account 1 cannot push to R2 since ~10-20 20:43 UTC.**
+    `campaign_chain.sbatch` never sets `R2_RESULTS`, so chain jobs (27480,
+    27481) and every eval they submit (28594, 28595, 28596) push through `r2:`
+    — the read-only data token — and fail with "is a file not a directory"
+    (trap from `eval_task.sbatch:48`). Nothing is lost: push_results leaves
+    local files untouched. Account 1 has no `.account_env`. **Proposed fix,
+    waiting on the user:** an `.account_env` on account 1 with
+    `export R2_RESULTS=r2-results:trimodal-results` (campaigns.sh sources it on
+    every call, so running jobs pick it up), the same default in
+    `campaign_chain.sbatch`, then one `push_results.sh` for the backlog.
+  - **Account 1:** campaign 2 TRAINING DONE (27465 timed out in B4 seed 123;
+    27480 resumed it and finished B4 on 10-22). Campaign 2 evals: A1, A6 done
+    earlier; **B4 image eval finished locally (CSV 10-25) but 28595 FAILED on
+    the push**; A5 image eval 28594 RUNNING 120/240 units (continuation 28596
+    `afternotok`). **Campaign 10** started in 27480 on 10-22: A1 and A3
+    scanlike x3 seeds trained, A6 seed 42 training. 27480 ends ~10-27 20:45
+    UTC, 27481 (`afterany`) continues. **A3 evals: tf-idf DONE (27456, 10-24),
+    BERT DONE (27459, 10-26), both pushed.** A3 image 27461 at 190/2025 units
+    (~2 units/h, about 38 days left) and it is the last link of that chain.
+    27457 is `DependencyNeverSatisfied` (its parent completed) — harmless,
+    cancel it. 45 GB used.
+  - **Account 2:** healthy, pushing. Campaign 4 on chain link 27475 (27474
+    timed out 10-21 and handed over): A2-A6, B1, **B2 incl. both regime_1 tiers
+    trained** (known issue (1) closed), B3 preprocessed x3 done, B3 raw seed
+    123 training. 27475 ends ~10-27 22:55 UTC; 27476 continues. 18 GB used.
 - **TWO DGX ACCOUNTS NOW: `se23ucse027` (`ssh mudgx`) and `se23ucse034`
   (`ssh mudgx2`). Read `docs/DGX_ACCOUNTS.md`.** Every job below is tagged with
   its account. They run as two separate workflows: account 2 has its own
@@ -3633,3 +3659,19 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
 - Both accounts pulled `59e7832`. 27465 (account 1) loaded the old
   `chunk_cycle.py` and keeps it until it ends; **27480, which resumes campaign
   2 after the timeout, starts with the fix.**
+
+### Session 20 — 2026-10-27 — `campus-laptop`: back on campus, a read-only check of both accounts
+
+- Read `squeue`/`sacct` and the chain/eval logs on both accounts. Status and
+  job IDs are in the header block. Note: `sacct` prints IST; the job logs print
+  UTC (5 h 30 apart). Do not take that as two jobs overlapping.
+- **Account 1 push failure, root cause:** `push_results.sh` pushes to
+  `$R2_RESULTS`, which defaults to `r2:trimodal-results` in `campaigns.sh:97`.
+  On the DGX, `r2` is the read-only data token. `eval_task.sbatch` and
+  `preflight.sbatch` default it to `r2-results:`; `campaign_chain.sbatch` does
+  not, and evals submitted from a chain inherit the `r2:` value. 27465
+  (`campaign_images` launcher) pushed fine up to 10-19, and every account 1 push
+  since 27480 started has failed. The A3 text evals 27456/27459 pushed fine
+  because they were queued from an interactive shell (`~/.bashrc`).
+  `rclone lsd r2-results:trimodal-results/` works; `r2:` gets 403.
+- Changed nothing on the DGX; the fix is waiting on the user (header).

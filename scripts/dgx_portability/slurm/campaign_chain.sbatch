@@ -136,8 +136,12 @@ for campaign in $CAMPAIGNS; do
     # Take a new campaign only if it fits THIS account's ceiling with the disk
     # as it is now (base: venv, cache, outputs). A claim on something that
     # cannot stage would hold it away from the account that could run it.
+    # CLAIM_HEADROOM_GB is room for the run's own checkpoints and logs on top of
+    # the staged data: campaign 7 fits account 1's gate with 0.8 GiB to spare,
+    # less than two fusion checkpoints.
     if [ "$owner" != "$ME" ]; then
-        peak="$(campaign_peak_gb "$campaign")"
+        peak="$(awk -v p="$(campaign_peak_gb "$campaign")" -v h="${CLAIM_HEADROOM_GB:-2}" \
+                'BEGIN { printf "%.1f", p + h }')"
         if ! will_fit "$peak"; then
             log "=== campaign $campaign: needs ${peak} GB, does not fit here ($(used_gb) GiB used, ceiling ${QUOTA_CEILING_GB}), leaving it ==="
             continue

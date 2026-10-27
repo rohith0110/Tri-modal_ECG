@@ -38,8 +38,12 @@ starting cold reads this first, works, then updates it before the session ends.
   - **Merge step written:** `scripts/dgx_portability/merge_acct2_results.py`
     (dry run by default). Dry run 10-27: 448 model_runs files to copy, no
     acct2 CSVs yet, only clash `figures/README.md`.
-  - **Still open:** DGX GitHub token (user making one; `git ls-remote origin`
-    to verify); code still moves by bundle until then.
+  - **DGX GitHub token WORKS again (10-27):** fine-grained, `rohith0110`'s,
+    Tri-modal_ECG only, Contents read-only. Account 1 does `git pull --ff-only
+    origin main`; no more bundles. **Before testing a token, copy
+    `~/.git-credentials-trimodal` aside** — git's `store` helper empties the
+    file on any rejection (it wiped the first attempt, a 94-char paste with a
+    stray character; a good token is 93).
 - **SESSION 20 CHECK (2026-10-27, first read; details, superseded above):**
   - **🔴 Account 1 cannot push to R2 since ~10-20 20:43 UTC.**
     `campaign_chain.sbatch` never sets `R2_RESULTS`, so chain jobs (27480,

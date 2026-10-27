@@ -22,7 +22,7 @@ SSH key from the `campus-laptop`.
 | Slurm association | `student`, QOS `normal` | `student`, QOS `normal` |
 | Slurm cap (`GrpTRES`, per user) | cpu=32, gres/gpu=1, mem=256G | cpu=32, gres/gpu=1, mem=256G |
 | rclone remotes | `r2`, `r2-results` | same config, copied 2026-10-14 |
-| GitHub credential | `~/.git-credentials-trimodal` (empty since 10-05) | none — pulls from account 1's checkout |
+| GitHub credential | `~/.git-credentials-trimodal` (fine-grained, read-only, renewed 2026-10-27) | none — pulls from account 1's checkout |
 
 Login node for both: `10.59.121.172`. From Windows git-bash call
 `/c/WINDOWS/System32/OpenSSH/ssh.exe mudgx` (or `mudgx2`), not `/usr/bin/ssh` —

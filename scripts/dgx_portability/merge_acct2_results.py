@@ -97,7 +97,7 @@ def main() -> int:
         listing = run("lsf", "-R", "--files-only", f"{ACCT2}/{tree}", check=False)
         theirs = set(listing.stdout.split())
         mine = set(run("lsf", "-R", "--files-only", f"{ROOT}/{tree}", check=False).stdout.split())
-        clash = sorted(p for p in theirs & mine if tree == "model_runs")
+        clash = sorted(theirs & mine)
         print(f"{tree}: {len(theirs)} files in acct2, {len(theirs - mine)} new to root")
         for path in clash[:20]:
             print(f"  ON BOTH, root kept: {tree}/{path}")

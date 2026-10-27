@@ -3753,3 +3753,11 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
    sizes to GiB usage; fixed in `will_fit` (`gb_to_gib`).
 8. **Account 2 scratch deleted**: `~/pf` (144 MB — its campaign 3 data was
    already gone; `ecg_env` there was a symlink) and `outputs/preflight`.
+- **Rough Phase 2 ETA (10-27, low confidence).** Per-run times seen: 12-lead
+  image A1/A3/A6 10-25 h, A5/B4 (cycled) ~35 h; Lead-II signals ~5 h average
+  (campaign 4: 64 runs in 13 days). Fusion and 12-lead signal campaigns have
+  never run; guessed at 10-35 h/run. That puts the remaining training at
+  ~145 GPU-days (10: 10, 4: 8, 3: 14, 15: 14, 5: 5, 6: 8, 7: 15, 8: 22, 9: 10,
+  12: 11, 13: 19), so **~75 days on two slices: training done ~early January
+  2027**, then 11/14 and the CPU eval tail: **Phase 2 complete ~late January
+  to February 2027.** The queued links run out ~11-24; add more before then.

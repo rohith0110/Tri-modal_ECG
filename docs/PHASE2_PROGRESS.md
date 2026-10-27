@@ -12,11 +12,14 @@ starting cold reads this first, works, then updates it before the session ends.
     27481) and every eval they submit (28594, 28595, 28596) push through `r2:`
     — the read-only data token — and fail with "is a file not a directory"
     (trap from `eval_task.sbatch:48`). Nothing is lost: push_results leaves
-    local files untouched. Account 1 has no `.account_env`. **Proposed fix,
-    waiting on the user:** an `.account_env` on account 1 with
+    local files untouched. **FIXED same session (user approved):** account 1
+    now has an `.account_env` with
     `export R2_RESULTS=r2-results:trimodal-results` (campaigns.sh sources it on
-    every call, so running jobs pick it up), the same default in
-    `campaign_chain.sbatch`, then one `push_results.sh` for the backlog.
+    every call, so 27480/28594 pick it up mid-run); `campaign_chain.sbatch`
+    defaults to `r2-results:` too (`e9dce96`, bundled to account 1, account 2
+    pulled). The backlog was pushed by hand from the login node with
+    `push_results.sh --keep-checkpoints` (log `push_backlog_20261027.log`), so
+    checkpoints stay until the chain's next push deletes them. 27457 cancelled.
   - **Account 1:** campaign 2 TRAINING DONE (27465 timed out in B4 seed 123;
     27480 resumed it and finished B4 on 10-22). Campaign 2 evals: A1, A6 done
     earlier; **B4 image eval finished locally (CSV 10-25) but 28595 FAILED on
@@ -3675,3 +3678,9 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   because they were queued from an interactive shell (`~/.bashrc`).
   `rclone lsd r2-results:trimodal-results/` works; `r2:` gets 403.
 - Changed nothing on the DGX; the fix is waiting on the user (header).
+- **Later in the session, with the user's go-ahead:** wrote account 1's
+  `.account_env` (R2_RESULTS only; no quota lines, so the 99 GB default
+  stands), committed the `campaign_chain.sbatch` default (`e9dce96`), moved
+  `main` to account 1 by bundle (the GitHub token is still dead: `could not
+  read Username`), pulled account 2 from `acct1`, cancelled 27457, and ran the
+  backlog push on the login node. It finished: `pushed 58 run(s), 0 failure(s)`, 49.60 GB used.

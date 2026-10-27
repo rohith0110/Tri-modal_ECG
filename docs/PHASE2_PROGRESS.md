@@ -6,7 +6,41 @@ starting cold reads this first, works, then updates it before the session ends.
 
 - **Last updated:** 2026-10-27 (session 20, `campus-laptop`)
 - **Last checked:** 2026-10-27 08:40 UTC (session 20, `campus-laptop`)
-- **SESSION 20 CHECK (2026-10-27, read-only; supersedes the job list below):**
+- **LIVE STATE AFTER SESSION 20 (2026-10-27 ~09:30 UTC; supersedes everything
+  below). Both DGX checkouts at `792c652`.**
+  - **Campaigns are taken ON AVAILABILITY now, not assigned (user, 10-27).**
+    Both accounts' chains walk `CAMPAIGNS="10 4 3 15 5 6 7 9 12 13 8"` and claim
+    a campaign in `r2-results:trimodal-results/claims/campaign_<n>` (`<user>
+    <running|done> <utc>`) before running it; an account skips what the other
+    has claimed and anything that does not fit its own ceiling + 2 GB. Seeded:
+    1, 2 done (acct 1); 10 running (acct 1); 4 running (acct 2). **3 and 15 were
+    released to the pool** (they had been account 2's; nothing of them ran).
+    **11 and 14 are NOT in the list** — submit by hand once every other
+    campaign's evals are in and `merge_acct2_results.py --apply` has run.
+  - **Both accounts: 50 GB each, no pooling (user, 10-27). Ceiling 49 GiB.**
+    `will_fit` now converts the table's decimal GB to GiB (it was overstating
+    every campaign 7 %). Every campaign fits both accounts at an empty data
+    root (account 1 base 8.6 GiB, account 2 base 3.0); campaign 7 on account 1
+    has 0.8 GiB spare, under the 2 GB claim headroom, so account 2 takes it.
+  - **Account 1 GPU:** 27480 (campaign 10, 6/15 trained, A6 seed 42 training)
+    ends ~20:45 UTC 10-27, then **29172 -> 29173 -> 29174 -> 29175** (new
+    script, `afterany`). **CPU:** A5 image eval 28594 (cont. 28596); **A3 image
+    eval resubmitted at 16 CPU / 96G as 29167** (cont. 29168), resumed `1107 of
+    2940 units already done`, 1833 to go — about 10 days.
+  - **Account 2 GPU:** 27475 (campaign 4, 64/78 trained, B3 raw seed 123
+    training; left: B3 raw 456, B4 x6, B5 x6) ends ~22:55 UTC 10-27, then
+    **29176 -> 29177 -> 29178 -> 29179**.
+  - **Campaigns 8/11 (`on_demand`) code is in, never run:** val phase gated on
+    the val split only, test not held beside training, `30_train.py` stages
+    val/test for the end-of-run predictions, the body restages the first
+    window before any chunked run with no piece on disk. **Watch the first run
+    of 8** (it is last in the list).
+  - **Merge step written:** `scripts/dgx_portability/merge_acct2_results.py`
+    (dry run by default). Dry run 10-27: 448 model_runs files to copy, no
+    acct2 CSVs yet, only clash `figures/README.md`.
+  - **Still open:** DGX GitHub token (user making one; `git ls-remote origin`
+    to verify); code still moves by bundle until then.
+- **SESSION 20 CHECK (2026-10-27, first read; details, superseded above):**
   - **🔴 Account 1 cannot push to R2 since ~10-20 20:43 UTC.**
     `campaign_chain.sbatch` never sets `R2_RESULTS`, so chain jobs (27480,
     27481) and every eval they submit (28594, 28595, 28596) push through `r2:`
@@ -3684,3 +3718,34 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   `main` to account 1 by bundle (the GitHub token is still dead: `could not
   read Username`), pulled account 2 from `acct1`, cancelled 27457, and ran the
   backlog push on the login node. It finished: `pushed 58 run(s), 0 failure(s)`, 49.60 GB used.
+
+**Session 20, part 2 — the user's eight answers, acted on.**
+
+1. **Chain links queued**, 4 per account, on the new claim-based chain (above).
+   The old pending links 27481 and 27476 ran the old script (sbatch copies the
+   script at submit), so they were cancelled and replaced.
+2. **A3 image eval: continue, bigger.** 27461 cancelled and resubmitted as
+   29167 with 16 CPUs, 96G, `EVAL_CHAIN=2`. 31_eval.py checkpoints per unit, so
+   nothing was redone (`resuming — 1107 of 2940 units already done`). Kept on
+   account 1: moving it would mean moving its predictions and checkpoint file.
+   CPU on account 1: 8 (chain) + 4 (A5 eval) + 16 = 28 of 32.
+3. **Campaigns on availability**: R2 claims, `campaign_chain.sbatch`. Tested on
+   account 2's login node with `CAMPAIGNS="1 2 10"`: skipped all three
+   (done/done/claimed by se23ucse027) in seconds.
+4. **Campaigns 8/11 fixed in code** (`c94a838`): `campaign_val_gb` (val sizes
+   measured off R2), body skips the test phase for on_demand, `30_train.py`
+   stages val then test around the end-of-run predictions, and a chunked run
+   that finds no piece on disk gets pieces 0 1 back first (the "un-cycled"
+   question from session 19). Not run on a node yet.
+5. **Merge** written and dry-run (above). `--apply` uploads.
+6. Token: the user is making one (instructions given in chat: fine-grained,
+   this repo only, Contents read-only; placed with `read -s` so it never shows).
+7. **Ceiling 99 -> 49 on account 1** (code default; `.account_env` holds only
+   R2_RESULTS). To fit campaign 10's restart: `push_results.sh` freed pushed
+   checkpoints, `_dev` September preflight checkpoints deleted (2.4 GB),
+   A3 text `test_predictions.parquet` deleted locally after `rclone check`
+   against R2 (their evals are done), 112 finished-job logs gzipped. Account
+   1 base 12.2 -> 8.6 GiB. **Also found:** the gate added decimal-GB table
+   sizes to GiB usage; fixed in `will_fit` (`gb_to_gib`).
+8. **Account 2 scratch deleted**: `~/pf` (144 MB — its campaign 3 data was
+   already gone; `ecg_env` there was a symlink) and `outputs/preflight`.

@@ -17,7 +17,7 @@ SSH key from the `campus-laptop`.
 | home | `/dgxa_home/se23ucse027` | `/dgxa_home/se23ucse034` |
 | project checkout | `~/se23ucse027` | `~/se23ucse027` (same folder name, its own home) |
 | Python env | `~/se23ucse027/ecg_env` | **symlink** to account 1's `ecg_env` (read-only use) |
-| quota ceiling | 99 GB (see below) | 49 GB, from `.account_env` |
+| quota ceiling | 49 GiB (code default) | 49 GiB, from `.account_env` |
 | results in R2 | `r2-results:trimodal-results/` | `r2-results:trimodal-results/acct2/`, from `.account_env` |
 | Slurm association | `student`, QOS `normal` | `student`, QOS `normal` |
 | Slurm cap (`GrpTRES`, per user) | cpu=32, gres/gpu=1, mem=256G | cpu=32, gres/gpu=1, mem=256G |
@@ -30,10 +30,16 @@ the keys sit in the Windows `ssh-agent`, which git-bash's ssh cannot reach.
 
 ## How the two stay apart
 
-- **Campaigns are split, never shared.** A campaign belongs to one account from
-  its first run to its last eval. The split in force is in the progress doc
-  header. Two accounts training the same campaign would both write
-  `model_runs/<task>/<tier>/seed_<n>` and the second would silently win.
+- **Campaigns are never shared, and are taken on availability** (since
+  2026-10-27). A campaign belongs to one account from its first run to its last
+  eval: two accounts training the same campaign would both write
+  `model_runs/<task>/<tier>/seed_<n>` and the second would silently win. Which
+  account owns which is no longer decided up front: both chains walk the same
+  `CAMPAIGNS` list and claim a campaign in
+  `r2-results:trimodal-results/claims/campaign_<n>` (one line, `<user>
+  <running|done> <utc>`) before they start it. Read the claims with
+  `rclone lsf` / `rclone cat` on that path. To hand a campaign over by hand,
+  edit its claim file — never run one that the other account claims.
 - **Folders.** Each account stages data, writes checkpoints and writes results
   in its own home. Account 2 can *read* account 1's folder (`drwxrwxr-x`, group
   of one) and cannot write it; account 1 cannot read account 2's home
@@ -41,7 +47,9 @@ the keys sit in the Windows `ssh-agent`, which git-bash's ssh cannot reach.
   sharing one.
 - **`.account_env`.** An untracked file at the root of a checkout, sourced by
   `scripts/dgx_portability/campaigns.sh`, holding whatever differs between the
-  accounts. Account 1 has none and gets the defaults. Account 2's is:
+  accounts. Account 1's holds only `export R2_RESULTS=r2-results:trimodal-results`
+  (added 2026-10-27: without it chain jobs pushed through the read-only `r2`
+  token for a week). Account 2's is:
   ```bash
   export QUOTA_TOTAL_GB=50
   export QUOTA_CEILING_GB=49
@@ -50,10 +58,12 @@ the keys sit in the Windows `ssh-agent`, which git-bash's ssh cannot reach.
 - **R2 results.** Account 2 pushes everything under `acct2/`. `results/<task>.csv`
   holds one task's rows for every tier, so two accounts evaluating different
   tiers of the same task into one path would overwrite each other's file on
-  every push. **Merging `acct2/` into the root is a step still to be written**
-  — `model_runs/` is a plain copy (the run paths are disjoint), but the
-  per-task CSVs need their rows combined, and campaigns 11 and 14 stage
-  `results` from the root, so it has to happen before either of those.
+  every push. Campaigns 11 and 14 stage `results` from the root, so before
+  either: `ecg_env/bin/python scripts/dgx_portability/merge_acct2_results.py`
+  (dry run), then again with `--apply`, from account 1's login node. It copies
+  `model_runs/` (disjoint), unions the per-task CSVs and extras by arch tier
+  (and stops if a tier is on both sides), and stores account 2's threshold
+  audit beside account 1's as `threshold_audit.acct2.md`.
 - **GPUs.** Each account may hold one GPU slice. Slurm gives each job its own
   slice, so the two never share a device; the only contention is for a free
   `a100_4g.20gb` slice (2 on dgxa, 1 on dgxb), where one of them queues.
@@ -68,15 +78,17 @@ the keys sit in the Windows `ssh-agent`, which git-bash's ssh cannot reach.
 Nothing on `/dgxa_home` enforces a quota; the only gate is our own
 `QUOTA_CEILING_GB`, measured with `du` over the project folder.
 
-- **Account 2: 49 GB**, its own allocation. `ecg_env` is a symlink, so the
-  5.7 GB venv is not counted there.
-- **Account 1: 99 GB** (user's decision, 2026-10-14, made when the plan was one
-  shared folder). **Not confirmed with the admins**, and now that account 2
-  stages its own data, account 1 above 50 GB plus account 2's 49 GB is more
-  than the two allocations together. Campaign 2 peaks near 52 GB on account 1
-  (data 40.5 + outputs and venv). If the admins object, set
-  `QUOTA_CEILING_GB=49` in an `.account_env` on account 1 — campaign 2 then
-  no longer fits with its test split and needs rethinking.
+**Each account has 50 GB, and the two do not pool (user, 2026-10-27).** Both
+gate at a 49 ceiling, in GiB — the unit `used_gb` and `du -sh` report.
+`will_fit` converts the campaign table's decimal GB to GiB before comparing.
+
+- **Account 2:** base (no staged data) about 3.0 GiB. `ecg_env` is a symlink,
+  so the 5.7 GB venv is not counted there.
+- **Account 1:** base about 8.6 GiB — the real venv, the HuggingFace cache and
+  outputs. Every campaign fits at an empty data root; campaign 7 leaves only
+  0.8 GiB, which is under the chain's 2 GB claim headroom, so account 2 takes it.
+- The 99 GB ceiling on account 1 (2026-10-14 to 10-27) was the user's call when
+  the plan was one shared folder; it is gone.
 
 ## Rules for both accounts
 

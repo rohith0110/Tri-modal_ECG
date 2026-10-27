@@ -39,6 +39,12 @@ cd "$PROJECT_ROOT"
 
 # shellcheck disable=SC1091
 . "$PROJECT_ROOT/ecg_env/bin/activate"
+# campaigns.sh defaults R2_RESULTS to `r2:trimodal-results`, and `r2` on the DGX
+# is the READ-ONLY data token: every push fails with "is a file not a directory",
+# and the evals this chain submits inherit the same value. Chain 27480 pushed
+# nothing for a week this way. An `.account_env` still wins (campaigns.sh
+# sources it after this line).
+export R2_RESULTS="${R2_RESULTS:-r2-results:trimodal-results}"
 # shellcheck source=../campaigns.sh
 . "$HERE/campaigns.sh"
 set +e                      # campaigns.sh turns -e on; one campaign failing must not end the chain

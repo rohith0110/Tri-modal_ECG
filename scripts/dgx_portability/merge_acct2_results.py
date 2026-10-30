@@ -3,6 +3,11 @@
 
     python3 merge_acct2_results.py            # dry run: download, merge, report
     python3 merge_acct2_results.py --apply    # ...and upload the merged files
+    python3 merge_acct2_results.py --prefix acct3 [--apply]   # any other prefix
+
+`--prefix` merges another account's (or checkout's) tree the same way:
+account 3 pushes under `acct3/` and `acct3b/` (docs/DGX_ACCOUNTS.md). Run it
+once per prefix.
 
 Account 2 pushes everything under `trimodal-results/acct2/` (docs/DGX_ACCOUNTS.md)
 so the two accounts never overwrite each other's per-task CSVs. Campaigns 11
@@ -39,7 +44,6 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = os.environ.get("R2_RESULTS_ROOT", "r2-results:trimodal-results")
-ACCT2 = f"{ROOT}/acct2"
 SORT = ["arch_tier", "head", "metric", "group_key", "group_value"]
 
 
@@ -89,7 +93,10 @@ def merge_extras(root: Path | None, acct2: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--apply", action="store_true", help="upload the merge")
+    parser.add_argument("--prefix", default="acct2",
+                        help="the R2 prefix under the root to merge (default acct2)")
     args = parser.parse_args()
+    ACCT2 = f"{ROOT}/{args.prefix}"
     verb = "copying" if args.apply else "would copy"
 
     # ---- model_runs and figures: disjoint trees ---------------------------
@@ -98,7 +105,7 @@ def main() -> int:
         theirs = set(listing.stdout.split())
         mine = set(run("lsf", "-R", "--files-only", f"{ROOT}/{tree}", check=False).stdout.split())
         clash = sorted(theirs & mine)
-        print(f"{tree}: {len(theirs)} files in acct2, {len(theirs - mine)} new to root")
+        print(f"{tree}: {len(theirs)} files in {args.prefix}, {len(theirs - mine)} new to root")
         for path in clash[:20]:
             print(f"  ON BOTH, root kept: {tree}/{path}")
         if args.apply and theirs - mine:
@@ -132,10 +139,11 @@ def main() -> int:
     # ---- the threshold audit: kept beside, never interleaved ---------------
     audit = f"{ACCT2}/audit_reports/threshold_audit.md"
     if run("lsf", audit, check=False).stdout.strip():
-        print(f"audit_reports: {verb} acct2's threshold_audit.md -> threshold_audit.acct2.md")
+        print(f"audit_reports: {verb} {args.prefix}'s threshold_audit.md"
+              f" -> threshold_audit.{args.prefix}.md")
         if args.apply:
             run("copyto", "--s3-no-check-bucket", audit,
-                f"{ROOT}/audit_reports/threshold_audit.acct2.md")
+                f"{ROOT}/audit_reports/threshold_audit.{args.prefix}.md")
 
     if not args.apply:
         print("dry run -- nothing uploaded. Re-run with --apply.")

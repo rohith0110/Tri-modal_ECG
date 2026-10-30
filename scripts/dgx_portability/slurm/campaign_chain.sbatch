@@ -70,8 +70,11 @@ set +e                      # campaigns.sh turns -e on; one campaign failing mus
 # so both accounts read the same files. Line format: `<user> <state> <utc>`,
 # state `running` or `done`. Unreadable claims (R2 down) mean: run only what
 # this account already owned, never take something new.
+# CLAIM_OWNER (from an `.account_env`) names a claimant other than the user: an
+# account with 2 GPUs runs two chains from two checkouts, and under one name
+# both would treat the other's campaign as their own and train it twice.
 CLAIMS="${R2_CLAIMS:-r2-results:trimodal-results/claims}"
-ME="$(id -un)"
+ME="${CLAIM_OWNER:-$(id -un)}"
 resolve_rclone || { log "no rclone: cannot read claims"; exit 1; }
 claim_read() {          # prints "<user> <state>" or nothing; exit 1 if R2 unreadable
     local listing

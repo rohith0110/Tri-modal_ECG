@@ -97,9 +97,10 @@ fi
 
 # `&& ... ||`, not a bare call: under `set -e` a failing eval used to end the
 # script on that line, before the push below and before the status was read.
-# EVAL_ARGS: extra 31_eval.py flags, e.g. `--shard 0,1/5` or
+# EVAL_ARGS: extra 31_eval.py flags, e.g. `--shard 0-3/9` or
 # `--extra-checkpoint <other account's .jsonl>` to split one eval across both
-# accounts (session 21). Word-split on purpose; no spaces inside a value.
+# accounts (session 21). Word-split on purpose; no spaces inside a value, and
+# NO COMMAS -- `--export=ALL,...` splits on them.
 # shellcheck disable=SC2086
 python3 "$PROJECT_ROOT/scripts/phase2_tasks_benchmark_and_paper/31_eval.py" \
         --task "$TASK" --arch-tier "$TIER" ${EVAL_ARGS:-} && status=0 || status=$?

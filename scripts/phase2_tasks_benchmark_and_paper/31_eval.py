@@ -932,10 +932,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--retrieval", action="store_true",
                         help="also run the §7.5 retrieval check (needs checkpoint_best)")
     parser.add_argument("--no-calibration", action="store_true")
-    parser.add_argument("--shard", default=None, metavar="K[,K...]/N",
-                        help="compute only the units whose index mod N is one of "
-                             "the Ks, checkpoint them, and stop without writing "
-                             "results -- splits one eval across two accounts")
+    # No commas in the syntax: `sbatch --export=ALL,EVAL_ARGS=...` splits on
+    # them, and `--shard 0,1,2,3/9` reached the job as `--shard 0`.
+    parser.add_argument("--shard", default=None, metavar="A-B/N",
+                        help="compute only the units whose index mod N is in "
+                             "A..B (or a single K), checkpoint them, and stop "
+                             "without writing results -- splits one eval "
+                             "across two accounts")
     parser.add_argument("--extra-checkpoint", type=Path, action="append", default=[],
                         help="another machine's checkpoint file for this "
                              "(task, tier); its units count as done (read-only)")
@@ -943,9 +946,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.shard:
         try:
             keep, total = args.shard.split("/")
-            args.shard = ({int(k) for k in keep.split(",")}, int(total))
+            low, _, high = keep.partition("-")
+            args.shard = (set(range(int(low), int(high or low) + 1)), int(total))
         except ValueError:
-            parser.error(f"--shard wants K[,K...]/N, got {args.shard!r}")
+            parser.error(f"--shard wants A-B/N or K/N, got {args.shard!r}")
         if not args.shard[0] <= set(range(args.shard[1])):
             parser.error("--shard: every K must be in 0..N-1")
     return args

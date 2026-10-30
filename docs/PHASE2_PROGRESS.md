@@ -29,7 +29,7 @@ starting cold reads this first, works, then updates it before the session ends.
     chain A **29723 -> 29724** (`a100_4g.20gb`; 29723 est. start 10-31
     00:28), chain B **29725 -> 29726** (full `a100`; pending
     `ReqNodeNotAvail` = no full card free on dgxb, no reservation; earliest
-    ~1 day). **Expected claims: A takes 13, B takes 8** (first free in the
+    ~1 day; **user: keep it waiting for a dgxb full card, do not move it to dgxa** — its data would load over NFS there, and no 20 GB slice on dgxb frees sooner). **Expected claims: A takes 13, B takes 8** (first free in the
     list). So **8, the first `on_demand` run, will run on account 3**, and
     account 1 takes 7 (not 8) when 10 ends. Account 2's old-order 29176
     finds nothing after 4 and exits, then 29648 takes the next free one.

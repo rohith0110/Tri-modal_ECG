@@ -17,10 +17,10 @@ reached by SSH key from the `campus-laptop`.
 | SSH alias (`~/.ssh/config`) | `mudgx` | `mudgx2` | `mudgx-scholar` |
 | key | `~/.ssh/mudgx` | `~/.ssh/mudgx2` | `~/.ssh/mudgx_scholar` |
 | home | `/dgxa_home/se23ucse027` | `/dgxa_home/se23ucse034` | **`/dgxb_home/se23pcse004`**: local disk on dgxb, NFS on dgxa |
-| project checkout | `~/se23ucse027` | `~/se23ucse027` (same folder name, its own home) | `~/se23ucse027` (same folder name, its own home) |
+| project checkout | `~/se23ucse027` | `~/se23ucse027` (same folder name, its own home) | **two**: `~/se23ucse027` (chain A) and `~/se23ucse027_b` (chain B), one per GPU |
 | Python env | `~/se23ucse027/ecg_env` | **symlink** to account 1's `ecg_env` (read-only use) | **symlink** to account 1's `ecg_env`; `bin/` (rclone) symlinked too |
-| quota ceiling | 49 GiB (code default) | 49 GiB, from `.account_env` | **92 GiB of a 100 GB quota**, from `.account_env`, measured over the project folder only (see Storage) |
-| results in R2 | `r2-results:trimodal-results/` | `r2-results:trimodal-results/acct2/`, from `.account_env` | `r2-results:trimodal-results/acct3/`, from `.account_env` |
+| quota ceiling | 49 GiB (code default) | 49 GiB, from `.account_env` | **46 GiB per checkout** (2 x 46 = 92 GiB of a 100 GB quota), from each `.account_env`, measured over the project folders only (see Storage) |
+| results in R2 | `r2-results:trimodal-results/` | `r2-results:trimodal-results/acct2/`, from `.account_env` | `r2-results:trimodal-results/acct3/` (chain A), `.../acct3b/` (chain B), from each `.account_env` |
 | Slurm association | `student`, QOS `normal` | `student`, QOS `normal` | **`scholar`**, QOS `normal` |
 | Slurm cap (`GrpTRES`, per user) | cpu=32, gres/gpu=1, mem=256G | cpu=32, gres/gpu=1, mem=256G | **cpu=48, gres/gpu=2, mem=384G** |
 | partitions | `gpu_student` / `cpu_student` (7-day limit, priority 50) | same | **`gpu_scholar` / `cpu_scholar` (30-day limit, priority 80)**; `gpu_student` also accepts it |
@@ -54,14 +54,46 @@ cannot reach.
   (`aamas` 99G, `DQUERY`, `detectron*`, ...). It is not ours: never touch,
   move or delete it (user, 2026-10-30). It is **not counted** against our
   100 GB (see Storage).
-- **Before account 3 runs a campaign:** `merge_acct2_results.py` knows only
-  `acct2/` and must learn `acct3/` before campaigns 11/14. Submit with
-  `--partition=gpu_scholar --nodelist=dgxb`.
+- **Two chains, one per GPU, from two checkouts (2026-10-30).** A chain
+  claims campaigns under one name. Two chains under the same user would each
+  treat the other's campaign as their own, train it twice into the same paths,
+  and evict each other's data, because `evict_data.sh --all` runs before every
+  campaign. So each GPU gets its own checkout, and its `.account_env` sets
+  everything that has to differ:
+
+  | | chain A | chain B |
+  |---|---|---|
+  | checkout (`TRIMODAL_HOME`) | `~/se23ucse027` | `~/se23ucse027_b` |
+  | `.account_env` extras | — | `PROJECT_FOLDER=se23ucse027_b`, `PROJECT_ROOT=$HOME/se23ucse027_b` |
+  | claim name (`CLAIM_OWNER`) | `se23pcse004` (the default) | `se23pcse004_b` |
+  | R2 results | `acct3/` | `acct3b/` |
+  | ceiling | 46 GiB | 46 GiB |
+
+  `campaign_chain.sbatch` reads `CLAIM_OWNER` (commit `bd6cd3a`). Both
+  checkouts symlink account 1's `ecg_env` and `bin/`, and both pull with
+  `git pull --ff-only acct1 main`.
+- **Submit**, from the chain's own checkout:
+  ```bash
+  cd ~/se23ucse027_b     # or ~/se23ucse027 for chain A
+  sbatch --partition=gpu_scholar --nodelist=dgxb --gres=gpu:a100:1 \
+         --time=30-00:00:00 --job-name=chain_acct3b \
+         --export=ALL,CAMPAIGNS="10 4 13 8 7 3 15 12 9 6 5",TRIMODAL_HOME=$HOME/se23ucse027_b \
+         scripts/dgx_portability/slurm/campaign_chain.sbatch
+  ```
+  `gpu_scholar` allows 30 days, so one link covers most campaigns. Evals that
+  a chain submits use `eval_task.sbatch`'s `cpu_student`, which accepts
+  account 3 (tested 2026-10-30, `~/acct_test/roots.sbatch`), and they inherit `TRIMODAL_HOME`.
+- **HuggingFace:** account 1's cache is not readable from account 3. The first
+  text run downloads Bio_ClinicalBERT to `~/.cache/huggingface`, outside the
+  counted folders; dgxb reached huggingface.co (HTTP 200).
+- **Before campaigns 11/14:** run `merge_acct2_results.py --prefix acct3`, then
+  again with `--prefix acct3b`, as well as the default `acct2` run.
 
 ## How the accounts stay apart
 
 Written for accounts 1 and 2. Account 3 follows the same rules, with `acct3/`
-in place of `acct2/`; its chain claims campaigns as `se23pcse004`.
+and `acct3b/` in place of `acct2/`. Its two chains claim campaigns as
+`se23pcse004` and `se23pcse004_b`.
 
 - **Campaigns are never shared, and are taken on availability** (since
   2026-10-27). A campaign belongs to one account from its first run to its last
@@ -112,8 +144,10 @@ in place of `acct2/`; its chain claims campaigns as `se23pcse004`.
 (user, 2026-10-30).** The ~124G of other work already in the home is left
 alone and is not counted. `used_gb()` already sums `PROJECT_ROOT` and nothing
 else, and `du` does not follow the `ecg_env`/`bin` symlinks, so no code changed.
-`.account_env` sets `QUOTA_TOTAL_GB=100`, `QUOTA_CEILING_GB=92` (100 GB is
-93.1 GiB). Measured on dgxb at setup: 0.06 GiB used. `/dgxb_home` itself is
+The two checkouts split it: each `.account_env` sets `QUOTA_TOTAL_GB=100`,
+`QUOTA_CEILING_GB=46`, so both together stay at 92 GiB (100 GB is 93.1 GiB).
+Every campaign fits 46 GiB with its 2 GB claim headroom: the largest peak
+needs about 40. Measured on dgxb at setup: 0.06 GiB used in each. `/dgxb_home` itself is
 93 % full (999G free), and there is no `quota` command.
 
 Nothing on `/dgxa_home` enforces a quota; the only gate is our own

@@ -5,8 +5,8 @@ starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
 - **Last updated:** 2026-10-30 (session 22, `campus-laptop`)
-- **Last checked:** 2026-10-30 ~20:40 IST (session 22, `campus-laptop`)
-- **SESSION 22 (2026-10-30): ACCOUNT 3 ADDED. All three DGX checkouts at the
+- **Last checked:** 2026-10-30 ~21:00 IST (session 22, `campus-laptop`)
+- **SESSION 22 (2026-10-30): ACCOUNT 3 ADDED AND RUNNING. All three DGX checkouts at the
   session 22 docs commit.**
   - **Scholar account `se23pcse004` = `ssh mudgx-scholar`**
     (`docs/DGX_ACCOUNTS.md`). Slurm `scholar`: **cpu=48, gres/gpu=2,
@@ -14,13 +14,29 @@ starting cold reads this first, works, then updates it before the session ends.
     **2 concurrent GPUs, tested** (29717 ran with 2, 29718 with 3 pended
     `AssocGrpGRES`). End-to-end GPU test 29720 passed on dgxb.
   - **Home is `/dgxb_home` (local on dgxb): run account 3 on `--nodelist=dgxb`.**
-  - **Storage settled (user):** 100 GB counted over the project folder
-    `~/se23ucse027` only. The ~124G of other work already in the home is
-    never touched and never counted. `.account_env`: `QUOTA_TOTAL_GB=100`,
-    `QUOTA_CEILING_GB=92` (GiB). `used_gb` on dgxb: 0.06.
-  - **Nothing submitted on account 3 yet.** Needed first:
-    `merge_acct2_results.py` must learn `acct3/`, and the chain must be
-    submitted with `--partition=gpu_scholar --nodelist=dgxb`.
+  - **Storage settled (user):** 100 GB counted over our project folders
+    only. The ~124G of other work already in the home is never touched and
+    never counted. Ceiling 46 GiB per checkout (2 x 46 = 92). `used_gb` on
+    dgxb: 0.06 each.
+  - **Account 3 runs TWO chains, one per GPU, from two checkouts** (chain A
+    `~/se23ucse027`, claims as `se23pcse004`, R2 `acct3/`; chain B
+    `~/se23ucse027_b`, claims as `se23pcse004_b`, R2 `acct3b/`).
+    `campaign_chain.sbatch` now reads `CLAIM_OWNER` from `.account_env`
+    (`bd6cd3a`); without it the two chains would train the same campaign
+    and evict each other's data.
+  - **Submitted on account 3, 2026-10-30 ~20:58 IST, same `CAMPAIGNS` list,
+    `gpu_scholar`, dgxb, 30-day links:**
+    chain A **29723 -> 29724** (`a100_4g.20gb`; 29723 est. start 10-31
+    00:28), chain B **29725 -> 29726** (full `a100`; pending
+    `ReqNodeNotAvail` = no full card free on dgxb, no reservation; earliest
+    ~1 day). **Expected claims: A takes 13, B takes 8** (first free in the
+    list). So **8, the first `on_demand` run, will run on account 3**, and
+    account 1 takes 7 (not 8) when 10 ends. Account 2's old-order 29176
+    finds nothing after 4 and exits, then 29648 takes the next free one.
+  - **Before 11/14:** `merge_acct2_results.py` (default `acct2`), then
+    `--prefix acct3`, then `--prefix acct3b`.
+  - **Watch:** first chain-A start (HuggingFace downloads Bio_ClinicalBERT
+    once: account 1's cache is unreadable); 29725 actually getting a card.
 - **SESSION 21 CHANGES (2026-10-30; supersede the session 20 block where they
   differ). Both DGX checkouts at `07b823b`.**
   - **Campaign order is now longest first (user):** `CAMPAIGNS="10 4 13 8 7 3
@@ -3866,3 +3882,16 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   29720 on dgxb ran torch on CUDA, resolved the roots and listed R2.
 - Docs: `DGX_ACCOUNTS.md` (third column, account 3 section, storage),
   `AGENTS.md`, and this header. All three checkouts pulled to this commit.
+- **Put to work (user: "start using this account").** 2 GPUs means two
+  chains, and one claim name per user would let them take the same
+  campaign, so `CLAIM_OWNER` was added to `campaign_chain.sbatch` and a
+  second checkout `~/se23ucse027_b` made (its `.account_env` sets
+  `PROJECT_FOLDER`, `PROJECT_ROOT`, `CLAIM_OWNER=se23pcse004_b`,
+  `R2_RESULTS=.../acct3b`). Ceiling 46 GiB each. `merge_acct2_results.py`
+  got `--prefix`. A dgxb test job resolved both roots apart, reached
+  huggingface.co, and ran on `cpu_student` (where the eval jobs go).
+- Submitted chains A 29723 -> 29724 and B 29725 -> 29726 (header). dgxb had
+  no free full A100 or 20 GB slice at submit; the 1g/2g slices that were
+  free are too small to trust.
+- Accounts 1 and 2 untouched: their running links keep the script they
+  were submitted with, and the change only adds an override they don't set.

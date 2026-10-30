@@ -4,8 +4,22 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-10-30 (session 21, `campus-laptop`)
-- **Last checked:** 2026-10-30 ~04:50 UTC (session 21, `campus-laptop`)
+- **Last updated:** 2026-10-30 (session 22, `campus-laptop`)
+- **Last checked:** 2026-10-30 ~20:40 IST (session 22, `campus-laptop`)
+- **SESSION 22 (2026-10-30): ACCOUNT 3 ADDED. All three DGX checkouts at the
+  session 22 docs commit.**
+  - **Scholar account `se23pcse004` = `ssh mudgx-scholar`**
+    (`docs/DGX_ACCOUNTS.md`). Slurm `scholar`: **cpu=48, gres/gpu=2,
+    mem=384G**, partitions `gpu_scholar`/`cpu_scholar` (30-day limit).
+    **2 concurrent GPUs, tested** (29717 ran with 2, 29718 with 3 pended
+    `AssocGrpGRES`). End-to-end GPU test 29720 passed on dgxb.
+  - **Home is `/dgxb_home` (local on dgxb): run account 3 on `--nodelist=dgxb`.**
+  - **Nothing submitted on account 3 yet. Blocked on storage (user to
+    decide):** the home already holds ~124G of someone else's work against
+    the stated 100 GB limit. `QUOTA_CEILING_GB=1` in its `.account_env`
+    blocks every campaign until this is settled. Also needed before it runs
+    campaigns: `merge_acct2_results.py` must learn `acct3/`, and the chain
+    must be submitted with `--partition=gpu_scholar --nodelist=dgxb`.
 - **SESSION 21 CHANGES (2026-10-30; supersede the session 20 block where they
   differ). Both DGX checkouts at `07b823b`.**
   - **Campaign order is now longest first (user):** `CAMPAIGNS="10 4 13 8 7 3
@@ -787,6 +801,9 @@ storage is about $0.53/month; nothing reads it. Delete it only deliberately.
   aliases, caps, what each can write and the account 2 setup list are in
   `docs/DGX_ACCOUNTS.md`. **The ceiling is now 99 GB**, in account 1's folder;
   every "49 GB" below this line is history.
+- **Account 3 since 2026-10-30** (`se23pcse004`, scholar, `ssh mudgx-scholar`):
+  2 GPUs, 48 CPU, 384G, home on `/dgxb_home`. Details and the storage question
+  are in `docs/DGX_ACCOUNTS.md`.
 - **50 GB storage quota** — the constraint the whole execution plan is built
   around. `/home` shows 238 GB in `df`; that is the filesystem, not the quota,
   and there is no `quota` command, so **`du` is the only measure** — which is
@@ -3826,3 +3843,23 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   (account 1 on campaign 8, first `on_demand` run; new links 29645/29648
   started ~11-04 cleanly), then weekly. **Queued links run out ~11-24 — add
   more before then.**
+
+### Session 22 — 2026-10-30 — `campus-laptop`: account 3 (scholar) set up
+
+- The user got a third DGX account, scholar `se23pcse004`, with a 100 GB
+  limit and an unknown GPU count. New key `~/.ssh/mudgx_scholar` (ed25519, in
+  the Windows ssh-agent), alias `mudgx-scholar` in `~/.ssh/config`. The user
+  installed the public key with their password.
+- Measured: association `scholar`, `GrpTRES cpu=48,gres/gpu=2,mem=384G`, QOS
+  `normal`. GPU cap tested with real jobs: 2 slices ran (29717), 3 pended
+  `AssocGrpGRES` (29718, cancelled), and `gpu_student` also accepts the
+  account (29719). Home is `/dgxb_home/se23pcse004`, served by dgxb.
+- **The home is not empty: ~124G of other work** (`aamas` 99G and more).
+  Left untouched. Ceiling held at 1 GiB until the user settles storage.
+- Set up the way account 2 was: `git clone` of account 1's checkout into
+  `~/se23ucse027` (remote `acct1`, `safe.directory` added), `ecg_env` and
+  `bin/` symlinked to account 1's, rclone config piped across from account 1
+  (never printed), and an `.account_env` with `R2_RESULTS=.../acct3`. Test job
+  29720 on dgxb ran torch on CUDA, resolved the roots and listed R2.
+- Docs: `DGX_ACCOUNTS.md` (third column, account 3 section, storage),
+  `AGENTS.md`, and this header. All three checkouts pulled to this commit.

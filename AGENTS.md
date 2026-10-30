@@ -54,8 +54,9 @@ What each machine can and cannot do:
   silently reverts whatever git has that the last upload does not (commit
   7d3602d). The DGX **pulls and never pushes.**
 
-**The DGX has two accounts** (`se23ucse027` = `ssh mudgx`, `se23ucse034` =
-`ssh mudgx2`), each with its own Slurm cap and its own queue. Read
+**The DGX has three accounts** (`se23ucse027` = `ssh mudgx`, `se23ucse034` =
+`ssh mudgx2`, scholar `se23pcse004` = `ssh mudgx-scholar`, 2 GPUs, home on
+dgxb), each with its own Slurm cap and its own queue. Read
 **[docs/DGX_ACCOUNTS.md](docs/DGX_ACCOUNTS.md)** before submitting or polling
 anything, and tag every job id you write into the progress doc with the account
 it runs on.

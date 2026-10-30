@@ -1,34 +1,69 @@
 # DGX accounts
 
-**There are two DGX accounts as of 2026-10-14, and they run as two separate
-workflows in parallel.** This file holds what does not change from day to day:
-who they are, how to reach them, what each owns. **Which job is running on
-which account is live state and lives in the header of `PHASE2_PROGRESS.md`** —
-every job listed there is tagged with its account.
+**There are three DGX accounts as of 2026-10-30.** Accounts 1 and 2 are
+student accounts (since 2026-10-14). Account 3 is a **scholar** account, added
+2026-10-30, with a bigger Slurm cap and its home on `dgxb`, not `dgxa`. Each
+runs as its own workflow in parallel. This file holds what does not change from
+day to day: who they are, how to reach them, what each owns. **Which job is
+running on which account is live state and lives in the header of
+`PHASE2_PROGRESS.md`** — every job listed there is tagged with its account.
 
-Passwords are not in this repo and never go in it. Both accounts are reached by
-SSH key from the `campus-laptop`.
+Passwords are not in this repo and never go in it. All three accounts are
+reached by SSH key from the `campus-laptop`.
 
-| | account 1 | account 2 |
-|---|---|---|
-| username | `se23ucse027` | `se23ucse034` |
-| SSH alias (`~/.ssh/config`) | `mudgx` | `mudgx2` |
-| key | `~/.ssh/mudgx` | `~/.ssh/mudgx2` |
-| home | `/dgxa_home/se23ucse027` | `/dgxa_home/se23ucse034` |
-| project checkout | `~/se23ucse027` | `~/se23ucse027` (same folder name, its own home) |
-| Python env | `~/se23ucse027/ecg_env` | **symlink** to account 1's `ecg_env` (read-only use) |
-| quota ceiling | 49 GiB (code default) | 49 GiB, from `.account_env` |
-| results in R2 | `r2-results:trimodal-results/` | `r2-results:trimodal-results/acct2/`, from `.account_env` |
-| Slurm association | `student`, QOS `normal` | `student`, QOS `normal` |
-| Slurm cap (`GrpTRES`, per user) | cpu=32, gres/gpu=1, mem=256G | cpu=32, gres/gpu=1, mem=256G |
-| rclone remotes | `r2`, `r2-results` | same config, copied 2026-10-14 |
-| GitHub credential | `~/.git-credentials-trimodal` (fine-grained, read-only, renewed 2026-10-27) | none — pulls from account 1's checkout |
+| | account 1 | account 2 | account 3 (scholar) |
+|---|---|---|---|
+| username | `se23ucse027` | `se23ucse034` | `se23pcse004` |
+| SSH alias (`~/.ssh/config`) | `mudgx` | `mudgx2` | `mudgx-scholar` |
+| key | `~/.ssh/mudgx` | `~/.ssh/mudgx2` | `~/.ssh/mudgx_scholar` |
+| home | `/dgxa_home/se23ucse027` | `/dgxa_home/se23ucse034` | **`/dgxb_home/se23pcse004`**: local disk on dgxb, NFS on dgxa |
+| project checkout | `~/se23ucse027` | `~/se23ucse027` (same folder name, its own home) | `~/se23ucse027` (same folder name, its own home) |
+| Python env | `~/se23ucse027/ecg_env` | **symlink** to account 1's `ecg_env` (read-only use) | **symlink** to account 1's `ecg_env`; `bin/` (rclone) symlinked too |
+| quota ceiling | 49 GiB (code default) | 49 GiB, from `.account_env` | **held at 1 GiB** in `.account_env` until storage is settled (see Storage) |
+| results in R2 | `r2-results:trimodal-results/` | `r2-results:trimodal-results/acct2/`, from `.account_env` | `r2-results:trimodal-results/acct3/`, from `.account_env` |
+| Slurm association | `student`, QOS `normal` | `student`, QOS `normal` | **`scholar`**, QOS `normal` |
+| Slurm cap (`GrpTRES`, per user) | cpu=32, gres/gpu=1, mem=256G | cpu=32, gres/gpu=1, mem=256G | **cpu=48, gres/gpu=2, mem=384G** |
+| partitions | `gpu_student` / `cpu_student` (7-day limit, priority 50) | same | **`gpu_scholar` / `cpu_scholar` (30-day limit, priority 80)**; `gpu_student` also accepts it |
+| rclone remotes | `r2`, `r2-results` | same config, copied 2026-10-14 | same config, copied 2026-10-30 |
+| GitHub credential | `~/.git-credentials-trimodal` (fine-grained, read-only, renewed 2026-10-27) | none — pulls from account 1's checkout | none — pulls from account 1's checkout (remote `acct1`) |
 
-Login node for both: `10.59.121.172`. From Windows git-bash call
-`/c/WINDOWS/System32/OpenSSH/ssh.exe mudgx` (or `mudgx2`), not `/usr/bin/ssh` —
-the keys sit in the Windows `ssh-agent`, which git-bash's ssh cannot reach.
+Login node for all three: `10.59.121.172`. From Windows git-bash call
+`/c/WINDOWS/System32/OpenSSH/ssh.exe mudgx` (or `mudgx2`, `mudgx-scholar`), not
+`/usr/bin/ssh` — the keys sit in the Windows `ssh-agent`, which git-bash's ssh
+cannot reach.
 
-## How the two stay apart
+## Account 3 (scholar), measured 2026-10-30
+
+- **GPU cap tested, not only read from `sacctmgr`:** a job asking for
+  `gpu:a100_1g.5gb:2` ran (29717, both devices visible). One asking for 3
+  pended with `AssocGrpGRES` (29718, cancelled). So the cap is **2 GPUs at a
+  time, any size**: two chain links, or one link with 2 GPUs. A `gpu_student`
+  job also ran (29719).
+- **End-to-end test (29720, `gpu_scholar`, dgxb):** `.account_env` +
+  `campaigns.sh` resolve
+  `DATA_ROOT=/dgxb_home/se23pcse004/se23ucse027/data/processed` and
+  `R2_RESULTS=r2-results:trimodal-results/acct3`. Account 1's `ecg_env` runs
+  torch 2.6.0+cu124 on CUDA, and `rclone lsf r2:trimodal-data` lists. The test
+  scripts are in `~/acct_test`.
+- **Run it on dgxb.** dgxb serves this home, so the loaders read local disk
+  there and NFS on dgxa. That is the reverse of accounts 1 and 2
+  (DGX_OPERATOR_HANDOVER §2 measured the NFS side at 28x slower). Pin
+  `--nodelist=dgxb`. dgxb has 5 full A100s. The env symlink is read from dgxa
+  over NFS, which only costs start-up time.
+- **Not a clean account.** The home already holds ~124G of other work
+  (`aamas` 99G, `DQUERY`, `detectron*`, ...). It is not ours: never touch it.
+  The user gave the storage limit as 100 GB. That is already exceeded, so how
+  much the project may use is **open** (see Storage). `QUOTA_CEILING_GB=1`
+  makes every campaign fail `will_fit` until this is settled, so no chain can
+  stage data by accident.
+- **Before account 3 runs a campaign:** settle the ceiling.
+  `merge_acct2_results.py` knows only `acct2/` and must learn `acct3/` before
+  campaigns 11/14. Submit with `--partition=gpu_scholar --nodelist=dgxb`.
+
+## How the accounts stay apart
+
+Written for accounts 1 and 2. Account 3 follows the same rules, with `acct3/`
+in place of `acct2/`; its chain claims campaigns as `se23pcse004`.
 
 - **Campaigns are never shared, and are taken on availability** (since
   2026-10-27). A campaign belongs to one account from its first run to its last
@@ -75,6 +110,11 @@ the keys sit in the Windows `ssh-agent`, which git-bash's ssh cannot reach.
 
 ## Storage
 
+**Account 3:** the limit is 100 GB (user, 2026-10-30), but the home already
+holds ~124G of other work. `/dgxb_home` is 93 % full (999G free). There is no
+`quota` command, and nothing we measured enforces the limit. The ceiling stays
+at 1 GiB until the user decides.
+
 Nothing on `/dgxa_home` enforces a quota; the only gate is our own
 `QUOTA_CEILING_GB`, measured with `du` over the project folder.
 
@@ -90,11 +130,12 @@ gate at a 49 ceiling, in GiB — the unit `used_gb` and `du -sh` report.
 - The 99 GB ceiling on account 1 (2026-10-14 to 10-27) was the user's call when
   the plan was one shared folder; it is gone.
 
-## Rules for both accounts
+## Rules for all accounts
 
 - Every job goes through Slurm to `dgxa` / `dgxb`. Nothing runs on the login node.
 - The DGX pulls and never commits, whichever account is doing the pulling.
 - When a job is submitted, write its account next to its job id in the progress
   doc header. A job id alone no longer says whose queue to look in:
-  `squeue -u se23ucse027` and `squeue -u se23ucse034` are separate lists.
+  `squeue -u se23ucse027`, `squeue -u se23ucse034` and `squeue -u se23pcse004`
+  are separate lists.
 - Do not submit a campaign on one account that the header assigns to the other.

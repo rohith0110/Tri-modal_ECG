@@ -13,8 +13,13 @@
 # campaign by hand:
 #
 #   sbatch --partition=gpu_student --gres=gpu:a100_4g.20gb:1 \
-#          --export=ALL,CAMPAIGNS="10 4 3 15 5 6 7 9 12 13 8" campaign_chain.sbatch
+#          --export=ALL,CAMPAIGNS="10 4 13 8 7 3 15 12 9 6 5" campaign_chain.sbatch
 #   sbatch --dependency=afterany:<that job> ...the same line...      # link 2
+#
+# Order is longest first (user, 2026-10-30): with only two GPUs, a 20-day
+# campaign left for last runs on one account while the other sits idle.
+# Campaigns already running go first so their owner resumes them before
+# claiming anything new.
 #
 # BOTH accounts submit the same CAMPAIGNS list: each campaign is claimed in R2
 # by whichever account reaches it first with room for it (see "claims" below).
@@ -105,6 +110,10 @@ for campaign in $CAMPAIGNS; do
         log "claims unreadable in $CLAIMS -- campaign $campaign only if this account already has runs of it"
     fi
     owner="${claim%% *}"; state="${claim##* }"
+    # A `hold` claim parks a campaign away from chain links still running the
+    # OLD walk order (sbatch keeps the script and CAMPAIGNS it was submitted
+    # with). Links on this script treat it as unclaimed and overwrite it.
+    if [ "$owner" = "hold" ]; then owner=""; state=""; fi
     if [ "$state" = "done" ]; then
         log "=== campaign $campaign: done (claim by $owner), skipping ==="
         continue

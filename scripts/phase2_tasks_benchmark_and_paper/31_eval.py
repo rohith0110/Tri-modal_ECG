@@ -378,7 +378,8 @@ def checkpoint_path(task: str, arch_tier: str, dev: bool) -> Path:
 
 
 def load_checkpoint(task: str, arch_tier: str, dev: bool,
-                    settings: dict[str, Any]) -> dict[str, dict[str, Any]]:
+                    settings: dict[str, Any],
+                    path: Path | None = None) -> dict[str, dict[str, Any]]:
     """Units already computed for this (task, tier) UNDER THE SAME SETTINGS.
 
     An evaluation is hours of work and used to be all-or-nothing: it wrote
@@ -393,7 +394,7 @@ def load_checkpoint(task: str, arch_tier: str, dev: bool,
     the unit is recomputed. A truncated final line (killed mid-write) is
     skipped for the same reason: cheaper to redo one unit than to trust it.
     """
-    path = checkpoint_path(task, arch_tier, dev)
+    path = path or checkpoint_path(task, arch_tier, dev)
     if not path.exists():
         return {}
     stamp = checkpoint_stamp(settings)
@@ -441,7 +442,9 @@ def clear_checkpoint(task: str, arch_tier: str, dev: bool) -> None:
 def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | None,
                   eval_config: dict[str, Any], log: logging.Logger,
                   bootstrap_override: int | None = None,
-                  jobs: int = 1) -> list[dict[str, Any]]:
+                  jobs: int = 1,
+                  shard: tuple[set[int], int] | None = None,
+                  extra_checkpoints: Iterable[Path] = ()) -> list[dict[str, Any]]:
     spec = get_task(task)
     prediction_paths = find_seed_predictions(task, arch_tier, dev, seeds)
     if not prediction_paths:
@@ -512,13 +515,23 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
     # ---- resume ------------------------------------------------------------
     stamp = checkpoint_stamp(settings)
     done = load_checkpoint(task, arch_tier, dev, settings)
+    # Units another account computed (--shard there) are as good as our own:
+    # same predictions, same spec seed, same stamp. Copied into our checkpoint
+    # so a later resume or the final write does not depend on that file.
+    for extra in extra_checkpoints:
+        theirs = load_checkpoint(task, arch_tier, dev, settings, path=extra)
+        new = {k: v for k, v in theirs.items() if k not in done}
+        for key, row in new.items():
+            append_checkpoint(task, arch_tier, dev, key, row, stamp)
+        done.update(new)
+        log.info("%s/%s: %d units taken from %s", task, arch_tier, len(new), extra)
     rows = [None] * len(units)                       # keep deterministic order
     todo = []
     for index, (head, metric_name, _fn, group_key, group_value) in enumerate(units):
         key = unit_key(head, metric_name, group_key, group_value)
         if key in done:
             rows[index] = done[key]
-        else:
+        elif shard is None or index % shard[1] in shard[0]:
             todo.append(index)
     if done:
         log.info("%s/%s: resuming — %d of %d units already done",
@@ -916,7 +929,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--retrieval", action="store_true",
                         help="also run the §7.5 retrieval check (needs checkpoint_best)")
     parser.add_argument("--no-calibration", action="store_true")
-    return parser.parse_args(argv)
+    parser.add_argument("--shard", default=None, metavar="K[,K...]/N",
+                        help="compute only the units whose index mod N is one of "
+                             "the Ks, checkpoint them, and stop without writing "
+                             "results -- splits one eval across two accounts")
+    parser.add_argument("--extra-checkpoint", type=Path, action="append", default=[],
+                        help="another machine's checkpoint file for this "
+                             "(task, tier); its units count as done (read-only)")
+    args = parser.parse_args(argv)
+    if args.shard:
+        try:
+            keep, total = args.shard.split("/")
+            args.shard = ({int(k) for k in keep.split(",")}, int(total))
+        except ValueError:
+            parser.error(f"--shard wants K[,K...]/N, got {args.shard!r}")
+        if not args.shard[0] <= set(range(args.shard[1])):
+            parser.error("--shard: every K must be in 0..N-1")
+    return args
 
 
 def previously_written_rows(task: str, dev: bool,
@@ -1009,7 +1038,15 @@ def main(argv: list[str] | None = None) -> int:
     for arch_tier in tiers:
         rows += evaluate_arch(args.task, arch_tier, args.dev, args.seeds, eval_config, log,
                               bootstrap_override=args.bootstrap_n or None,
-                              jobs=resolve_jobs(args.jobs))
+                              jobs=resolve_jobs(args.jobs), shard=args.shard,
+                              extra_checkpoints=args.extra_checkpoint)
+        if args.shard:
+            # Partial rows must never reach the CSV: the run without --shard
+            # (given this file via --extra-checkpoint) writes the results.
+            log.info("%s/%s: shard %s done -- checkpoint at %s, no results written",
+                     args.task, arch_tier, args.shard,
+                     checkpoint_path(args.task, arch_tier, args.dev))
+            continue
 
         prediction_paths = find_seed_predictions(args.task, arch_tier, args.dev, args.seeds)
         per_seed = {s: pd.read_parquet(p) for s, p in prediction_paths.items()}
@@ -1032,6 +1069,8 @@ def main(argv: list[str] | None = None) -> int:
                 extras.setdefault("retrieval", {}).setdefault(arch_tier, {})[str(seed)] = \
                     retrieval_eval(args.task, arch_tier, args.dev, seed, log)
 
+    if args.shard:
+        return 0
     if not rows:
         log.error("no results produced")
         return 1

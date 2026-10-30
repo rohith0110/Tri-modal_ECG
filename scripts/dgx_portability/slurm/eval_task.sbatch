@@ -85,7 +85,7 @@ if [ -n "${SLURM_JOB_ID:-}" ] && [ "$chain_left" -gt 0 ]; then
     if next_job=$(sbatch --parsable --dependency="afternotok:$SLURM_JOB_ID" \
             --cpus-per-task="${SLURM_CPUS_PER_TASK:-4}" \
             ${SLURM_MEM_PER_NODE:+--mem="${SLURM_MEM_PER_NODE}M"} \
-            --export=ALL,TASK="$TASK",TIER="$TIER",EVAL_CHAIN="$((chain_left - 1))" \
+            --export=ALL,TASK="$TASK",TIER="$TIER",EVAL_CHAIN="$((chain_left - 1))",EVAL_ARGS="${EVAL_ARGS:-}" \
             "$HERE/slurm/eval_task.sbatch" 2>&1); then
         eval_record_job "$TASK" "$TIER" "$next_job"
         echo "continuation queued as job $next_job (EVAL_CHAIN left: $((chain_left - 1)))"
@@ -97,11 +97,19 @@ fi
 
 # `&& ... ||`, not a bare call: under `set -e` a failing eval used to end the
 # script on that line, before the push below and before the status was read.
+# EVAL_ARGS: extra 31_eval.py flags, e.g. `--shard 0,1/5` or
+# `--extra-checkpoint <other account's .jsonl>` to split one eval across both
+# accounts (session 21). Word-split on purpose; no spaces inside a value.
+# shellcheck disable=SC2086
 python3 "$PROJECT_ROOT/scripts/phase2_tasks_benchmark_and_paper/31_eval.py" \
-        --task "$TASK" --arch-tier "$TIER" && status=0 || status=$?
+        --task "$TASK" --arch-tier "$TIER" ${EVAL_ARGS:-} && status=0 || status=$?
+# A shard finishing is not the eval finishing: no .done marker for it.
+case " ${EVAL_ARGS:-} " in *" --shard "*) shard=1 ;; *) shard=0 ;; esac
 if [ "$status" -eq 0 ]; then
-    mkdir -p "$STATE_DIR/evals"
-    date -u +%Y-%m-%dT%H:%M:%SZ > "$(eval_marker "$TASK" "$TIER").done"
+    if [ "$shard" = "0" ]; then
+        mkdir -p "$STATE_DIR/evals"
+        date -u +%Y-%m-%dT%H:%M:%SZ > "$(eval_marker "$TASK" "$TIER").done"
+    fi
     if [ -n "$next_job" ]; then scancel "$next_job" 2>/dev/null || true; fi
 fi
 

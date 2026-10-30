@@ -3808,3 +3808,21 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   their dependants); the syntax is now `A-B/N`. Tested on account 2 before
   launch with `--bootstrap-n 20 --shard 0/600`: 5 units, no CSV; and a second
   run reusing them through `--extra-checkpoint` computed nothing.
+- **Compute request to the professor (user, 10-30).** The user is emailing
+  the professor for more GPU allocation; draft written in session. Points made:
+  ~130 of ~300 training runs done; at the current pace training ends ~mid-
+  December, plus 3-4 days for the paper. Bottlenecks named: 1 GPU per student
+  account (2 runs at a time), 50 GB storage (12-lead data loads in pieces),
+  CPU-bound evals (one tier can take over a week). Ask: a faculty account
+  (**4 GPUs, 200 GB storage**, per the user). Estimate given: six runs at once,
+  training done ~end of November (low confidence — fusion campaigns have never
+  run). Earlier estimates in this session: +2 GPUs ~5-6 weeks, +4 ~4 weeks,
+  15-20 days would need ~8-10 GPUs plus splitting campaigns 8/13 across GPUs.
+  **If a faculty account arrives: replan** — more chain links in parallel,
+  campaigns 8/13 split across GPUs, chunking dropped where 200 GB allows.
+- **Check-in plan (told to the user):** ~11-02 (campaign 4 done, account 2 on
+  13 via the holds; A3 eval final 29659 done -> `chmod o-x
+  /dgxa_home/se23ucse034`, `rm -rf ~/a3_shard`; A5 eval done), ~11-08/09
+  (account 1 on campaign 8, first `on_demand` run; new links 29645/29648
+  started ~11-04 cleanly), then weekly. **Queued links run out ~11-24 — add
+  more before then.**

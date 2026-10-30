@@ -5,7 +5,8 @@ starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
 - **Last updated:** 2026-10-27 (session 20, `campus-laptop`)
-- **Last checked:** 2026-10-27 08:40 UTC (session 20, `campus-laptop`)
+- **Last checked:** 2026-10-30 ~04:30 UTC (session 21, `campus-laptop`,
+  read-only; numbers in the session 21 log entry)
 - **LIVE STATE AFTER SESSION 20 (2026-10-27 ~09:30 UTC; supersedes everything
   below). Both DGX checkouts at `792c652`.**
   - **Campaigns are taken ON AVAILABILITY now, not assigned (user, 10-27).**
@@ -3761,3 +3762,15 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   12: 11, 13: 19), so **~75 days on two slices: training done ~early January
   2027**, then 11/14 and the CPU eval tail: **Phase 2 complete ~late January
   to February 2027.** The queued links run out ~11-24; add more before then.
+
+### Session 21 — 2026-10-30 — `campus-laptop`: read-only status check
+
+- Account 1 (ssh needs the Windows `ssh.exe`, as documented): 27480 ended
+  10-28 (sacct `FAILED` at 6-23:54, its own end-of-time exit), 29172 took over
+  and is RUNNING campaign 10 (**9/15 trained**), on A5 scanlike seed 42 since
+  10-29 02:19 UTC. Last push 45.90 GB of 49. Evals: **A3 image 1679/2940
+  units** (29167, cont. 29168; ~190 units/day, ~7 days left); **A5 image
+  187/240** (28596 after 28594 timed out 10-29, cont. 29574).
+- Account 2: 27475 ended 10-28, 29176 RUNNING campaign 4 (**69/78 trained**),
+  on B4 raw seed 42. No eval jobs queued yet.
+- Campaigns 1 (36/36) and 2 (15/15) still complete. Nothing changed on the DGX.

@@ -4,9 +4,36 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-10-27 (session 20, `campus-laptop`)
-- **Last checked:** 2026-10-30 ~04:30 UTC (session 21, `campus-laptop`,
-  read-only; numbers in the session 21 log entry)
+- **Last updated:** 2026-10-30 (session 21, `campus-laptop`)
+- **Last checked:** 2026-10-30 ~04:50 UTC (session 21, `campus-laptop`)
+- **SESSION 21 CHANGES (2026-10-30; supersede the session 20 block where they
+  differ). Both DGX checkouts at `07b823b`.**
+  - **Campaign order is now longest first (user):** `CAMPAIGNS="10 4 13 8 7 3
+    15 12 9 6 5"`. Links resubmitted: account 1 **29645 -> 29646 -> 29647**
+    (after 29172), account 2 **29648 -> 29649 -> 29650** (after 29176).
+  - **`hold` claims in R2 on 3, 15, 5, 6, 7, 9, 12.** 29176 (account 2) still
+    runs the OLD order, so after campaign 4 it would have taken 3; with the
+    holds it skips to 13. Links on the new script treat `hold` as free and
+    overwrite it, so **nobody has to remove them**. Expected: account 2 takes
+    13 when 4 ends (~11-01), account 1 takes 8 when 10 ends. **8 is the first
+    `on_demand` run: watch it.** R2 data check (`check_r2_complete.py`) PASS
+    for every campaign before reordering.
+  - **A3 image eval split across both accounts** (`31_eval.py --shard A-B/N`,
+    `--extra-checkpoint`). Account 1: **29658** = shard 0-3/9 (560 units, 16
+    CPU; cont. 29660), then **29659** (`afterok`) = the unsharded final run
+    with `--extra-checkpoint` on account 2's file; it writes the CSV and
+    computes anything account 2 has not finished. Account 2: **29655**
+    `a3_shard_a2` = shard 4-8/9 (699 units, 20 CPU) in `~/a3_shard` (a copy of
+    `scripts/`, everything else symlinked, predictions symlinked from account
+    1; 3 MB; never pushed). Both ~3 days, so A3 eval done ~11-02 instead of
+    ~11-06. **`chmod o+x /dgxa_home/se23ucse034`** so account 1 can read that
+    checkpoint; undo with `chmod o-x` after 29659 completes, then
+    `rm -rf ~/a3_shard`. Storage exception granted for this split only (not
+    needed in the end).
+  - **GPUs checked 10-30:** limit is 1 GPU per account of any size. Free
+    right now: 1 full A100 on dgxa, 1 on dgxb. dgxb reads data over NFS (28x
+    slower, DGX_OPERATOR_HANDOVER §2), so only dgxa's card is useful; switching
+    means ending a running chain link. Not switched — user to decide.
 - **LIVE STATE AFTER SESSION 20 (2026-10-27 ~09:30 UTC; supersedes everything
   below). Both DGX checkouts at `792c652`.**
   - **Campaigns are taken ON AVAILABILITY now, not assigned (user, 10-27).**
@@ -3774,3 +3801,10 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
 - Account 2: 27475 ended 10-28, 29176 RUNNING campaign 4 (**69/78 trained**),
   on B4 raw seed 42. No eval jobs queued yet.
 - Campaigns 1 (36/36) and 2 (15/15) still complete. Nothing changed on the DGX.
+- **Later in session 21 (user: reorder, split the eval, check GPUs):** what
+  changed is in the header block. Bugs hit on the way: `sbatch --export`
+  splits on commas, so `EVAL_ARGS='--shard 0,1,2,3/9'` reached the job as
+  `--shard 0` (jobs 29653/29656 died on the argument error, cancelled with
+  their dependants); the syntax is now `A-B/N`. Tested on account 2 before
+  launch with `--bootstrap-n 20 --shard 0/600`: 5 units, no CSV; and a second
+  run reusing them through `--extra-checkpoint` computed nothing.

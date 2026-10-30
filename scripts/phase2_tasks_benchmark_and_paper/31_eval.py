@@ -535,7 +535,10 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
             todo.append(index)
     if done:
         log.info("%s/%s: resuming — %d of %d units already done",
-                 task, arch_tier, len(units) - len(todo), len(units))
+                 task, arch_tier, sum(r is not None for r in rows), len(units))
+    if shard is not None:
+        log.info("%s/%s: shard %s/%d — %d units left in it", task, arch_tier,
+                 ",".join(map(str, sorted(shard[0]))), shard[1], len(todo))
 
     # ---- run ---------------------------------------------------------------
     # A 10,000-iteration BCa bootstrap per unit is hours of single-core work.

@@ -14,12 +14,13 @@ starting cold reads this first, works, then updates it before the session ends.
     **2 concurrent GPUs, tested** (29717 ran with 2, 29718 with 3 pended
     `AssocGrpGRES`). End-to-end GPU test 29720 passed on dgxb.
   - **Home is `/dgxb_home` (local on dgxb): run account 3 on `--nodelist=dgxb`.**
-  - **Nothing submitted on account 3 yet. Blocked on storage (user to
-    decide):** the home already holds ~124G of someone else's work against
-    the stated 100 GB limit. `QUOTA_CEILING_GB=1` in its `.account_env`
-    blocks every campaign until this is settled. Also needed before it runs
-    campaigns: `merge_acct2_results.py` must learn `acct3/`, and the chain
-    must be submitted with `--partition=gpu_scholar --nodelist=dgxb`.
+  - **Storage settled (user):** 100 GB counted over the project folder
+    `~/se23ucse027` only. The ~124G of other work already in the home is
+    never touched and never counted. `.account_env`: `QUOTA_TOTAL_GB=100`,
+    `QUOTA_CEILING_GB=92` (GiB). `used_gb` on dgxb: 0.06.
+  - **Nothing submitted on account 3 yet.** Needed first:
+    `merge_acct2_results.py` must learn `acct3/`, and the chain must be
+    submitted with `--partition=gpu_scholar --nodelist=dgxb`.
 - **SESSION 21 CHANGES (2026-10-30; supersede the session 20 block where they
   differ). Both DGX checkouts at `07b823b`.**
   - **Campaign order is now longest first (user):** `CAMPAIGNS="10 4 13 8 7 3
@@ -3855,7 +3856,9 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   `AssocGrpGRES` (29718, cancelled), and `gpu_student` also accepts the
   account (29719). Home is `/dgxb_home/se23pcse004`, served by dgxb.
 - **The home is not empty: ~124G of other work** (`aamas` 99G and more).
-  Left untouched. Ceiling held at 1 GiB until the user settles storage.
+  Left untouched. **User decision:** do not clear it; the 100 GB is measured
+  over our own new project folder only. Ceiling set to 92 GiB, and `used_gb`
+  measured 0.06 GiB on dgxb (job on `cpu_scholar`).
 - Set up the way account 2 was: `git clone` of account 1's checkout into
   `~/se23ucse027` (remote `acct1`, `safe.directory` added), `ecg_env` and
   `bin/` symlinked to account 1's, rclone config piped across from account 1

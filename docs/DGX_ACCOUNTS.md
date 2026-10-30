@@ -19,7 +19,7 @@ reached by SSH key from the `campus-laptop`.
 | home | `/dgxa_home/se23ucse027` | `/dgxa_home/se23ucse034` | **`/dgxb_home/se23pcse004`**: local disk on dgxb, NFS on dgxa |
 | project checkout | `~/se23ucse027` | `~/se23ucse027` (same folder name, its own home) | `~/se23ucse027` (same folder name, its own home) |
 | Python env | `~/se23ucse027/ecg_env` | **symlink** to account 1's `ecg_env` (read-only use) | **symlink** to account 1's `ecg_env`; `bin/` (rclone) symlinked too |
-| quota ceiling | 49 GiB (code default) | 49 GiB, from `.account_env` | **held at 1 GiB** in `.account_env` until storage is settled (see Storage) |
+| quota ceiling | 49 GiB (code default) | 49 GiB, from `.account_env` | **92 GiB of a 100 GB quota**, from `.account_env`, measured over the project folder only (see Storage) |
 | results in R2 | `r2-results:trimodal-results/` | `r2-results:trimodal-results/acct2/`, from `.account_env` | `r2-results:trimodal-results/acct3/`, from `.account_env` |
 | Slurm association | `student`, QOS `normal` | `student`, QOS `normal` | **`scholar`**, QOS `normal` |
 | Slurm cap (`GrpTRES`, per user) | cpu=32, gres/gpu=1, mem=256G | cpu=32, gres/gpu=1, mem=256G | **cpu=48, gres/gpu=2, mem=384G** |
@@ -51,14 +51,12 @@ cannot reach.
   `--nodelist=dgxb`. dgxb has 5 full A100s. The env symlink is read from dgxa
   over NFS, which only costs start-up time.
 - **Not a clean account.** The home already holds ~124G of other work
-  (`aamas` 99G, `DQUERY`, `detectron*`, ...). It is not ours: never touch it.
-  The user gave the storage limit as 100 GB. That is already exceeded, so how
-  much the project may use is **open** (see Storage). `QUOTA_CEILING_GB=1`
-  makes every campaign fail `will_fit` until this is settled, so no chain can
-  stage data by accident.
-- **Before account 3 runs a campaign:** settle the ceiling.
-  `merge_acct2_results.py` knows only `acct2/` and must learn `acct3/` before
-  campaigns 11/14. Submit with `--partition=gpu_scholar --nodelist=dgxb`.
+  (`aamas` 99G, `DQUERY`, `detectron*`, ...). It is not ours: never touch,
+  move or delete it (user, 2026-10-30). It is **not counted** against our
+  100 GB (see Storage).
+- **Before account 3 runs a campaign:** `merge_acct2_results.py` knows only
+  `acct2/` and must learn `acct3/` before campaigns 11/14. Submit with
+  `--partition=gpu_scholar --nodelist=dgxb`.
 
 ## How the accounts stay apart
 
@@ -110,10 +108,13 @@ in place of `acct2/`; its chain claims campaigns as `se23pcse004`.
 
 ## Storage
 
-**Account 3:** the limit is 100 GB (user, 2026-10-30), but the home already
-holds ~124G of other work. `/dgxb_home` is 93 % full (999G free). There is no
-`quota` command, and nothing we measured enforces the limit. The ceiling stays
-at 1 GiB until the user decides.
+**Account 3: 100 GB, counted over the project folder `~/se23ucse027` only
+(user, 2026-10-30).** The ~124G of other work already in the home is left
+alone and is not counted. `used_gb()` already sums `PROJECT_ROOT` and nothing
+else, and `du` does not follow the `ecg_env`/`bin` symlinks, so no code changed.
+`.account_env` sets `QUOTA_TOTAL_GB=100`, `QUOTA_CEILING_GB=92` (100 GB is
+93.1 GiB). Measured on dgxb at setup: 0.06 GiB used. `/dgxb_home` itself is
+93 % full (999G free), and there is no `quota` command.
 
 Nothing on `/dgxa_home` enforces a quota; the only gate is our own
 `QUOTA_CEILING_GB`, measured with `du` over the project folder.

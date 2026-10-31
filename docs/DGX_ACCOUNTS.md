@@ -80,6 +80,9 @@ cannot reach.
          --export=ALL,CAMPAIGNS="10 4 13 8 7 3 15 12 9 6 5",TRIMODAL_HOME=$HOME/se23ucse027_b \
          scripts/dgx_portability/slurm/campaign_chain.sbatch
   ```
+  **`--time=30-00:00:00` must be on the command line**: the sbatch header
+  says 7 days, and without the flag that wins (29723-29726 got 7 d, session
+  23). Add `--dependency=afterany:<previous link>` for a follow-on link.
   `gpu_scholar` allows 30 days, so one link covers most campaigns. Evals that
   a chain submits use `eval_task.sbatch`'s `cpu_student`, which accepts
   account 3 (tested 2026-10-30, `~/acct_test/roots.sbatch`), and they inherit `TRIMODAL_HOME`.

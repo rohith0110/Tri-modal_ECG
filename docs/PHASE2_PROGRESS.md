@@ -14,9 +14,12 @@ starting cold reads this first, works, then updates it before the session ends.
   - **🔴 Account 3 links are 7 days, NOT 30.** `scontrol`: 29723-29726 all
     `TimeLimit=7-00:00:00` — the `--time=30-00:00:00` was not on the submit
     line, so the sbatch header's 7 d won (partition allows 30). Chain A runs out
-    ~11-14, chain B ~2 weeks after it starts. Users cannot raise a limit with
-    `scontrol update`; fix = resubmit the pending links with `--time=30-...`
-    (user to decide). Account 3 does NOT last into December as things stand.
+    ~11-14, chain B ~2 weeks after it starts. **FIXED (user approved):**
+    29724 and 29726 cancelled, resubmitted 30 d: **chain A 29723 -> 29758**,
+    **chain B 29725 -> 29759** (`afterany`, same `CAMPAIGNS`, gres, dgxb).
+    29723 (running) and 29725 (pending, kept for its queue place) stay 7 d.
+    Account 3 now runs to ~12-07 (A: 29723 ends 11-07) and ~12-08 (B, if
+    29725 starts 11-01).
   - **Chain B 29725** still `Resources`, est. start 11-01 00:53 IST.
   - **Campaign 8 will probably go to account 2, not chain B.** 29176 (account
     2, old order `10 4 3 15 5 6 7 9 12 13 8`) skips the holds and 13 (account
@@ -29,10 +32,20 @@ starting cold reads this first, works, then updates it before the session ends.
     123, epoch 3. A3 shard 29658: 140/560 units after 31 h, ~4 more days, OK.
   - **⚠ Account 2 A3 shard 29655: 80/699 units after 31 h** — at that pace
     ~10 days, with 5 d 17 h left and **no continuation queued**. Rate is
-    uneven (unit costs vary), so recheck; if it stays slow, queue an
-    `afternotok` continuation. Also 29659 (account 1 final, `afterok` 29658)
-    would start ~11-04 while 29655 still runs, and recompute its unfinished
-    units — decide before then.
+    uneven (unit costs vary). **Done (user: "do whatever is correct"):**
+    continuation **29760** (account 2, `afternotok:29655`, same command, 20
+    CPU / 80G, 7 d) resumes from `~/a3_shard`'s own checkpoint (1761 lines
+    = 1681 + 80 at 17:12). **29659 (account 1 final) is HELD**
+    (`scontrol hold`): `31_eval.py` hands out units in ascending index and
+    reads `--extra-checkpoint` only at start, so starting it while account 2
+    still runs would recompute the same units in lockstep. **Release it
+    (`scontrol release 29659` on account 1) once account 2's shard log says
+    `shard 4,5,6,7,8 done`**; it then only gathers checkpoints and writes the
+    CSV. Then `chmod o-x /dgxa_home/se23ucse034` and `rm -rf ~/a3_shard`
+    (account 2). Option at the 11-04 check-in: when 29658 is done, cancel the
+    account 2 shard job and split what remains (e.g. shards 4-6 on account 2,
+    7-8 on account 1, each `--extra-checkpoint` the other's file), saving
+    ~3 days for a few hours of in-flight units lost.
   - No failures anywhere. Account 3 also runs someone else's jobs on dgxa
     (29738-29757, `cand_*`, `gpu_peak`): not ours, leave them.
 - **SESSION 22 (2026-10-30): ACCOUNT 3 ADDED AND RUNNING. All three DGX checkouts at the
@@ -3928,7 +3941,10 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
 ### Session 23 — 2026-10-31 — `campus-laptop`: read-only check of all three accounts
 
 - `squeue`/`sacct`/claims/logs on all three. Findings in the header block
-  (session 23 check). Nothing submitted, cancelled or changed on the DGX.
+  (session 23 check).
+- Then, user approved: account 3 links 29724/29726 cancelled and resubmitted
+  at 30 d (29758, 29759); account 2 A3 shard continuation 29760 queued;
+  account 1's 29659 held until account 2's shard is done.
 - New facts: account 3 links are 7 d (header `#SBATCH --time` won); campaign 4
   ends tonight and the old-order 29176 will claim 8; account 2's A3 shard is
   running behind its time limit with no continuation.

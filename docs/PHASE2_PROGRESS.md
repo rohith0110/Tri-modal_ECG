@@ -4,8 +4,37 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-10-30 (session 22, `campus-laptop`)
-- **Last checked:** 2026-10-30 ~21:00 IST (session 22, `campus-laptop`)
+- **Last updated:** 2026-10-31 (session 23, `campus-laptop`)
+- **Last checked:** 2026-10-31 ~17:05 IST (session 23, `campus-laptop`, read-only)
+- **SESSION 23 CHECK (2026-10-31 17:05 IST; supersedes session 22 where they differ):**
+  - **Account 3 chain A 29723 RUNNING** on dgxb since 10-31 00:29 IST,
+    **claimed campaign 13**, Bio_ClinicalBERT downloaded fine, training A5
+    `multimodal_fusion_lead2` seed 42, epoch 1 at 25 %, ~5 it/s (~11.7 h per
+    epoch), chunk cycling ON (8 pieces, 2 resident), swaps clean. 29 G staged.
+  - **🔴 Account 3 links are 7 days, NOT 30.** `scontrol`: 29723-29726 all
+    `TimeLimit=7-00:00:00` — the `--time=30-00:00:00` was not on the submit
+    line, so the sbatch header's 7 d won (partition allows 30). Chain A runs out
+    ~11-14, chain B ~2 weeks after it starts. Users cannot raise a limit with
+    `scontrol update`; fix = resubmit the pending links with `--time=30-...`
+    (user to decide). Account 3 does NOT last into December as things stand.
+  - **Chain B 29725** still `Resources`, est. start 11-01 00:53 IST.
+  - **Campaign 8 will probably go to account 2, not chain B.** 29176 (account
+    2, old order `10 4 3 15 5 6 7 9 12 13 8`) skips the holds and 13 (account
+    3's), and 8 is unclaimed, fits, so it takes 8 when campaign 4 ends —
+    **tonight**, not 11-02: campaign 4 is on its last runs (B5 preprocessed
+    seed 456 at 16:52 IST; B5 raw x3 left, ~20-30 min each). Then chain B takes
+    7, account 1 takes 3 after 10. Fine by design; the first `on_demand` watch
+    moves to account 2.
+  - **Account 1:** 29172 campaign 10, A5 `image_resnet50_12lead_scanlike` seed
+    123, epoch 3. A3 shard 29658: 140/560 units after 31 h, ~4 more days, OK.
+  - **⚠ Account 2 A3 shard 29655: 80/699 units after 31 h** — at that pace
+    ~10 days, with 5 d 17 h left and **no continuation queued**. Rate is
+    uneven (unit costs vary), so recheck; if it stays slow, queue an
+    `afternotok` continuation. Also 29659 (account 1 final, `afterok` 29658)
+    would start ~11-04 while 29655 still runs, and recompute its unfinished
+    units — decide before then.
+  - No failures anywhere. Account 3 also runs someone else's jobs on dgxa
+    (29738-29757, `cand_*`, `gpu_peak`): not ours, leave them.
 - **SESSION 22 (2026-10-30): ACCOUNT 3 ADDED AND RUNNING. All three DGX checkouts at the
   session 22 docs commit.**
   - **Scholar account `se23pcse004` = `ssh mudgx-scholar`**
@@ -3895,3 +3924,13 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   free are too small to trust.
 - Accounts 1 and 2 untouched: their running links keep the script they
   were submitted with, and the change only adds an override they don't set.
+
+### Session 23 — 2026-10-31 — `campus-laptop`: read-only check of all three accounts
+
+- `squeue`/`sacct`/claims/logs on all three. Findings in the header block
+  (session 23 check). Nothing submitted, cancelled or changed on the DGX.
+- New facts: account 3 links are 7 d (header `#SBATCH --time` won); campaign 4
+  ends tonight and the old-order 29176 will claim 8; account 2's A3 shard is
+  running behind its time limit with no continuation.
+- **Trap:** Slurm runs the batch script *copy stored at submit*
+  (`scontrol write batch_script <id> -`), not the checkout's current file.

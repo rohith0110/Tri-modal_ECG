@@ -6,6 +6,15 @@ starting cold reads this first, works, then updates it before the session ends.
 
 - **Last updated:** 2026-11-03 ~13:05 IST (session 24, `campus-laptop`)
 - **Last checked:** 2026-11-03 ~12:50 IST (session 24, `campus-laptop`, read-only)
+- **SESSION 24 LINKS (user: make sure it all runs automatically).** Added
+  `afterany` links, same `CAMPAIGNS` list: account 1 **33740 -> 33741 -> 33742
+  -> 33743** (after 29647, to ~12-23); account 2 **33744 -> 33745 -> 33746 ->
+  33747** (after 29650, to ~12-20); account 3 chain A **33748** (after 29758),
+  chain B **33749** (after 29759), 30 d each, to ~01-06. **Rough ETAs:** 10
+  ~11-08, 3 ~11-07, 15 ~11-10, 7 ~11-14, 12/9/6/5 ~late Nov-early Dec.
+  **Bottleneck: campaigns 13 and 8** (full-cohort fusion, ~14 h/epoch, ~5-7
+  days per run, 15 and 12 runs on one GPU each) — ~Feb 2027 at this rate.
+  Then 11/14 by hand after merge.
 - **SESSION 24 FIXES (2026-11-03 ~13:05 IST, user: "fix and run it again fast").
   All four DGX checkouts at `506db80`.**
   - **Campaign 8 fixed in code: pair-mode chunk cycling** (decision 21, spec

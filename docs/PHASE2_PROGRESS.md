@@ -4,8 +4,30 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-10-31 (session 23, `campus-laptop`)
-- **Last checked:** 2026-10-31 ~17:05 IST (session 23, `campus-laptop`, read-only)
+- **Last updated:** 2026-11-03 (session 24, `campus-laptop`)
+- **Last checked:** 2026-11-03 ~12:50 IST (session 24, `campus-laptop`, read-only)
+- **SESSION 24 CHECK (2026-11-03 12:50 IST; supersedes session 23 where they differ):**
+  - **Runs done (run_summary.json in R2, all four prefixes): 153 / 312.**
+    Per campaign: 1 36/36, 2 15/15, 4 78/78 (done); 10 12/15; 3 6/15;
+    8 3/15; 15 3/15; 5, 6, 7, 9, 11, 12, 13, 14 at 0.
+  - **🔴 Campaign 8 fails (account 2, twice: 29176 and 29648).** All 12 A5/B4
+    fusion runs die at Trainer init: `RuntimeError: 1375455 row(s) read two
+    chunked modalities from different pieces, so no window holds both`
+    (`chunk_cycle.py:170`). Only B5 x3 done. Code fix needed on a laptop.
+  - **🔴 Campaign 7 fails (account 3 chain B, 29725): 0/18.** Mid-run piece
+    swap refused by the quota gate: 39.6 GB used + 6.9 GB piece > 46 GB
+    ceiling; plus 2x `FileNotFoundError ... images_clean_12lead_L3__test.tar`.
+    The campaign-level fit check passed (39.5 GB staged), the swap does not.
+    Claims for 7 and 8 still say `running`; chains moved on (B to 3, account
+    2 to 15). Not fixed this session.
+  - **Running:** account 1 29172 campaign 10 B4 seed 42 (hits 7 d limit
+    11-04 02:08 IST, 29645 follows); account 2 29648 campaign 15 A3 seed 42;
+    account 3 chain A 29723 campaign 13 A5 fusion_lead2 seed 42 **epoch 6
+    after 3.5 days** (~5 it/s); chain B 29725 campaign 3 A6 seed 42.
+  - **A3 eval shards:** account 1 29658 470/560, account 2 29655 450/699
+    (~1-1.5 days each, inside their limits). 29659 still held.
+  - **Account 2 eval backlog:** 29768 (B3) running, 25 `trimodal_eval` jobs
+    pending on `AssocGrpCPULimit` (cap 32, shard holds 20).
 - **SESSION 23 CHECK (2026-10-31 17:05 IST; supersedes session 22 where they differ):**
   - **Account 3 chain A 29723 RUNNING** on dgxb since 10-31 00:29 IST,
     **claimed campaign 13**, Bio_ClinicalBERT downloaded fine, training A5
@@ -3950,3 +3972,10 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   running behind its time limit with no continuation.
 - **Trap:** Slurm runs the batch script *copy stored at submit*
   (`scontrol write batch_script <id> -`), not the checkout's current file.
+
+### Session 24 — 2026-11-03 — `campus-laptop`: read-only check of all three accounts
+
+- `squeue`/`sacct`/claims/logs on all three, run_summary count in R2. Findings
+  in the header block (session 24 check). Nothing submitted or cancelled.
+- New facts: campaign 8 A5/B4 fusion cannot chunk-cycle (two modalities in
+  different pieces); campaign 7 piece swaps exceed account 3's 46 GB ceiling.

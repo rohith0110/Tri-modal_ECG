@@ -440,6 +440,10 @@ campaign_test_gb() {
             images_clean_12lead_valtest)    gb=1.8 ;;
             images_clean_lead2_valtest)     gb=3.6 ;;
             signals_raw_valtest)            gb=8.5 ;;
+            # L3 subsets keep their test split in its own file too (measured
+            # off R2 2026-11-03: 1.00 GB and 8.82 GB).
+            images_clean_12lead_L3)         gb=1.0 ;;
+            signals_12lead_L3)              gb=8.9 ;;
             *_valtest)
                 echo "campaign_test_gb: no measured size for $dataset" >&2; return 1 ;;
             *) continue ;;

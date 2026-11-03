@@ -399,6 +399,17 @@ data_residency:
       Block-shuffled sampling is a documented deviation from global shuffling.
       It is recorded here, per §8.2 rule 2, and MUST be disclosed in the paper's
       supplementary material.
+    pair_mode: |
+      Locked 2026-11-03 (user). A run whose rows read two chunked modalities from
+      DIFFERENT pieces (mismatched A5/B4 pairs: the signal of one study, the
+      image of another; campaign 8, 1,375,455 of 3,667,615 train rows) cannot
+      train in disjoint two-piece windows. Such a run walks every pair {p, q}
+      of the 8 pieces once per epoch (28 windows, order reshuffled every epoch,
+      two resident, one piece swapped per step where possible). A split row
+      trains in its pair's window; a single-piece row in one of the 7 windows
+      holding its piece, drawn per epoch. Every row once per epoch. Runs with
+      no split row keep plain cycling unchanged. Recorded per run in the chunk
+      metadata (`pair_mode: true`); disclose with the block-shuffle deviation.
 
 # -----------------------------------------------------------------------------
 # §8.3 — Locked training-queue order for stages P2.5-P2.8 (Round 4.2).

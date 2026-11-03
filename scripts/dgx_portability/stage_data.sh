@@ -110,9 +110,12 @@ for dataset in $DATASETS; do
         [ "$wanted" = "1" ] || continue
     fi
     # The `test` phase adds the `__test` containers to an already staged train
-    # phase; only the val/test datasets have one.
+    # phase. The val/test datasets have one, and so do the L3 subsets, which
+    # hold all three splits as separate files: campaign 7 trained A1 to the
+    # end twice and died opening `images_clean_12lead_L3__test.tar`, which the
+    # train phase excludes and this filter used to skip (job 29725).
     if [ "$PHASE" = "test" ]; then
-        case "$dataset" in *_valtest) ;; *) continue ;; esac
+        case "$dataset" in *_valtest|*_L3) ;; *) continue ;; esac
     fi
     case "$dataset" in
         *_pieces)

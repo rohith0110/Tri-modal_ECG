@@ -3200,6 +3200,20 @@ stages**, and the second corrects a mis-description in the execution plan.
    config was renamed, no run or seed dropped** — `campaign_runs.py --table`
    still reports 104 configs and 312 runs.
 
+### 12.11 Round 12 — locked 2026-11-03 (chunk cycling, pair mode)
+
+- **Pair-mode chunk cycling for runs whose rows span two pieces.** Mismatched
+  A5/B4 pairs read the signal of one study and the image of another, so under
+  the §8.2 cut 1,375,455 of campaign 8's 3,667,615 train rows need two
+  different pieces resident together (job 29648 refused them). Such a run's
+  epoch walks **every pair of pieces** as a two-piece window (28 for 8 pieces),
+  reshuffled every epoch; split rows train in their pair's window, single-piece
+  rows in a window holding their piece, drawn per epoch. §8.2 rule 2 holds:
+  every piece every epoch, reshuffled, two resident, never sequential per
+  piece. Runs with no split row are unchanged. Cost: ~28 piece fetches per
+  epoch instead of 8. Disclosed with the block-shuffle deviation
+  (`config/decision_phase2.yaml` `chunking.pair_mode`).
+
 ### 12.9 Round 10 — locked 2026-08-28 (the Plan A/B compliance audit)
 
 A cold re-read of `ECG_Benchmark_Neutral_Implementation_Plan_Plan_A_B.docx`

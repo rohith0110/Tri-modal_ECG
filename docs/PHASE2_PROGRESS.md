@@ -1181,6 +1181,12 @@ split inherited and never re-split.
 
 ---
 
+21. **Pair-mode chunk cycling (user, 2026-11-03; spec §12.11).** A run whose
+    rows read two chunked kinds from different pieces (campaign 8 A5/B4) walks
+    all 28 piece pairs per epoch; every other run keeps plain cycling.
+22. **Account 3 chain B ceiling 46 -> 50 GiB (user, 2026-11-03)**, to rerun
+    campaign 7 beside its 6.5 GB of kept A1 checkpoints. Chain A stays 46.
+
 ## 5. Open questions
 
 **Nothing is open that blocks work.** Questions 16 and 17 closed in session 16,

@@ -177,11 +177,52 @@ def row_key_ids(keys: Sequence[np.ndarray], fallback: np.ndarray,
     return out
 
 
+def row_piece_pairs(keys: Sequence[np.ndarray], fallback: np.ndarray,
+                    total_pieces: int | None = None) -> np.ndarray:
+    """Per row, the (lo, hi) pieces its chunked reads need resident together.
+
+    ``lo == hi`` for a row whose reads all sit in one piece (and for a row that
+    reads nothing chunked: its own id's piece). ``lo < hi`` for a mismatched
+    A5/B4 pair whose signal and image come from studies cut into different
+    pieces -- campaign 8, 1,375,455 of 3,667,615 train rows (job 29648). Such a
+    row can only train in a window that holds both, which is what pair mode in
+    `ChunkCycle` schedules. A row that would need three pieces is refused: no
+    two-piece window can hold it.
+    """
+    total = int(total_pieces or chunk_pieces.n_pieces())
+    fallback = np.asarray(fallback, dtype="int64")
+    n = len(fallback)
+    lo = np.full(n, -1, dtype="int32")
+    hi = np.full(n, -1, dtype="int32")
+    for ids in keys:
+        ids = np.asarray(ids, dtype="int64")
+        reads = ids >= 0
+        piece = np.full(n, -1, dtype="int32")
+        piece[reads] = chunk_pieces.piece_of(ids[reads], total)
+        first = reads & (lo < 0)
+        lo[first] = piece[first]
+        hi[first] = piece[first]
+        extra = reads & ~first & (piece != lo) & (piece != hi)
+        widen = extra & (lo == hi)
+        hi[widen] = piece[widen]
+        if (extra & ~widen).any():
+            raise RuntimeError(
+                f"{int((extra & ~widen).sum())} row(s) read chunked modalities from "
+                f"three different pieces; no two-piece window can hold them.")
+    none = lo < 0
+    if none.any():
+        own = chunk_pieces.piece_of(fallback[none], total)
+        lo[none] = own
+        hi[none] = own
+    return np.sort(np.stack([lo, hi], axis=1), axis=1)
+
+
 class ChunkCycle:
     """The piece order for one epoch, and the staging calls that follow it."""
 
     def __init__(self, campaign: int, study_ids: np.ndarray, *, seed: int,
-                 total_pieces: int | None = None, logger=None, dry_run: bool = False):
+                 total_pieces: int | None = None, logger=None, dry_run: bool = False,
+                 row_pairs: np.ndarray | None = None):
         self.campaign = int(campaign)
         self.study_ids = np.asarray(study_ids)
         self.seed = int(seed)
@@ -189,7 +230,22 @@ class ChunkCycle:
         self.log = logger
         self.dry_run = dry_run
         self.transport = transport()
-        self.assignment = chunk_pieces.piece_of(self.study_ids, self.total)
+        # PAIR MODE (2026-11-03, user-approved): rows whose two chunked reads
+        # sit in different pieces (`row_piece_pairs`, lo < hi) train in the
+        # window holding exactly that pair, so an epoch walks every pair of
+        # pieces instead of disjoint pairs. Off unless such a row exists, so
+        # every run without one keeps the sampling it was planned with.
+        self.pairs = None
+        if row_pairs is not None:
+            row_pairs = np.asarray(row_pairs, dtype="int32")
+            if (row_pairs[:, 0] != row_pairs[:, 1]).any():
+                self.pairs = row_pairs
+        self.pair_mode = self.pairs is not None
+        self._pair_cache: tuple[int, dict, np.ndarray] | None = None
+        if self.pair_mode:
+            self.assignment = self.pairs[:, 0].copy()
+        else:
+            self.assignment = chunk_pieces.piece_of(self.study_ids, self.total)
         # Seeded from the DISK, not from an empty list. A run that died mid-epoch
         # leaves its two pieces staged; a fresh process that assumed nothing was
         # resident would evict nothing and stage on top of them, which is how a
@@ -207,11 +263,73 @@ class ChunkCycle:
 
     def windows(self, epoch: int) -> list[list[int]]:
         """The epoch's pieces, grouped into resident windows."""
+        if self.pair_mode:
+            return self._pair_windows(epoch)
         order = self.piece_order(epoch)
         return [order[i:i + RESIDENT_PIECES] for i in range(0, len(order), RESIDENT_PIECES)]
 
-    def rows_for(self, pieces: Sequence[int]) -> np.ndarray:
-        """Row positions whose study lives in one of these pieces."""
+    def _pair_windows(self, epoch: int) -> list[list[int]]:
+        """Every pair {p, q} of pieces once, reshuffled per epoch.
+
+        Consecutive windows share a piece wherever the remaining pairs allow it,
+        so most steps evict one piece and fetch one, not two.
+        """
+        rng = np.random.default_rng(self.seed * 100_003 + epoch)
+        edges = [(a, b) for a in range(self.total) for b in range(a + 1, self.total)]
+        remaining = [edges[i] for i in rng.permutation(len(edges))]
+        if not remaining:
+            return [[0]]
+        order = [remaining.pop(0)]
+        while remaining:
+            current = set(order[-1])
+            near = [i for i, e in enumerate(remaining) if current & set(e)]
+            pick = near[int(rng.integers(len(near)))] if near else 0
+            order.append(remaining.pop(pick))
+        return [list(e) for e in order]
+
+    def _pair_assignment(self, epoch: int) -> tuple[dict, np.ndarray]:
+        """Window index per row for one epoch (pair mode).
+
+        A split row goes to the one window holding its pair. A single-piece row
+        goes to one of the ``total - 1`` windows that contain its piece, drawn
+        fresh every epoch, so every window is a near-uniform sample of the split
+        rather than a window of positives and a window of mismatches.
+        """
+        if self._pair_cache is not None and self._pair_cache[0] == epoch:
+            return self._pair_cache[1], self._pair_cache[2]
+        windows = self._pair_windows(epoch)
+        index = {tuple(w): k for k, w in enumerate(windows)}
+        by_code = np.full(self.total * self.total, -1, dtype="int32")
+        containing = [[] for _ in range(self.total)]
+        for (a, b), k in index.items():
+            by_code[a * self.total + b] = k
+            containing[a].append(k)
+            containing[b].append(k)
+        containing = np.asarray(containing, dtype="int32")      # (total, total-1)
+        lo, hi = self.pairs[:, 0], self.pairs[:, 1]
+        out = np.empty(len(lo), dtype="int32")
+        split = lo != hi
+        out[split] = by_code[lo[split].astype("int64") * self.total + hi[split]]
+        single = ~split
+        rng = np.random.default_rng(self.seed * 100_003 + epoch + 7_919)
+        out[single] = containing[lo[single], rng.integers(0, self.total - 1, int(single.sum()))]
+        self._pair_cache = (epoch, index, out)
+        return index, out
+
+    def rows_for(self, pieces: Sequence[int], epoch: int | None = None) -> np.ndarray:
+        """Row positions that train in this window.
+
+        Plain mode: rows whose study lives in one of these pieces. Pair mode:
+        the rows `_pair_assignment` gave this window for ``epoch``.
+        """
+        if self.pair_mode:
+            if epoch is None:
+                raise ValueError("pair mode needs the epoch to resolve a window's rows")
+            index, out = self._pair_assignment(int(epoch))
+            k = index.get(tuple(sorted(int(p) for p in pieces)))
+            if k is None:
+                return np.array([], dtype="int64")
+            return np.flatnonzero(out == k)
         return np.flatnonzero(np.isin(self.assignment, np.asarray(pieces, dtype="int32")))
 
     # -- staging -------------------------------------------------------------
@@ -304,6 +422,25 @@ class ChunkCycle:
         §8.2 calls the block-shuffled sampling a documented deviation from plain
         shuffling; a deviation that is not recorded per run is not documented.
         """
+        if self.pair_mode:
+            windows = self.windows(epoch)
+            return {
+                "chunked": True,
+                "n_pieces": self.total,
+                "resident_pieces": RESIDENT_PIECES,
+                "pair_mode": True,
+                "n_windows": len(windows),
+                "window_order": windows,
+                "split_rows": int((self.pairs[:, 0] != self.pairs[:, 1]).sum()),
+                "sampling": "aligned i.i.d. chunk cycling within each epoch "
+                            "(§8.2 rule 2), PAIR MODE: every pair of pieces is a "
+                            "two-piece window once per epoch, order reshuffled every "
+                            "epoch; rows split across two pieces train in their "
+                            "pair's window, single-piece rows in a window holding "
+                            "their piece drawn per epoch; shuffled inside a window",
+                "transport": self.transport,
+                "piece_salt": chunk_pieces.PIECE_SALT,
+            }
         return {
             "chunked": True,
             "n_pieces": self.total,
@@ -402,6 +539,45 @@ def _self_check() -> None:
         pass
     else:
         raise AssertionError("a row split across two pieces must be refused")
+
+    # 8. PAIR MODE: rows split across two pieces (mismatched A5/B4 pairs).
+    own = np.arange(20_000, 22_000)
+    other = own.copy()
+    other[::3] += 500_000                       # a third of rows read another study
+    pairs = row_piece_pairs([own, other], own, 8)
+    assert (pairs[:, 0] <= pairs[:, 1]).all()
+    assert (pairs[:, 0] != pairs[:, 1]).any(), "the toy set must contain split rows"
+    # no split row -> pair mode stays off and the plain assignment is unchanged
+    flat = ChunkCycle(8, own, seed=42, total_pieces=8, dry_run=True,
+                      row_pairs=row_piece_pairs([own, own], own, 8))
+    assert not flat.pair_mode
+    paired = ChunkCycle(8, own, seed=42, total_pieces=8, dry_run=True, row_pairs=pairs)
+    assert paired.pair_mode
+    for epoch in range(3):
+        windows = paired.windows(epoch)
+        assert len(windows) == 28 and len({tuple(w) for w in windows}) == 28
+        assert all(len(w) <= RESIDENT_PIECES for w in windows)
+        seen = np.concatenate([paired.rows_for(w, epoch) for w in windows])
+        assert sorted(seen.tolist()) == list(range(len(own))), \
+            "pair mode must visit every row exactly once per epoch"
+        for w in windows:
+            rows = paired.rows_for(w, epoch)
+            assert np.isin(pairs[rows], w).all(), "a row trained without its pieces"
+    assert paired.windows(0) != paired.windows(1), "window order must change per epoch"
+    shared = sum(bool(set(a) & set(b)) for a, b in zip(paired.windows(0), paired.windows(0)[1:]))
+    assert shared >= 20, f"only {shared}/27 steps swap one piece"
+    # same disk replay as case 6: never more than two pieces on disk
+    paired.staged, on_disk, peak = [], set(), 0
+    paired._stage = lambda piece: on_disk.add(int(piece))                 # noqa: E731
+    paired._evict = lambda piece: on_disk.discard(int(piece))             # noqa: E731
+    _cp.install_overlays = lambda *a, **k: None
+    try:
+        for window in paired.windows(0):
+            paired.ensure(window)
+            peak = max(peak, len(on_disk))
+    finally:
+        _cp.install_overlays = real_install
+    assert peak <= RESIDENT_PIECES
 
     print("chunk_cycle self-check PASS")
 

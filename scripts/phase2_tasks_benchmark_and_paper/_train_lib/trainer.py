@@ -50,7 +50,8 @@ from torch.utils.data import DataLoader
 
 from _dataset_lib import chunk_pieces
 from _train_lib import chunk_cycle as chunk_cycle_lib
-from _train_lib.chunk_cycle import RESIDENT_PIECES as CHUNK_RESIDENT, ChunkCycle, row_key_ids
+from _train_lib.chunk_cycle import (RESIDENT_PIECES as CHUNK_RESIDENT, ChunkCycle,
+                                     row_key_ids, row_piece_pairs)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -237,12 +238,25 @@ class Trainer:
             # Windowed by the id each row READS from a piece, not by a column
             # named `study_id`: A5/B4 have none, and the old test on that name
             # left them un-cycled and reading an unstaged shard (job 26896).
-            self.cycle = ChunkCycle(
-                campaign=int(os.environ.get("CAMPAIGN", "0")),
-                study_ids=row_key_ids(
-                    train_dataset.chunk_key_ids(staged_as_pieces),
-                    train_dataset.frame[spec.id_column].to_numpy()),
-                seed=config.seed, logger=logger)
+            key_ids = train_dataset.chunk_key_ids(staged_as_pieces)
+            own_ids = train_dataset.frame[spec.id_column].to_numpy()
+            # Rows whose two chunked reads sit in different pieces (mismatched
+            # A5/B4 pairs, campaign 8) switch the run to PAIR MODE; a run with
+            # none keeps the plain windows it was planned with, unchanged.
+            row_pairs = row_piece_pairs(key_ids, own_ids)
+            n_split = int((row_pairs[:, 0] != row_pairs[:, 1]).sum())
+            if n_split:
+                self.log.info("chunk cycling PAIR MODE: %d row(s) read two pieces; "
+                              "every pair of pieces becomes a window", n_split)
+                self.cycle = ChunkCycle(
+                    campaign=int(os.environ.get("CAMPAIGN", "0")),
+                    study_ids=own_ids, seed=config.seed, logger=logger,
+                    row_pairs=row_pairs)
+            else:
+                self.cycle = ChunkCycle(
+                    campaign=int(os.environ.get("CAMPAIGN", "0")),
+                    study_ids=row_key_ids(key_ids, own_ids),
+                    seed=config.seed, logger=logger)
             ok, detail = chunk_pieces.check_alignment()
             self.log.info("chunk cycling ON: %d pieces, %d resident, transport=%s; "
                           "alignment: %s; this run reads %s of which %s is chunked",
@@ -416,7 +430,7 @@ class Trainer:
         else:
             plan = []
             for window in self.cycle.windows(epoch):
-                pool = self.cycle.rows_for(window)
+                pool = self.cycle.rows_for(window, epoch)
                 if pool.size == 0:
                     continue
                 plan.append((window, build_batch_order(

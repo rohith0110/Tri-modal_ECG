@@ -4,8 +4,30 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-11-03 (session 24, `campus-laptop`)
+- **Last updated:** 2026-11-03 ~13:05 IST (session 24, `campus-laptop`)
 - **Last checked:** 2026-11-03 ~12:50 IST (session 24, `campus-laptop`, read-only)
+- **SESSION 24 FIXES (2026-11-03 ~13:05 IST, user: "fix and run it again fast").
+  All four DGX checkouts at `506db80`.**
+  - **Campaign 8 fixed in code: pair-mode chunk cycling** (decision 21, spec
+    §12.11). A run with rows spanning two pieces walks all 28 piece pairs per
+    epoch; plain runs unchanged. Self-check PASS (case 8 new) on a dgxa compute
+    node. **Not yet run on real data: watch the first A5 run of 8** — the log
+    line `chunk cycling PAIR MODE: N row(s) read two pieces` and the swap rate
+    (~28 fetches of ~13 GB per epoch).
+  - **Campaign 8 claim set to `hold`** so it goes to the first free chain.
+    Expected: **account 1** after campaign 10 (29172 hits its limit 11-04
+    02:08 IST, 29645 resumes 10's B4 runs, then claims 8, ~11-06). Account 1
+    was seeded with the 3 B5 `run_summary.json` files from `acct2/` so it
+    skips them; their eval stays on account 2. Merge will show those 3 dirs
+    "ON BOTH, root kept" — expected.
+  - **Campaign 7 fixed in code:** the `test` phase now stages `*_L3` subsets'
+    `__test` files (`images_clean_12lead_L3__test.tar`, 1.0 GB) and
+    `campaign_test_gb 7` = 16.7. **Chain B ceiling 46 -> 50** (decision 22) in
+    `~/se23ucse027_b/.account_env`, so 7 fits beside its 6.5 GB of kept A1
+    checkpoints. Claim stays `se23pcse004_b`: chain B reruns 7 at its next
+    link (29759, starts when 29725 ends, at the latest 11-08 00:53 IST;
+    29725 finishes campaign 3 first, then may start 12). A1 seeds 42/123
+    should resume from their checkpoints straight to test predictions.
 - **SESSION 24 CHECK (2026-11-03 12:50 IST; supersedes session 23 where they differ):**
   - **Runs done (run_summary.json in R2, all four prefixes): 153 / 312.**
     Per campaign: 1 36/36, 2 15/15, 4 78/78 (done); 10 12/15; 3 6/15;
@@ -3985,3 +4007,8 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   in the header block (session 24 check). Nothing submitted or cancelled.
 - New facts: campaign 8 A5/B4 fusion cannot chunk-cycle (two modalities in
   different pieces); campaign 7 piece swaps exceed account 3's 46 GB ceiling.
+- Then (user: fix and rerun fast): `506db80` — pair-mode chunk cycling
+  (campaign 8) and L3 test-file staging (campaign 7); decisions 21-22, spec
+  §12.11, `config/decision_phase2.yaml` `chunking.pair_mode`. Pulled on all
+  four checkouts. Claim 8 -> `hold`; B5 run_summary markers copied to account
+  1; chain B ceiling 50. Nothing cancelled or submitted.

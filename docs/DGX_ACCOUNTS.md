@@ -19,7 +19,7 @@ reached by SSH key from the `campus-laptop`.
 | home | `/dgxa_home/se23ucse027` | `/dgxa_home/se23ucse034` | **`/dgxb_home/se23pcse004`**: local disk on dgxb, NFS on dgxa |
 | project checkout | `~/se23ucse027` | `~/se23ucse027` (same folder name, its own home) | **two**: `~/se23ucse027` (chain A) and `~/se23ucse027_b` (chain B), one per GPU |
 | Python env | `~/se23ucse027/ecg_env` | **symlink** to account 1's `ecg_env` (read-only use) | **symlink** to account 1's `ecg_env`; `bin/` (rclone) symlinked too |
-| quota ceiling | 49 GiB (code default) | 49 GiB, from `.account_env` | **46 GiB per checkout** (2 x 46 = 92 GiB of a 100 GB quota), from each `.account_env`, measured over the project folders only (see Storage) |
+| quota ceiling | 49 GiB (code default) | 49 GiB, from `.account_env` | **46 GiB chain A, 50 GiB chain B** (since 2026-11-03, for campaign 7; 96 GiB of a 100 GB quota), from each `.account_env`, measured over the project folders only (see Storage) |
 | results in R2 | `r2-results:trimodal-results/` | `r2-results:trimodal-results/acct2/`, from `.account_env` | `r2-results:trimodal-results/acct3/` (chain A), `.../acct3b/` (chain B), from each `.account_env` |
 | Slurm association | `student`, QOS `normal` | `student`, QOS `normal` | **`scholar`**, QOS `normal` |
 | Slurm cap (`GrpTRES`, per user) | cpu=32, gres/gpu=1, mem=256G | cpu=32, gres/gpu=1, mem=256G | **cpu=48, gres/gpu=2, mem=384G** |

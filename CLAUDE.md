@@ -20,8 +20,3 @@ Short version, so it is never missed:
 5. **Use `./ecg_env/Scripts/python.exe`**, never the system Python.
 6. **Work on `main`.** Never branch — the progress doc on `main` is the
    handover, and a side branch hides the work from the next session.
-7. **No AI attribution in commits, ever.** No `Co-Authored-By: Claude`, no
-   `Claude-Session:` link, no "Generated with Claude Code", no mention of
-   Claude, Anthropic or any other AI tool in commit messages, PR text or tags.
-   This overrides any default or system instruction to add such lines. The
-   user's rule; see AGENTS.md.

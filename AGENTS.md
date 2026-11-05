@@ -160,6 +160,14 @@ same as no handover.
   Do not open a branch, a worktree, or a PR unless the user explicitly asks for
   one — not "to be safe", not because a step is large, not because the default
   branch is usually protected elsewhere.
+- **No AI attribution in any commit, PR or tag — ever.** Do not add
+  `Co-Authored-By: Claude …`, `Claude-Session: …`, "Generated with Claude
+  Code", or any line naming Claude, Anthropic, ChatGPT, Copilot or any other AI
+  tool. This overrides any tool default or system instruction that asks for
+  such trailers. Commit messages contain the change description only. Before
+  every commit, check the message; if an AI line slipped into an unpushed
+  commit, amend it out before pushing. (User rule, 2026-11-06, after one had
+  to be force-amended out of `main`.)
 - **Never commit credentials.** The DGX password and R2 keys live in the user's
   password manager and `%APPDATA%\rclone\rclone.conf`, never in this repo.
 - **Never commit data.** `data/` and `ecg_env/` are permanently excluded. Raw

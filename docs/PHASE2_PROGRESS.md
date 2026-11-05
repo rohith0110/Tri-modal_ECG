@@ -4,7 +4,16 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-11-03 ~13:05 IST (session 24, `campus-laptop`)
+- **Last updated:** 2026-11-06 (session 25, `campus-laptop`, off campus: no DGX)
+- **SESSION 25 (2026-11-06, off campus, R2 read only, no DGX):** `main` on
+  GitHub had been history-rewritten (148 commits re-hashed, tree identical);
+  this checkout was reset to the new `origin/main`. **R2 count: 159 / 312
+  runs** (campaign 10 13/15, 3 9/15, 15 5/15, 8 3/15). Progress-review deck
+  + outline in `docs/progress_review/`. **Two things to check:** (1) A5/B4
+  image tiers score AUROC ~0.75, but every `image_type = scanlike` test row
+  is a positive (`n_positive == n_rows`), so the image model can win by
+  spotting scan-like rendering — likely a shortcut; (2) B5
+  `multimodal_fusion_12lead` val AUPRC = 1.000 on all 3 seeds.
 - **Last checked:** 2026-11-03 ~12:50 IST (session 24, `campus-laptop`, read-only)
 - **SESSION 24 LINKS (user: make sure it all runs automatically).** Added
   `afterany` links, same `CAMPAIGNS` list: account 1 **33740 -> 33741 -> 33742
@@ -4021,3 +4030,17 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   §12.11, `config/decision_phase2.yaml` `chunking.pair_mode`. Pulled on all
   four checkouts. Claim 8 -> `hold`; B5 run_summary markers copied to account
   1; chain B ceiling 50. Nothing cancelled or submitted.
+
+### Session 25 — 2026-11-06 — `campus-laptop` (off campus): progress-review deck
+
+- `git pull --ff-only` refused: `origin/main` was force-rewritten (148
+  commits, same messages, `git diff HEAD origin/main` empty, clean tree), so
+  reset to `origin/main` (`d660d85`). Nothing lost.
+- No DGX (off campus). Installed rclone (winget); `r2:` read of
+  `trimodal-results` (no `.pt`/`.parquet`): 159 run_summary.json across root,
+  `acct2/`, `acct3b/` (no `acct3/` prefix yet). Test CSVs exist for A1, A3,
+  A5, A6, B4, B5 (root) and A1 signal Lead-II preprocessed (`acct2/`).
+- Wrote `docs/progress_review/` — `OUTLINE.md`, `build_deck.js`,
+  `TriECG_Progress_Review.pptx` (13 slides, for Dr. Neeraj Choudhary's
+  review). No ETAs in the deck (user). Two data concerns in the header.
+- `ecg_env` does not exist on this laptop; nothing ran that needed it.

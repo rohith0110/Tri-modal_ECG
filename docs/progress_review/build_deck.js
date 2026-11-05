@@ -22,7 +22,7 @@ const SIG = H.accent1, IMG = H.accent2, TXT = H.accent3;
 const pres = new pptxgen();
 pres.layout = "LAYOUT_16x9"; // 10 x 5.625
 pres.theme = { headFontFace: THEME.headFontFace, bodyFontFace: THEME.bodyFontFace };
-pres.title = "TriECG-Truth — Progress Review";
+pres.title = "TriECG-Truth: Progress Review";
 pres.author = "TriECG-Truth team";
 const C = pres.SchemeColor;
 
@@ -90,7 +90,7 @@ s.addNotes("Introduce the team and the one-line idea: one ECG, three ways of loo
 // ================= 2. Problem =================
 pres.addSection({ title: "Problem" });
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem" });
-s.addText("One ECG, three views — but models use only one", { placeholder: "title" });
+s.addText("One ECG, three views, but models use only one", { placeholder: "title" });
 const views = [
   ["S", SIG, "Signal", "The raw 10-second voltage trace from 12 leads"],
   ["I", IMG, "Image", "The printed or scanned chart a doctor reads"],
@@ -107,7 +107,7 @@ s.addText([
   { text: "The gap: ", options: { bold: true, color: H.accent1 } },
   { text: "most ECG AI uses one view. No shared benchmark tests all three on the same patients, or checks whether they agree.", options: { breakLine: true } },
   { text: "Our goal: ", options: { bold: true, color: H.accent2 } },
-  { text: "build that benchmark — a clean dataset, 12 tasks, trained baseline models and a fair way to compare them." },
+  { text: "build that benchmark: a clean dataset, 12 tasks, trained baseline models and a fair way to compare them." },
 ], { x: 0.5, y: 3.1, w: 9.0, h: 1.5, fontSize: 15, color: C.text1, margin: 0, paraSpaceAfter: 10, valign: "top", isTextBox: true, objectName: "gap and goal" });
 s.addNotes("Signal, image and report describe the same heartbeat. Real hospitals have all three, but research models usually take just one. Nobody has a common test that covers all three together, so we built one.");
 
@@ -124,7 +124,7 @@ stats.forEach(([n, l], i) => {
 });
 s.addText([
   { text: "Source: MIMIC-IV-ECG, linked to the patients' hospital records (MIMIC-IV)", options: { bullet: true, breakLine: true } },
-  { text: "Split by patient: 70 % train / 10 % validation / 20 % test — no patient in two splits", options: { bullet: true, breakLine: true } },
+  { text: "Split by patient: 70 % train / 10 % validation / 20 % test, no patient in two splits", options: { bullet: true, breakLine: true } },
   { text: "Every image and report generated or matched for each signal, with quality tiers", options: { bullet: true, breakLine: true } },
   { text: "All audits pass: leakage, duplicates, splits, linkage, missing data", options: { bullet: true } },
 ], { x: 0.5, y: 3.0, w: 9.0, h: 1.9, fontSize: 14, color: C.text1, margin: 0, paraSpaceAfter: 6, valign: "top", isTextBox: true, objectName: "dataset facts" });
@@ -137,7 +137,7 @@ const trackA = [["A1", "Diagnose 5 heart conditions"], ["A2", "Estimate heart ra
   ["A4", "Locate each heartbeat and QRS"], ["A5", "Check signal, image and report match"], ["A6", "Predict death and readmission risk"]];
 const trackB = [["B1", "Estimate heart rate and intervals"], ["B2", "Same, on noisy signals"], ["B3", "Find when events occur in 10 s"],
   ["B4", "Check signal, image and report match"], ["B5", "Spot reports that were altered"], ["B6", "Matching, graded by difficulty"]];
-[[trackA, "Track A — linked to hospital records", H.accent1, 0.5], [trackB, "Track B — the ECG on its own", H.accent2, 5.1]].forEach(([rows, head, col, x]) => {
+[[trackA, "Track A: linked to hospital records", H.accent1, 0.5], [trackB, "Track B: the ECG on its own", H.accent2, 5.1]].forEach(([rows, head, col, x]) => {
   s.addText(head, { x, y: 1.1, w: 4.4, h: 0.4, fontSize: 15, bold: true, color: col, margin: 0, isTextBox: true });
   rows.forEach(([id, t], i) => {
     const y = 1.6 + i * 0.52;
@@ -193,7 +193,7 @@ side.forEach(([n, l], i) => {
   s.addText(n, { x: 7.0, y: y + 0.08, w: 2.5, h: 0.55, fontSize: 24, bold: true, color: C.accent1, align: "center", margin: 0, isTextBox: true });
   s.addText(l, { x: 7.0, y: y + 0.62, w: 2.5, h: 0.35, fontSize: 12, color: C.text1, align: "center", margin: 0, isTextBox: true });
 });
-s.addNotes("Text, 12-lead image and Lead-II signal models are complete. The big remaining block is fusion — models that see all three views at once. Those are the heart of the benchmark and also the slowest to train.");
+s.addNotes("Text, 12-lead image and Lead-II signal models are complete. The big remaining block is fusion: models that see all three views at once. Those are the heart of the benchmark and also the slowest to train.");
 
 // ================= 7. Engineering =================
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Work completed" });
@@ -256,9 +256,9 @@ s.addNotes("The ECG carries a real death-risk signal. Readmission is driven by s
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
 s.addText("Three more test-set findings", { placeholder: "title" });
 const more = [
-  ["0.98", "B5 — altered reports", "Text models spot reports where a number (heart rate, QRS, PR, axis) was changed", H.accent2],
-  ["0.32", "A3 — lab results", "Predicting abnormal labs from the report is hard: modest scores across 7 labs × 5 time windows", H.accent4],
-  ["0.50", "A5 / B4 — do views match?", "A report alone cannot tell if it belongs to an ECG: pure guessing. This is the floor fusion must beat", H.accent1],
+  ["0.98", "B5: altered reports", "Text models spot reports where a number (heart rate, QRS, PR, axis) was changed", H.accent2],
+  ["0.32", "A3: lab results", "Predicting abnormal labs from the report is hard: modest scores across 7 labs × 5 time windows", H.accent4],
+  ["0.50", "A5 / B4: do views match?", "A report alone cannot tell if it belongs to an ECG: pure guessing. This is the floor fusion must beat", H.accent1],
 ];
 more.forEach(([n, head, body, col], i) => {
   const x = 0.5 + i * 3.05;
@@ -281,7 +281,7 @@ s.addChart(pres.charts.BAR, [
   showLegend: true, legendPos: "t", showValue: true, dataLabelPosition: "outEnd", dataLabelFormatCode: "0.00", dataLabelColor: H.dk1,
   valAxisMinVal: 0.5, valAxisMaxVal: 1.0, valAxisMajorUnit: 0.1, valAxisLabelFormatCode: "0.0", barGapWidthPct: 60,
   ...axisFont, objectName: "signal validation" });
-takeaway(s, "Signal models read heart rate and intervals well, and keep their score when trained with noise (B2). Validation scores — final test scores still to come.");
+takeaway(s, "Signal models read heart rate and intervals well, and keep their score when trained with noise (B2). Validation scores; final test scores still to come.");
 s.addNotes("Metrics: A2/B1/B2 macro AUPRC averaged over heart-rate, QRS and QTc bins; A4 R-peak F1 within 10 ms; B3 mean IoU. B2 shown is the noise-augmented training regime. Best epoch, mean of 3 seeds, Lead II.");
 
 // ================= 12. Next steps =================
@@ -289,7 +289,7 @@ pres.addSection({ title: "Next steps" });
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Next steps" });
 s.addText("Next steps", { placeholder: "title" });
 const nexts = [
-  ["Finish the remaining 153 runs", "Mostly fusion models — the main comparison of the benchmark"],
+  ["Finish the remaining 153 runs", "Mostly fusion models, the main comparison of the benchmark"],
   ["Test-set scores for all 12 tasks", "Same 95 % intervals as the results shown today"],
   ["Classical baselines and statistical tests", "Is each model really better than a simple method, and than each other?"],
   ["Final audits", "Leakage, calibration and reproducibility checks before release"],
@@ -301,7 +301,7 @@ nexts.forEach(([h, b], i) => {
   s.addText(h, { x: 1.2, y, w: 8.3, h: 0.32, fontSize: 16, bold: true, color: C.text1, margin: 0, isTextBox: true });
   s.addText(b, { x: 1.2, y: y + 0.32, w: 8.3, h: 0.3, fontSize: 13, color: C.text2, margin: 0, isTextBox: true });
 });
-s.addNotes("Fusion runs are the priority: they answer the main question — does combining signal, image and report beat any single view?");
+s.addNotes("Fusion runs are the priority: they answer the main question: does combining signal, image and report beat any single view?");
 
 // ================= 13. Thanks =================
 s = pres.addSlide({ masterName: "DARK", sectionTitle: "Next steps" });

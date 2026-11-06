@@ -4,7 +4,17 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-11-06 (session 25, `campus-laptop`, off campus: no DGX)
+- **Last updated:** 2026-11-06 (session 26, `data-laptop`, no DGX)
+- **SESSION 26 (2026-11-06, `data-laptop`): first real-data pilot + A5/B4
+  shortcut CONFIRMED — open question 18.** Pilot = full task parquets capped at
+  17,500 rows/split (~5 % of A1 train), seed 42, 5 epochs, val only, RTX 3060.
+  Signal Lead-II learns on A1 (macro AUPRC 0.298 -> 0.381), A2/B1/B2 (~0.81),
+  A4 R-peak F1 0.72, B3 mIoU 0.67, A6 mortality AUROC ~0.71. Near chance: A3
+  (except troponin), A6 readmission (AUROC 0.53). **A5/B4: every `scanlike`
+  row is `y_match = 1` in TRAIN, VAL and TEST** (523,945 / 523,945 train).
+  The flag alone gives val AUROC **0.750**; the pilot A5 image model gives
+  **0.751 overall, 0.502 on clean rows**, predicting ~0.999 on every
+  scan-like row. Every A5/B4 image/fusion number is the shortcut until fixed.
 - **SESSION 25 (2026-11-06, off campus, R2 read only, no DGX):** `main` on
   GitHub had been history-rewritten (148 commits re-hashed, tree identical);
   this checkout was reset to the new `origin/main`. **R2 count: 159 / 312
@@ -1229,7 +1239,8 @@ split inherited and never re-split.
 
 ## 5. Open questions
 
-**Nothing is open that blocks work.** Questions 16 and 17 closed in session 16,
+**Question 18 blocks every A5/B4 image and fusion number** (session 26).
+Questions 16 and 17 closed in session 16,
 questions 9 and 11 in session 2.
 Session 3 built all thirteen Step-2 scripts, and in doing so resolved 1 and 3
 under their stated defaults, dissolved 2, confirmed 10 against the data, and
@@ -1255,6 +1266,7 @@ session and touch no laptop work.
 | 15  | **The chunked campaigns (6, 8, 9) could not run on pieces:** nothing read `piece_NNN.h5`, and pieces are cut from TRAIN only, so there was no val split to early-stop on and no test split to evaluate. | Step 7/8 planning | **15b CLOSED 2026-08-29, no chunking needed — the preferred outcome. MEASURED** off the containers: 12-lead int16 **101.6 KiB/study** (val 7.9 GB, test 15.6 GB), clean 12-lead images **11.7 KiB/study** (0.9 / 1.8 GB), raw 12-lead float32 **88.5 KiB/study** (6.8 / 13.6 GB). All of that fits beside two resident pieces, so val and test ship as PLAIN datasets (`signals_12lead_valtest`, `images_clean_12lead_valtest`, `signals_raw_valtest`) and nothing extra is cut. Campaign 6 is 21.0 GB training / 15.5 GB evaluating. **15a IMPLEMENTED 2026-08-29, VALIDATION BLOCKED ON QUESTION 4.** The read side is `_dataset_lib/chunk_pieces.py`: a piece already carries `study_id` per row, so it needs no new reader — an overlay makes `read_modality()` resolve it, and `modality.py` learned that a piece is stored channel-major (it carries the cutter's `piece_salt`) so it is not transposed twice. The cycling is `_train_lib/chunk_cycle.py` **in the training loop, not the Dataset**: staging is a transport call, and `stage_data.sh:51` is explicit that the loop asks for the next piece as it goes. Every piece appears once per epoch in a reshuffled order, two resident, rows shuffled inside the window; the sampling deviation and the transport are stamped into the run metadata. Both self-checks pass. **What is blocked:** fetching piece k+1 mid-epoch needs outbound internet (question 4). Written against `transport()`, so `rclone` (online) and `rclone-offline` + `TRIMODAL_SOURCE` (a mounted drive) are both expressible and the body warns on the offline one — but no mid-epoch fetch has been exercised on a real node. |
 | 16  | **The A5/B4 scan-like train/val images do not fit, and no subset makes them fit.** `image_type_column` (`task_dataset.py:524-528`) makes A5/B4 pick the rendering per row, so their scan-like rows need `image_scanlike_{12lead,lead2}` for TRAIN and VAL. R2 had only `images_scanlike_test`. | was holding campaigns 2, 3, 8, 10, 11, 13, 14 | **✅ CLOSED 2026-09-30 (session 16). CHUNKED, on the user's decision.** The measurement first: there is exactly one scan-like row per anchor and every study in the split is an anchor, so train+val is **599,470 of 749,112 studies (80.0 %)** — **`images_scanlike_12lead` 50.08 GB** (train 43.77 + val 6.31) and **`images_scanlike_lead2` 31.24 GB** (27.30 + 3.94), the first of which exceeds the entire 49 GB ceiling on its own. Scan-like is JPEG RGB at the same pixel size as clean PNG, so it costs **80.8 KiB/study against 10.8**. The method cross-checks: 12.52 + 7.81 GB of test = **18.93 GiB**, which is exactly the `images_scanlike_test` container already in R2. **What was built:** scan-like TRAIN cut at **p8 for both layouts** (`make_chunks.py`, fairness PASS, piece sizes within 0.40 %, and **0 of 523,945 studies disagree** with the `preprocessed_12lead` / `image_clean_12lead` / `raw_12lead` cuts, so one resident window serves every modality); **per-layout** `images_scanlike_<layout>_valtest` for val and test; **`images_clean_lead2` chunked at p8** plus its valtest, for campaigns 13/14 only; and `signals_lead2` split into `_preprocessed` / `_raw` (12/13/14 were staging a 6.08 GB raw file they never read — new remote prefixes, so both files were re-uploaded, 12.6 GB). **Verified by round trip:** two real pieces staged the way `stage_data.sh` stages them, `install_overlays()` run, and `read_modality()` returns **byte-identical** payloads to the base shards, with studies outside the window still resolving to the base container. **Two mechanisms were needed:** `ChunkCycle.ensure()` now **evicts before it fetches** (it used to hold the outgoing and incoming pairs at once — four pieces against a quota sized for two), and campaigns 8 and 11 use **`val_mode=on_demand`**, staging the val split only at the epoch boundary. **All 14 campaigns now pass `require_fit` in both phases**, the thinnest being campaign 12 at 27.7 GB against a 36.8 GB budget. |
 | 17  | **Does campaign 10 TRAIN on scan-like images, or only re-test on them?** `campaign_runs.py 10` emitted 30 training runs and `_campaign_body.sh` trains them, but the campaign staged the test split only and the execution plan called it "the sweeps that only need re-testing… test split only". | Step 23 | **✅ CLOSED 2026-09-30 (session 16) — IT TRAINS.** Settled against the binding documents, not by preference. **§5.3 turns image augmentation on "when *training on* scan-like or mixed clean+scanlike" and off for clean-only training**, and `model_configs.py:145` emits exactly that: `augmentation: true` on every `*_scanlike` config, `false` on every `*_clean` one. `build_image_transform` applies augmentation **only when `split == "train"`**, so the setting is meaningless unless the tier trains. It is the image-side analogue of §7.3's B2 regimes, where regime_1 (clean-trained) and regime_2 (corruption-augmented) are **both** trained arms. And its 30 runs are part of the **104 configs / 312 runs** the spec counts — treating the tier as evaluation-only would silently drop them. The Truth doc agrees on the data side: §6.1 makes the scan-like image **"Positive type 2"** of the verification task, i.e. training data, which is exactly what `image_type_column` implements. **The execution plan was wrong and has been corrected** (its Step 23 and its upload table). **Consequence:** the tier needs scan-like train+val for both layouts, so campaign 10 is **split by lead subset** exactly as 7/8/11 were into 12/13/14 — **10 is the 12-lead half, 15 the Lead-II half**, 5 configs and 15 runs each, and `--table` still reports 104 / 312. Both stage the CLEAN container too, because their A5/B4 rows pick the rendering per row. **No new data was needed** — the scan-like pieces and val/test containers built for question 16 are exactly what it reads. Measured: campaign 10 27.9 GB train / 23.2 eval, campaign 15 31.0 / 28.1. Recorded in spec §12.10. |
+| 18  | **A5/B4 scan-like shortcut.** `image_type == 'scanlike'` rows are positive-only (`y_match = 1`) in every split, so any tier that sees the rendering can score AUROC 0.750 without reading the text. Measured in the session 26 pilot: A5 image model val AUROC 0.751 overall, **0.502 on clean rows**. Options: (a) report A5/B4 on clean rows only; (b) rebuild A5/B4 with scan-like negatives (render each negative's donor scan-like too) and retrain the affected tiers; (c) drop scan-like from the training positives. | before any A5/B4 image/fusion number is used | **open — user decision** |
 
 ---
 
@@ -4044,3 +4056,33 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   `TriECG_Progress_Review.pptx` (13 slides, for Dr. Neeraj Choudhary's
   review). No ETAs in the deck (user). Two data concerns in the header.
 - `ecg_env` does not exist on this laptop; nothing ran that needed it.
+
+### Session 26 — 2026-11-06 — `data-laptop`: first real-data pilot, A5/B4 shortcut confirmed
+
+- **Before this session no pilot showed that the models learn.** Pre-flights
+  were 0-1 epochs: `dev_sample` smoke (48-row val), the campaign 2 CPU test on
+  R2 (`model_runs/_dev/c2test/A1_test`, 16 steps at lr 0.0, macro AUPRC
+  0.171 = untrained). The 400-step GPU runs (24640) are not on R2.
+- **Pilot:** `30_train.py --limit-rows 17500 --epochs 5 --seed 42
+  --skip-test` on the full task parquets (head = `study_id` order, label
+  mix preserved), RTX 3060 6 GB, launched via WMI so it outlives the session.
+  Runner, logs, `summarize.py`: `outputs/model_runs/_dev/_pilot/` (ignored).
+  13 runs, all exit 0, 13:24-17:00 IST. The `threshold_audit.md` it created
+  (did not exist before; pilot rows only) was deleted.
+
+| Task / tier | Val primary, epoch 1 -> 5 | Note |
+|---|---|---|
+| A1 signal | macro AUPRC 0.298 -> 0.381 | AF AUROC 0.83, HF 0.77, AMI 0.72 |
+| A1 text_tfidf | 0.376 -> 0.382 | plateaus at epoch 3 |
+| A2 signal | 0.763 -> 0.813 | HR MAE 1.8 bpm, QRS 7.1 ms, QTc 13.0 ms |
+| B1 / B2 signal | 0.750 -> 0.817 / 0.771 -> 0.817 | |
+| A4 signal | R-peak F1 0.573 -> 0.721 | QRS on/offset F1 ~0.11 |
+| B3 signal | mIoU 0.565 -> 0.670 | |
+| A6 signal | 0.224 -> 0.247 | mortality AUROC 0.70-0.72; readmission 0.53-0.54 |
+| A3 signal | 0.297 -> 0.321 | ~chance except troponin (0.38-0.40) |
+| A5 / B4 / B5 signal | flat at prevalence (AUROC 0.50) | expected: no text input |
+| A5 image (3 ep, 20k rows) | y_match AUPRC 0.714, AUROC 0.751 | **clean rows AUROC 0.502** — shortcut |
+
+- **Open question 18 raised** (A5/B4 scan-like rows are positive-only in all
+  splits). Needs a user decision before A5/B4 image/fusion results are used;
+  session 25's B5 val AUPRC 1.000 is still unexamined.

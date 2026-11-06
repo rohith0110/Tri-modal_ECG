@@ -4100,3 +4100,8 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   only negative `image_type` changed, B6 `eval_keys` byte-identical.
   Leakage/cohort/split audits PASS. **R2 upload of `tasks` and the A5/B4
   retrain are waiting on the user.** Plain-English write-up: `docs/PILOT_RESULTS.md`.
+- **Q18 fix confirmed by training.** A5 image pilot re-run on the rebuilt rows
+  (`outputs/model_runs/_dev/_pilot_q18/`, epoch-1 weights; epoch 2 stalled in
+  val on 6 GB VRAM shared with other apps): val AUROC **0.498** (clean 0.497,
+  scan-like 0.499), AUPRC 0.285 = prevalence. Was 0.751 / clean 0.502. The
+  pilot's `threshold_audit.md` (untracked, A5 rows only) deleted again.

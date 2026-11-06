@@ -151,9 +151,26 @@ Negatives are now drawn clean or scan-like **50/50** (deterministic, per row),
 so a scan-like image says nothing about the answer. Positives are unchanged.
 Recorded as spec §12.12 and open question 18 in `PHASE2_PROGRESS.md`.
 
+### Proof the fix works
+
+Same A5 image model, same 20,000 validation rows, rebuilt data (1 epoch — the
+laptop GPU ran out of memory in epoch 2, so the epoch-1 weights were scored):
+
+| Check | Old data | Fixed data |
+|---|---|---|
+| Rule "scan-like ⇒ match" | 0.750 | **0.500** |
+| Image model, all rows (AUROC) | 0.751 | **0.498** |
+| Image model, clean rows | 0.502 | **0.497** |
+| Image model, scan-like rows | (all positive) | **0.499** |
+| Image model, AUPRC vs prevalence 0.286 | 0.714 | **0.285** |
+
+The image model is now at chance everywhere, which is correct: an image alone
+cannot tell whether the text belongs to it. Any skill a fusion model shows on
+A5/B4 now has to come from actually comparing the modalities.
+
 ## What to do next
 
-1. Upload the rebuilt A5/B4/B6 task files to R2 and retrain the A5/B4 image
-   and fusion runs on the DGX.
+1. Upload the rebuilt A5/B4/B6 task files to R2 (waiting on approval) and
+   retrain the A5/B4 image, fusion and embedding-cosine runs on the DGX.
 2. Watch A3 and A6-readmission in the full runs — likely weak results, not bugs.
 3. Check B5 fusion's validation AUPRC of 1.000 on all 3 seeds (still unexplained).

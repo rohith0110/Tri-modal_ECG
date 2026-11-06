@@ -2,7 +2,7 @@
 
 **VERDICT: PASS** — 79 checks run, 79 passed, 0 violations.
 
-Spec §9.4 (Stage P2.3), §4.C invariant 1. Generated 2026-08-28T17:25:34Z by `scripts/phase2_tasks_benchmark_and_paper/22_audit_tasks_split.py` from the task parquets on disk — every number below is measured, none is restated from a builder's own report.
+Spec §9.4 (Stage P2.3), §4.C invariant 1. Generated 2026-11-06T11:59:54Z by `scripts/phase2_tasks_benchmark_and_paper/22_audit_tasks_split.py` from the task parquets on disk — every number below is measured, none is restated from a builder's own report.
 
 §9.4 asks for zero subject overlap across train/val/test for every task. That is checked, and so are the four things it does not cover on its own: that each row's `split` column matches the file it is stored in; that every subject's split equals the frozen `splits_subject_level.parquet` rather than anything re-derived (§4.C invariant 1); that no study crosses a split; and — for A5 and B4, whose rows point at up to three different studies — that every pointed-at modality belongs to a subject in the row's own split, and that a swapped modality on a negative comes from a different subject than the anchor.
 

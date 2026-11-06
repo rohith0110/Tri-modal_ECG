@@ -2,9 +2,9 @@
   "stage": "P2.2",
   "script": "12_build_B6_difficulty_stratified",
   "done": true,
-  "started_at": "2026-08-28T17:15:28Z",
-  "updated_at": "2026-08-28T17:15:33Z",
-  "finished_at": "2026-08-28T17:15:33Z",
+  "started_at": "2026-11-06T11:56:23Z",
+  "updated_at": "2026-11-06T11:56:31Z",
+  "finished_at": "2026-11-06T11:56:31Z",
   "n_rows": 5693989,
   "n_studies": 749112,
   "rows_per_tier": {

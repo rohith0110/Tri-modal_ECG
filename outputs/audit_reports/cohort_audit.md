@@ -2,7 +2,7 @@
 
 **VERDICT: PASS** — 199 checks run, 199 passed, 0 violations.
 
-Spec §9.4 (Stage P2.3), §1.2 audit inventory. Generated 2026-08-28T17:22:08Z by `scripts/phase2_tasks_benchmark_and_paper/21_audit_tasks_cohort.py` from the task parquets on disk — every number below is measured, none is restated from a builder's own report.
+Spec §9.4 (Stage P2.3), §1.2 audit inventory. Generated 2026-11-06T11:59:17Z by `scripts/phase2_tasks_benchmark_and_paper/21_audit_tasks_cohort.py` from the task parquets on disk — every number below is measured, none is restated from a builder's own report.
 
 Per task: n_ECG, n_subjects, per-class counts and prevalence, missingness, linkage-tier and SQI-tier breakdowns and the cart_id top 5 — every number measured off the task parquets rather than copied from a builder's state file, so this audit can contradict Stage P2.1/P2.2 if they have drifted.
 

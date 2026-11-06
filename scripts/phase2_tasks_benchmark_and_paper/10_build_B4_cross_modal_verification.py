@@ -57,6 +57,7 @@ def main() -> int:
     df = vt.build_verification(dev=args.dev)
     vt.assert_no_cross_split_donor(df, cohort)
     vt.assert_negatives_are_mismatched(df, cohort)
+    vt.assert_rendering_balanced(df)
     log.info("B4 verification rows: %d", len(df))
 
     counts = bc.write_task_split_parquets(df, TASK, schema=vt.SCHEMA)
@@ -122,7 +123,7 @@ different rows, the comparison would measure the data, not the multitasking.
 | Analysis | Filter |
 | --- | --- |
 | Per-`neg_type` F1 (§4.B.4.8) | `neg_type` |
-| Clean vs scan-like image | `image_type` on the positive rows |
+| Clean vs scan-like image | `image_type` (positives and negatives are 50/50, §12.12) |
 | Lead-II vs 12-lead image | resolve a different modality kind for the same `image_id` |
 | Difficulty tiers | see `B6_difficulty_stratified/eval_keys.parquet` |
 

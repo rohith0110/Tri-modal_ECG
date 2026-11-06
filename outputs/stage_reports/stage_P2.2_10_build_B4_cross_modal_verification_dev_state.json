@@ -2,9 +2,9 @@
   "stage": "P2.2",
   "script": "10_build_B4_cross_modal_verification_dev",
   "done": true,
-  "started_at": "2026-08-28T12:52:19Z",
-  "updated_at": "2026-08-28T12:52:21Z",
-  "finished_at": "2026-08-28T12:52:21Z",
+  "started_at": "2026-11-06T12:00:08Z",
+  "updated_at": "2026-11-06T12:00:11Z",
+  "finished_at": "2026-11-06T12:00:11Z",
   "n_rows": 37318,
   "n_anchors": 5000,
   "n_subjects": 4761,
@@ -22,8 +22,8 @@
     "HARD_NEGATIVE_L4": 98
   },
   "image_type_counts": {
-    "clean": 32318,
-    "scanlike": 5000
+    "scanlike": 18716,
+    "clean": 18602
   },
   "by_split": {
     "train": {

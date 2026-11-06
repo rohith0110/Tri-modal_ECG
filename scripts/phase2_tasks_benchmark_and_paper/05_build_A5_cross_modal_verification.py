@@ -205,6 +205,7 @@ def main() -> int:
     verification = vt.build_verification(dev=args.dev)
     vt.assert_no_cross_split_donor(verification, cohort)
     vt.assert_negatives_are_mismatched(verification, cohort)
+    vt.assert_rendering_balanced(verification)
     counts = bc.write_task_split_parquets(verification, TASK, schema=vt.SCHEMA)
     log.info("verification rows: %d, splits %s", len(verification), counts)
 
@@ -313,10 +314,13 @@ Two rules the split contract forces, both asserted at build time:
 * **every negative disagrees with its anchor at the subject level**, so
   `y_match = 0` is not a lie for a model that has learned patient identity.
 
-Negatives all use `image_type == 'clean'` so the per-`neg_type` F1 table is not
-confounded by rendering. The clean-vs-scanlike and Lead-II-vs-12-lead
-comparisons are made by resolving a different modality kind for the same
-`image_id` at load time.
+Each negative is rendered clean or scan-like by a 50/50 hash of (anchor,
+`neg_type`), matching the positives' one-clean-one-scan-like mix, so the
+rendering carries no label information (spec §12.12, open question 18). The
+draw is independent of `neg_type`, so the per-`neg_type` F1 table is not
+confounded by rendering either. `assert_rendering_balanced` checks it per
+split at build time. The Lead-II-vs-12-lead comparison resolves a different
+modality kind for the same `image_id` at load time.
 
 `HARD_NEGATIVE_TEXT` needs a same-HR-bucket, different-subject donor in the same
 split; the few anchors without one yield 6 rows instead of 7 (§4.A.5.3).

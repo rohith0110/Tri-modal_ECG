@@ -2,12 +2,12 @@
   "stage": "P2.3",
   "script": "20_audit_tasks_leakage",
   "done": true,
-  "started_at": "2026-08-28T17:16:44Z",
-  "updated_at": "2026-08-28T17:17:57Z",
-  "finished_at": "2026-08-28T17:17:57Z",
+  "started_at": "2026-11-06T11:56:32Z",
+  "updated_at": "2026-11-06T11:58:17Z",
+  "finished_at": "2026-11-06T11:58:17Z",
   "verdict": "PASS",
   "n_checks": 88,
   "n_violations": 0,
   "report": "outputs\\audit_reports\\leakage_audit_phase2.md",
-  "elapsed_s": 72.9
+  "elapsed_s": 104.6
 }

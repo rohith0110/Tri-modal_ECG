@@ -2,7 +2,7 @@
 
 **VERDICT: PASS** — 88 checks run, 88 passed, 0 violations.
 
-Spec §9.4 (Stage P2.3), §4.C invariant 4, §11.1 leakage compliance. Generated 2026-08-28T17:17:57Z by `scripts/phase2_tasks_benchmark_and_paper/20_audit_tasks_leakage.py` from the task parquets on disk — every number below is measured, none is restated from a builder's own report.
+Spec §9.4 (Stage P2.3), §4.C invariant 4, §11.1 leakage compliance. Generated 2026-11-06T11:58:17Z by `scripts/phase2_tasks_benchmark_and_paper/20_audit_tasks_leakage.py` from the task parquets on disk — every number below is measured, none is restated from a builder's own report.
 
 `config/task_input_policy.yaml` is the single authority on leakage. This audit checks the 12 task parquets and the code that loads them against it in six gates: the column inventory §9.4 asks for, plus the model-config, dataloader, B5-single-report, A5-head-isolation and source-tree gates that cover the part of the leakage surface a column list cannot see.
 
@@ -646,19 +646,19 @@ Progress-doc trap 17: on an A5 **positive** row the text IS the unmasked anchor 
 
 | module on the model path | forbidden source read | code lines |
 | --- | --- | --- |
-| `30_train.py` | none | 440 |
-| `31_eval.py` | none | 776 |
-| `_dataset_lib/task_dataset.py` | none | 507 |
+| `30_train.py` | none | 468 |
+| `31_eval.py` | none | 1038 |
+| `_dataset_lib/task_dataset.py` | none | 633 |
 | `_dataset_lib/task_spec.py` | none | 416 |
 | `_dataset_lib/corruption.py` | none | 123 |
-| `_dataset_lib/bootstrap.py` | none | 182 |
+| `_dataset_lib/bootstrap.py` | none | 207 |
 | `_model_lib/signal_encoders.py` | none | 160 |
 | `_model_lib/image_encoders.py` | none | 63 |
 | `_model_lib/text_encoders.py` | none | 189 |
 | `_model_lib/fusion_heads.py` | none | 114 |
-| `_model_lib/task_models.py` | none | 470 |
+| `_model_lib/task_models.py` | none | 481 |
 | `_model_lib/model_configs.py` | none | 314 |
-| `_train_lib/trainer.py` | none | 670 |
+| `_train_lib/trainer.py` | none | 831 |
 | `_train_lib/metrics.py` | none | 375 |
 | `_train_lib/threshold.py` | none | 207 |
 | `_train_lib/calibration.py` | none | 194 |

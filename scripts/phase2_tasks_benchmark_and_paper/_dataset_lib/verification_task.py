@@ -26,11 +26,17 @@ Two rules the spec does not spell out but that the split contract forces:
   subject's signal would put test bytes into training -- the §4.C invariant-1
   violation the whole split exists to prevent. Donor selection is therefore
   per split.
-* **Negatives all use the clean rendering.** Fixing the rendering keeps the
-  per-``neg_type`` F1 table (§4.A.5.8) from being confounded by how the image
-  was drawn. The clean-vs-scanlike and Lead-II-vs-12-lead comparisons are done
-  by resolving a different modality kind for the same ``image_id`` at load
-  time, which is what ``image_type`` records.
+* **Negatives are rendered clean or scan-like 50/50, by hash** (spec §12.12,
+  open question 18). The positives are fixed by the Truth doc at one clean and
+  one scan-like row, so P(scan-like | positive) = 0.5. The original build drew
+  every negative clean, which made "scan-like" mean "match": the rendering flag
+  alone scored val AUROC 0.750, and an image-only model reached 0.751 overall
+  but 0.502 on clean rows. A per-row hash of (anchor, neg_type) now picks the
+  negative's rendering, so the rendering carries no label information, and
+  since the draw is independent of ``neg_type`` every negative type sees the
+  same rendering mix -- the per-``neg_type`` F1 table (§4.A.5.8) stays
+  unconfounded, which was the reason the negatives were fixed to clean.
+  ``assert_rendering_balanced`` guards it at build time.
 
 ``HARD_NEGATIVE_TEXT`` is emitted only where a same-HR-bucket, different-subject
 alternative exists in the split (§4.A.5.3), so a few anchors yield 6 rows.
@@ -103,6 +109,13 @@ SALTS = {
     "HARD_NEGATIVE_L4": 0x85EBCA6B,
     "HARD_NEGATIVE_L5": 0xC2B2AE3D,
 }
+# XORed into a negative type's salt to draw its rendering, so the rendering bit
+# is independent of the donor that type's own salt picks.
+RENDERING_SALT = 0x27D4EB2F
+# Largest allowed |P(scan-like | positive) - P(scan-like | negative)| per split.
+# The draw is a fair coin; on the 5,000-study dev sample the smallest split has
+# ~2,400 negatives, so one standard deviation is ~0.01.
+RENDERING_TOLERANCE = 0.03
 
 SCHEMA = pa.schema([
     ("anchor_study_id", pa.int64()),
@@ -138,6 +151,15 @@ def _mix(keys: np.ndarray, salt: int) -> np.ndarray:
     z = ((z ^ (z >> _U64(30))) * _U64(0xBF58476D1CE4E5B9)).astype(_U64)
     z = ((z ^ (z >> _U64(27))) * _U64(0x94D049BB133111EB)).astype(_U64)
     return (z ^ (z >> _U64(31))).astype(_U64)
+
+
+def negative_rendering(anchor_ids: np.ndarray, neg_type: str) -> np.ndarray:
+    """``'clean'`` or ``'scanlike'`` per anchor for one negative type -- a fair coin.
+
+    Deterministic in (anchor, neg_type), so a rebuild reproduces it exactly.
+    """
+    bit = (_mix(anchor_ids, SALTS[neg_type] ^ RENDERING_SALT) & _U64(1)).astype(bool)
+    return np.where(bit, "scanlike", "clean")
 
 
 def _pick_donors(study_ids: np.ndarray, subject_ids: np.ndarray, salt: int) -> np.ndarray:
@@ -314,12 +336,21 @@ def build_verification(dev: bool = False) -> pd.DataFrame:
 
         frames.append(row(anchor, anchor, anchor, "clean", 1, None))
         frames.append(row(anchor, anchor, anchor, "scanlike", 1, None))
-        frames.append(row(anchor, anchor, random_donor["TEXT_SWAP"], "clean", 0, "TEXT_SWAP"))
-        frames.append(row(anchor, random_donor["IMAGE_SWAP"], anchor, "clean", 0, "IMAGE_SWAP"))
-        frames.append(row(random_donor["SIGNAL_SWAP"], anchor, anchor, "clean", 0, "SIGNAL_SWAP"))
-        frames.append(row(anchor, anchor, hard, "clean", 0, "HARD_NEGATIVE_TEXT"))
+
+        def render(neg_type: str) -> np.ndarray:
+            return negative_rendering(anchor, neg_type)
+
+        frames.append(row(anchor, anchor, random_donor["TEXT_SWAP"],
+                          render("TEXT_SWAP"), 0, "TEXT_SWAP"))
+        frames.append(row(anchor, random_donor["IMAGE_SWAP"], anchor,
+                          render("IMAGE_SWAP"), 0, "IMAGE_SWAP"))
+        frames.append(row(random_donor["SIGNAL_SWAP"], anchor, anchor,
+                          render("SIGNAL_SWAP"), 0, "SIGNAL_SWAP"))
+        frames.append(row(anchor, anchor, hard, render("HARD_NEGATIVE_TEXT"), 0,
+                          "HARD_NEGATIVE_TEXT"))
         frames.append(row(anchor, random_donor["PARTIAL_MISMATCH"],
-                          random_donor["PARTIAL_MISMATCH_B"], "clean", 0, "PARTIAL_MISMATCH"))
+                          random_donor["PARTIAL_MISMATCH_B"], render("PARTIAL_MISMATCH"), 0,
+                          "PARTIAL_MISMATCH"))
 
         # -- Plan A/B §6.7 Levels 2-5, TEST SPLIT ONLY (see DIFFICULTY_NEG_TYPES)
         if split != "test":
@@ -327,16 +358,16 @@ def build_verification(dev: bool = False) -> pd.DataFrame:
 
         for neg_type, keys in DIFFICULTY_MATCH_KEYS.items():
             frames.append(row(anchor, anchor, _grouped_donor(pool, keys, neg_type),
-                              "clean", 0, neg_type))
+                              render(neg_type), 0, neg_type))
 
         frames.append(row(anchor, anchor, _same_subject_donor(pool, "HARD_NEGATIVE_L4"),
-                          "clean", 0, "HARD_NEGATIVE_L4"))
+                          render("HARD_NEGATIVE_L4"), 0, "HARD_NEGATIVE_L4"))
 
         # Level 5: the anchor's OWN report, one clinical claim swapped. text_id
         # stays the anchor so the row is a near-duplicate in every other respect;
         # only rows for which B5 produced a corrupted report are emitted.
         override = pd.Series(anchor, dtype="int64").map(corrupted_reports).astype("string")             if len(corrupted_reports) else pd.Series([None] * len(anchor), dtype="string")
-        level5 = row(anchor, anchor, anchor, "clean", 0, "HARD_NEGATIVE_L5",
+        level5 = row(anchor, anchor, anchor, render("HARD_NEGATIVE_L5"), 0, "HARD_NEGATIVE_L5",
                      text_override=override.to_numpy())
         frames.append(level5[pd.notna(level5["text_override"])])
 
@@ -373,6 +404,25 @@ def verification_stats(df: pd.DataFrame) -> dict:
         "image_type_counts": df.image_type.value_counts().to_dict(),
         "by_split": by_split,
     }
+
+
+def assert_rendering_balanced(df: pd.DataFrame) -> None:
+    """The image rendering must carry no label information (open question 18).
+
+    Fails when, in any split, the scan-like share of positives and of negatives
+    differ by more than ``RENDERING_TOLERANCE`` -- the shortcut an image model
+    learned when every negative was drawn clean.
+    """
+    for split, part in df.groupby("split", sort=False):
+        scan = part.image_type.astype(str).eq("scanlike")
+        positive = part.y_match.to_numpy() == 1
+        if positive.all() or not positive.any():
+            continue
+        gap = abs(float(scan[positive].mean()) - float(scan[~positive].mean()))
+        if gap > RENDERING_TOLERANCE:
+            raise RuntimeError(
+                f"{split}: scan-like share differs by {gap:.3f} between positives and "
+                f"negatives (limit {RENDERING_TOLERANCE}) -- the rendering predicts y_match")
 
 
 def assert_no_cross_split_donor(df: pd.DataFrame, cohort: pd.DataFrame) -> None:

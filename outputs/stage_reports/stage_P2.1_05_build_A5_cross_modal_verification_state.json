@@ -2,9 +2,9 @@
   "stage": "P2.1",
   "script": "05_build_A5_cross_modal_verification",
   "done": true,
-  "started_at": "2026-08-28T17:11:58Z",
-  "updated_at": "2026-08-28T17:12:52Z",
-  "finished_at": "2026-08-28T17:12:52Z",
+  "started_at": "2026-11-06T11:53:53Z",
+  "updated_at": "2026-11-06T11:55:30Z",
+  "finished_at": "2026-11-06T11:55:30Z",
   "n_verification_rows": 5693989,
   "verification": {
     "n_rows": 5693989,
@@ -24,8 +24,8 @@
       "HARD_NEGATIVE_L5": 13039
     },
     "image_type_counts": {
-      "clean": 4944877,
-      "scanlike": 749112
+      "scanlike": 2847004,
+      "clean": 2846985
     },
     "by_split": {
       "train": {

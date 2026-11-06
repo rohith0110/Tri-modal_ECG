@@ -1058,7 +1058,8 @@ EHR isn't needed). 70/10/20 split inherited.
 
 For each anchor study: 2 positives (clean image + scanlike image) and
 5 negatives = 7 rows per study (HARD_NEGATIVE_TEXT only when a
-same-HR-bucket alternative exists).
+same-HR-bucket alternative exists). Each negative's image is rendered clean or
+scan-like 50/50 by hash, so the rendering carries no label information (§12.12).
 
 **Masked attribute head:** for each anchor study, generate an
 attribute-masked text variant where numeric mentions of HR, QRS, QT,
@@ -3213,6 +3214,31 @@ stages**, and the second corrects a mis-description in the execution plan.
   piece. Runs with no split row are unchanged. Cost: ~28 piece fetches per
   epoch instead of 8. Disclosed with the block-shuffle deviation
   (`config/decision_phase2.yaml` `chunking.pair_mode`).
+
+### 12.12 Round 13 — locked 2026-11-06 (A5/B4 negative rendering, open question 18)
+
+- **A5/B4 negatives are rendered clean or scan-like 50/50.** §4.A.5.3 (from
+  Truth doc §6.1) fixes the positives at one clean and one scan-like row per
+  anchor; neither the Truth doc §6.2 nor §4.A.5.3 says how a negative's image
+  is rendered, and the original build drew every negative clean. That made the
+  rendering a label: every scan-like row was a positive in every split, the
+  flag alone scored val AUROC 0.750, and the session 26 pilot's image-only A5
+  model scored 0.751 overall and **0.502 on clean rows**. Plan A/B frames B4/B6
+  as shortcut elimination, so the gap is filled in the direction that removes
+  the shortcut.
+- **What changed:** only `image_type` on negative rows, drawn per row by a
+  splitmix64 hash of (anchor, `neg_type`) (`verification_task.negative_rendering`).
+  Every pointer (`signal_id`, `image_id`, `text_id`), every row count, the
+  positives, the 2-in-7 positive rate and the Level 2-5 test ladder are
+  unchanged. Negatives of every type, including Levels 2-5, follow the same
+  coin, so the per-`neg_type` F1 table stays unconfounded by rendering.
+- **Guard:** `assert_rendering_balanced` fails a build whose scan-like share
+  differs between positives and negatives by more than 0.03 in any split.
+- **Consequence:** every A5/B4 run that reads images (image, fusion and
+  embedding-cosine tiers, both layouts; `multimodal_fusion_notext` included)
+  trained on the old rows and must be retrained. Signal-only and text-only
+  tiers never read the rendering; their training rows only changed in a
+  column they ignore, so their results stand. **Disclose in the supplementary** (§S4 verification negatives).
 
 ### 12.9 Round 10 — locked 2026-08-28 (the Plan A/B compliance audit)
 

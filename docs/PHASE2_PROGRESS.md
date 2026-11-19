@@ -35,6 +35,24 @@ starting cold reads this first, works, then updates it before the session ends.
     to `data-laptop done` itself when every run of a campaign is complete.
   - **Before 11/14:** also `merge_acct2_results.py --prefix data-laptop
     --apply` (set `R2_RESULTS_ROOT=r2:trimodal-results` on a laptop).
+  - **Epoch time 7 min -> 2 min 13 s (A1, 263k rows).** Three fixes, none of
+    which changes a number:
+    - one train loader per epoch when all pieces are resident (smoke test
+      "all-resident stream": same loss and weights);
+    - `modality.py` opens each container's `signal`/`scale` dataset once, with
+      a 32 MB chunk cache;
+    - **this PC's four signal `*_valtest` containers were rechunked** to one
+      record per chunk (`rechunk_valtest.py`, values compared before the swap).
+      The originals are kept as `*.orig.h5`. The R2 layout (64 records x 1
+      lead) cost 26 ms per random read, and val reads in task order,
+      ~104 blocks per batch. **The DGX has the same cost on every val/test
+      pass**, which is worth fixing there too (re-upload rechunked, or
+      rechunk after staging).
+  - **This PC is missing Phase 1 data** that the §2 table lists:
+    `signals/lead2_raw.h5`, `signals_int16/lead2_preprocessed.h5`, and all
+    130 `images/clean_*` tars (`modality.py`'s self-check fails on the first).
+    Campaigns 5/6/9 do not read them. Copy them over from the old laptop
+    before any Lead-II or clean-image work here.
 - **Last checked:** 2026-11-19 ~14:10 IST (session 27). All four DGX checkouts
   are at `03d000a`.
 - **SESSION 27 (2026-11-19, `campus-laptop`): after the DGX maintenance, and

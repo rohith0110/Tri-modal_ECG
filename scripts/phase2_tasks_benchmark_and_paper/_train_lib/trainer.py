@@ -32,6 +32,7 @@ state.
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import os
@@ -40,7 +41,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 import numpy as np
 import pandas as pd
@@ -450,6 +451,16 @@ class Trainer:
         done = 0
         losses: list[float] = []
         head_totals: dict[str, float] = {}
+        # All pieces resident (decision 26): nothing is staged between windows,
+        # so ONE loader feeds the whole epoch, in the same batch order. A new
+        # loader per window respawned its workers four times an epoch, which on
+        # Windows (spawn) cost ~5 of every 7 minutes.
+        stream: Iterator[dict[str, torch.Tensor]] | None = None
+        if self.cycle is not None and self.cycle.all_resident:
+            remaining = [b for _w, bs in plan for b in bs][skip:]
+            if remaining:
+                self.cycle.ensure(plan[0][0])
+                stream = iter(self._loader(self.train_dataset, remaining))
         for window, batches in plan:
             if done + len(batches) <= skip:            # already finished on the
                 done += len(batches)                   # run being resumed
@@ -457,7 +468,8 @@ class Trainer:
             if self.cycle is not None:
                 self.cycle.ensure(window)              # stage k+1, evict k-1
             local_skip = max(0, skip - done)
-            loss, heads = self._run_epoch(batches[local_skip:], done + local_skip, total)
+            loss, heads = self._run_epoch(batches[local_skip:], done + local_skip, total,
+                                          stream)
             losses.append(loss)
             for key, value in heads.items():
                 head_totals[key] = head_totals.get(key, 0.0) + value
@@ -587,12 +599,16 @@ class Trainer:
             chunk_cycle_lib.evict_val(campaign, self.log)
 
     def _run_epoch(self, batches: Sequence[Sequence[int]], already_done: int,
-                   total_batches: int) -> tuple[float, dict[str, float]]:
+                   total_batches: int,
+                   stream: Iterator[dict[str, torch.Tensor]] | None = None,
+                   ) -> tuple[float, dict[str, float]]:
+        """Train on `batches`; with `stream`, take exactly that many from it."""
         from tqdm import tqdm
         from tqdm.contrib.logging import logging_redirect_tqdm
 
         self.model.train()
-        loader = self._loader(self.train_dataset, batches)
+        loader = (itertools.islice(stream, len(batches)) if stream is not None
+                  else self._loader(self.train_dataset, batches))
         running = 0.0
         running_heads: dict[str, float] = {}
         seen = 0

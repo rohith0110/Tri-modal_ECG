@@ -216,10 +216,10 @@ def test_midepoch_resume(root: Path) -> bool:
     trainer, _ = build_tiny_trainer(output_dir, epochs=1, steps=3)
     original_run_epoch = trainer._run_epoch
 
-    def stop_after_two(batches, already_done, total):
+    def stop_after_two(batches, already_done, total, stream=None):
         # Let two batches complete, THEN raise the flag -- that is the order a
         # SIGTERM produces: the batch in flight finishes, the loop stops after it.
-        result = original_run_epoch(batches[:2], already_done, total)
+        result = original_run_epoch(batches[:2], already_done, total, stream)
         trainer.stop_requested = True
         return result
 
@@ -249,9 +249,9 @@ def test_midepoch_resume(root: Path) -> bool:
     seen: list[int] = []
     original = resumed._run_epoch
 
-    def record(batches, already_done, total):
+    def record(batches, already_done, total, stream=None):
         seen.append(len(batches))
-        return original(batches, already_done, total)
+        return original(batches, already_done, total, stream)
 
     resumed._run_epoch = record
     resumed.train()
@@ -396,6 +396,34 @@ def test_determinism(root: Path) -> bool:
     return True
 
 
+def test_all_resident_stream(root: Path) -> bool:
+    """One loader per epoch (all pieces resident) == one loader per window."""
+    from _train_lib.chunk_cycle import ChunkCycle
+
+    weights, losses = [], []
+    for all_resident in (False, True):
+        output_dir = root / f"all_resident_{int(all_resident)}"
+        shutil.rmtree(output_dir, ignore_errors=True)
+        trainer, spec = build_tiny_trainer(output_dir, epochs=1, steps=0)
+        ids = trainer.train_dataset.frame[spec.id_column].to_numpy()
+        cycle = ChunkCycle(0, ids, seed=42, total_pieces=4, dry_run=True)
+        cycle.all_resident = all_resident
+        cycle.ensure = lambda pieces: None                                 # noqa: E731
+        trainer.cycle = cycle
+        result = trainer.train()
+        losses.append(result["history"][0]["train_loss"])
+        weights.append({k: v.clone() for k, v in trainer.model.state_dict().items()})
+    if losses[0] != losses[1]:
+        print(f"  FAIL  all-resident stream: train_loss {losses[0]} vs {losses[1]}")
+        return False
+    for key in weights[0]:
+        if not torch.equal(weights[0][key], weights[1][key]):
+            print(f"  FAIL  all-resident stream: {key} differs from the per-window run")
+            return False
+    print("  PASS  all-resident stream (same loss and weights as one loader per window)")
+    return True
+
+
 # -----------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -438,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
                          ("epoch-boundary resume", lambda: test_epoch_boundary_resume(root)),
                          ("preemption handler", lambda: test_preemption_handler(root)),
                          ("determinism", lambda: test_determinism(root)),
+                         ("all-resident stream", lambda: test_all_resident_stream(root)),
                          ("layout probe", test_layout_probe),
                          ("gates", test_gates)):
             try:

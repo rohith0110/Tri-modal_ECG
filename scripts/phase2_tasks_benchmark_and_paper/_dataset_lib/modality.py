@@ -212,6 +212,9 @@ def _index_for(kind: str) -> dict:
 # sees float32 arrays either way and needs no change. This is the switch the
 # Step 5 equivalence proof flips, and the same one the DGX runs under once the
 # staged data is int16.
+H5_CHUNK_CACHE_BYTES = 32 * 1024 ** 2      # per open container; see _h5()
+
+
 def use_int16() -> bool:
     return os.environ.get("TRIMODAL_SIGNAL_INT16", "") not in ("", "0", "false", "False")
 
@@ -232,7 +235,13 @@ def _h5(path: str):
     handle = _HANDLES.get(key)
     if handle is None:
         # swmr=False: we are a plain reader, not a SWMR writer (spec §8.5).
-        handle = h5py.File(str(_resolve_h5(path)), "r", swmr=False)
+        # The `*_valtest` containers chunk 64 records x 1 lead (640 KB), so
+        # one record spans 12 chunks (7.7 MB). h5py's default 1 MB cache holds
+        # none of them and re-inflated all 12 for every record: 25 ms each,
+        # ~4 min of every epoch's validation. 32 MB keeps a 64-record block
+        # warm for the next 63 rows: 0.54 ms (measured 2026-11-19). Read speed only.
+        handle = h5py.File(str(_resolve_h5(path)), "r", swmr=False,
+                           rdcc_nbytes=H5_CHUNK_CACHE_BYTES, rdcc_nslots=10007)
         _HANDLES[key] = handle
     return handle
 
@@ -278,6 +287,7 @@ def close_handles() -> None:
         try:
             handle = _HANDLES.pop(key)
             _CHANNEL_MAJOR.pop(id(handle), None)   # ids get reused; do not cache across closes
+            _SIGNAL_DATASETS.pop(id(handle), None)
             handle.close()
         except Exception:  # pragma: no cover - teardown must not raise
             pass
@@ -366,15 +376,34 @@ def _is_channel_major(handle) -> bool:
     return known
 
 
+_SIGNAL_DATASETS: dict[int, tuple[Any, Any]] = {}
+
+
+def _signal_datasets(handle) -> tuple[Any, Any]:
+    """The container's (signal, scale-or-None) datasets, opened once per handle.
+
+    h5py's chunk cache belongs to the open Dataset object, so `handle["signal"]`
+    on every read started each record with a cold cache and the 32 MB of
+    `_h5()` bought nothing (35 ms/record on the valtest containers).
+    """
+    key = id(handle)
+    found = _SIGNAL_DATASETS.get(key)
+    if found is None:
+        found = (handle["signal"], handle["scale"] if "scale" in handle else None)
+        _SIGNAL_DATASETS[key] = found
+    return found
+
+
 def _read_signal(study_id: int, kind: str) -> np.ndarray:
     row = _index_for(kind).get(study_id)
     if row is None:
         raise ModalityError(f"no {kind} row for study_id {study_id}")
     path, container_row = row
     handle = _h5(path)
-    raw = np.asarray(handle["signal"][container_row], dtype=np.float32)
-    if "scale" in handle:                      # int16 copy -> back to physical units
-        raw = raw * np.float32(handle["scale"][container_row])
+    signal, scale = _signal_datasets(handle)
+    raw = np.asarray(signal[container_row], dtype=np.float32)
+    if scale is not None:                      # int16 copy -> back to physical units
+        raw = raw * np.float32(scale[container_row])
     if raw.ndim == 2:
         if _is_channel_major(handle):
             # A single-lead piece stores (1, 5000); the base container gives a

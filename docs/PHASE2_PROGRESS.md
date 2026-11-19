@@ -77,6 +77,14 @@ starting cold reads this first, works, then updates it before the session ends.
     - Then `chmod o-x /dgxa_home/se23ucse034` and `rm -rf ~/a3_shard`
       (account 2) once 29659 is done.
   - **B5 fusion val AUPRC 1.000** (session 25) is still unexamined.
+  - **Campaigns 5, 6 and 9 run on the `data-laptop` (user, 2026-11-19).**
+    - Their claims were `hold`, which a chain treats as free and overwrites.
+      They now read `data-laptop running 2026-11-19T09:31Z`, so every DGX chain
+      skips them.
+    - Do not set them back to `hold`. When the laptop finishes, set them to
+      `data-laptop done`.
+    - Their results must reach R2 under their own prefix before the final
+      merge.
 - **SESSION 26 (2026-11-06, `data-laptop`): first real-data pilot + A5/B4
   shortcut CONFIRMED — open question 18.** Pilot = full task parquets capped at
   17,500 rows/split (~5 % of A1 train), seed 42, 5 epochs, val only, RTX 3060.

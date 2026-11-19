@@ -51,8 +51,18 @@ starting cold reads this first, works, then updates it before the session ends.
   - **This PC is missing Phase 1 data** that the §2 table lists:
     `signals/lead2_raw.h5`, `signals_int16/lead2_preprocessed.h5`, and all
     130 `images/clean_*` tars (`modality.py`'s self-check fails on the first).
-    Campaigns 5/6/9 do not read them. Copy them over from the old laptop
-    before any Lead-II or clean-image work here.
+    Campaigns 5/6/9 do not read them. They are all in R2:
+    `rclone copy r2:trimodal-data/<signals_lead2|images_clean_lead2|images_clean_12lead>
+    data/processed` (~40 GB).
+  - **2026-11-20 02:30 IST: campaign 5 done** (12/12, claim `data-laptop
+    done`). Campaign 6 is training; 9 is queued behind it. The runner now runs
+    as a detached Windows process (`Start-Process`), since the harness's 2 h
+    background limit killed the first one; re-running the command resumes.
+  - **31_eval on Windows ran on ONE core.** The worker pool needed
+    `os.fork`; without it the eval fell to the serial loop (A1: 60/298 units
+    in 8 h). Spawned workers now re-plan the units from disk once
+    (`plan_units`); the fork path on the DGX is unchanged. Serial vs 6 spawned
+    workers on real A1 predictions: 30/30 rows identical.
 - **Last checked:** 2026-11-19 ~14:10 IST (session 27). All four DGX checkouts
   are at `03d000a`.
 - **SESSION 27 (2026-11-19, `campus-laptop`): after the DGX maintenance, and
@@ -4350,3 +4360,6 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   missing `modality_manifest.parquet` and `waveform_qc.parquet` from R2.
 - Campaigns 5 and 6 started at 15:43 IST. The raw pieces for 9 are
   downloading.
+- 2026-11-20: campaign 5 complete at 02:30 IST. `31_eval.py` now parallelises
+  on Windows (spawned workers re-plan via `plan_units`; rows identical to the
+  serial path). Runner restarted detached at 03:21 with `5 6 9`.

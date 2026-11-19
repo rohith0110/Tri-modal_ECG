@@ -484,18 +484,19 @@ def clear_checkpoint(task: str, arch_tier: str, dev: bool) -> None:
     checkpoint_path(task, arch_tier, dev).unlink(missing_ok=True)
 
 
-def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | None,
-                  eval_config: dict[str, Any], log: logging.Logger,
-                  bootstrap_override: int | None = None,
-                  jobs: int = 1,
-                  shard: tuple[set[int], int] | None = None,
-                  extra_checkpoints: Iterable[Path] = ()) -> list[dict[str, Any]]:
+def plan_units(task: str, arch_tier: str, dev: bool, seeds: list[int] | None,
+               eval_config: dict[str, Any],
+               bootstrap_override: int | None) -> dict[str, Any] | None:
+    """Everything `_compute_unit` reads, rebuilt from disk. None: no predictions.
+
+    Deterministic, so unit index k is the same unit in every process that calls
+    it -- what lets a spawned worker (Windows has no fork) rebuild the plan
+    itself instead of being sent the metric closures, which cannot be pickled.
+    """
     spec = get_task(task)
     prediction_paths = find_seed_predictions(task, arch_tier, dev, seeds)
     if not prediction_paths:
-        log.warning("%s/%s: no test_predictions.parquet found — nothing to evaluate",
-                    task, arch_tier)
-        return []
+        return None
 
     per_seed = {seed: pd.read_parquet(path) for seed, path in prediction_paths.items()}
     if task == "B6_difficulty_stratified":
@@ -518,25 +519,20 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
     if bootstrap_override:
         settings["n_iter"] = bootstrap_override
     subgroup_settings = eval_config["subgroups"]
-
-    rows: list[dict[str, Any]] = []
     groups = subgroup_values(spec, pooled, subgroup_settings)
-    log.info("%s/%s: %d seeds, %d pooled rows, %d groups",
-             task, arch_tier, len(per_seed), len(pooled), len(groups))
 
-    # ---- plan the work ----------------------------------------------------
     # One unit = (head, subgroup, metric). Units are independent: each calls
     # patient_bootstrap, which seeds its own RNG from the fixed spec seed, so a
     # unit's numbers do not depend on how many other units ran or in what order.
     # That is what makes both the parallelism below and the resume safe.
     units: list[tuple[Any, str, str, Any, Any]] = []
+    absent_heads: list[str] = []
     for head in spec.heads:
         if not head_present(head, pooled):
             # This tier could not serve the head (e.g. A5 text-only has no
             # signal/image for the masked-attribute head), so it wrote no
             # columns for it. Scoring it would invent numbers.
-            log.info("%s/%s: head %s absent from the prediction file — skipped",
-                     task, arch_tier, head.name)
+            absent_heads.append(head.name)
             continue
         fns = head_metric_fns(spec, head)
         for group_key, group_value in groups:
@@ -545,16 +541,45 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
             for metric_name, metric_fn in fns.items():
                 units.append((head, metric_name, metric_fn, group_key, group_value))
 
+    return dict(units=units, per_seed=per_seed, pooled=pooled, spec=spec,
+                settings=settings, meta=meta, prediction_paths=prediction_paths,
+                n_groups=len(groups), absent_heads=absent_heads)
+
+
+def _init_spawned_worker(plan_args: tuple) -> None:
+    _UNIT_CTX.update(plan_units(*plan_args))
+
+
+def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | None,
+                  eval_config: dict[str, Any], log: logging.Logger,
+                  bootstrap_override: int | None = None,
+                  jobs: int = 1,
+                  shard: tuple[set[int], int] | None = None,
+                  extra_checkpoints: Iterable[Path] = ()) -> list[dict[str, Any]]:
+    seeds = list(seeds) if seeds is not None else None
+    plan_args = (task, arch_tier, dev, seeds, eval_config, bootstrap_override)
+    plan = plan_units(*plan_args)
+    if plan is None:
+        log.warning("%s/%s: no test_predictions.parquet found — nothing to evaluate",
+                    task, arch_tier)
+        return []
+    units, settings = plan["units"], plan["settings"]
+    prediction_paths = plan["prediction_paths"]
+    log.info("%s/%s: %d seeds, %d pooled rows, %d groups", task, arch_tier,
+             len(plan["per_seed"]), len(plan["pooled"]), plan["n_groups"])
+    for name in plan["absent_heads"]:
+        log.info("%s/%s: head %s absent from the prediction file — skipped",
+                 task, arch_tier, name)
+
     def unit_key(head, metric_name, group_key, group_value) -> str:
         return f"{head.name}|{metric_name}|{group_key}|{group_value}"
 
     # The worker must be importable at module level: ProcessPoolExecutor pickles
     # the CALLABLE, and a nested function cannot be pickled. Only the unit index
-    # crosses the process boundary -- the frames, the metric closures and the
-    # spec are inherited through fork, which is also what keeps the ~10^5-row
-    # pooled frame from being copied per task.
-    _UNIT_CTX.update(units=units, per_seed=per_seed, pooled=pooled,
-                     spec=spec, settings=settings, meta=meta)
+    # crosses the process boundary. Under fork the frames, the metric closures
+    # and the spec are inherited (the ~10^5-row pooled frame is not copied per
+    # task); under spawn each worker rebuilds them once via plan_units.
+    _UNIT_CTX.update(plan)
     compute = _compute_unit
 
     # ---- resume ------------------------------------------------------------
@@ -591,13 +616,18 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
     # A 10,000-iteration BCa bootstrap per unit is hours of single-core work.
     # fork lets the children share `pooled`/`per_seed` copy-on-write instead of
     # pickling them per task, which matters when the pooled frame is ~10^5 rows.
-    if jobs > 1 and len(todo) > 1 and hasattr(os, "fork"):
+    # Without fork (Windows) each spawned worker re-plans once from disk; this
+    # used to fall through to the serial loop -- one core for days (2026-11-20).
+    if jobs > 1 and len(todo) > 1:
         import concurrent.futures as cf
         import multiprocessing as mp
-        context = mp.get_context("fork")
-        log.info("%s/%s: %d units to compute across %d workers",
-                 task, arch_tier, len(todo), jobs)
-        with cf.ProcessPoolExecutor(max_workers=jobs, mp_context=context) as pool:
+        forking = hasattr(os, "fork")
+        pool_args = ({"mp_context": mp.get_context("fork")} if forking else
+                     {"mp_context": mp.get_context("spawn"),
+                      "initializer": _init_spawned_worker, "initargs": (plan_args,)})
+        log.info("%s/%s: %d units to compute across %d %s workers",
+                 task, arch_tier, len(todo), jobs, "forked" if forking else "spawned")
+        with cf.ProcessPoolExecutor(max_workers=jobs, **pool_args) as pool:
             futures = {pool.submit(compute, index): index for index in todo}
             for finished, future in enumerate(cf.as_completed(futures), start=1):
                 index = futures[future]

@@ -29,6 +29,7 @@ prediction files, which it never modifies.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import logging
@@ -377,9 +378,31 @@ def checkpoint_path(task: str, arch_tier: str, dev: bool) -> Path:
     return directory / f"{task}__{arch_tier}.jsonl"
 
 
+def predictions_fingerprint(prediction_paths: dict[int, Path]) -> str:
+    """Content hash of the per-seed prediction files one evaluation reads.
+
+    A checkpointed unit is only valid for the predictions it was computed from.
+    The bootstrap stamp alone could not see a retrain: when the A5/B4 image
+    tiers were retrained on the §12.12 rows (open question 18), a leftover
+    `.eval_checkpoints` file from the shortcut-trained seeds would have been
+    adopted unit for unit, and the shortcut numbers reported for the new
+    models. Hashing the bytes, not the path or mtime, keeps the
+    `--extra-checkpoint` split across accounts working: the same predictions
+    copied or symlinked into another home hash the same.
+    """
+    digest = hashlib.sha256()
+    for seed in sorted(prediction_paths):
+        digest.update(f"seed={seed}\0".encode())
+        with Path(prediction_paths[seed]).open("rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+    return digest.hexdigest()[:20]
+
+
 def load_checkpoint(task: str, arch_tier: str, dev: bool,
                     settings: dict[str, Any],
-                    path: Path | None = None) -> dict[str, dict[str, Any]]:
+                    path: Path | None = None,
+                    predictions: str | None = None) -> dict[str, dict[str, Any]]:
     """Units already computed for this (task, tier) UNDER THE SAME SETTINGS.
 
     An evaluation is hours of work and used to be all-or-nothing: it wrote
@@ -393,13 +416,20 @@ def load_checkpoint(task: str, arch_tier: str, dev: bool,
     record whose bootstrap settings differ from the current ones is ignored and
     the unit is recomputed. A truncated final line (killed mid-write) is
     skipped for the same reason: cheaper to redo one unit than to trust it.
+
+    The same goes for the predictions (`predictions_fingerprint`): a record
+    computed from different prediction files -- a retrained seed -- is ignored.
+    A record with no fingerprint predates 2026-11-19 and is kept, so evals that
+    were already days into their units when this landed do not start over; the
+    stale A5/B4 checkpoints of that era were archived by hand instead
+    (`_stale_q18/`, PHASE2_PROGRESS open question 18).
     """
     path = path or checkpoint_path(task, arch_tier, dev)
     if not path.exists():
         return {}
     stamp = checkpoint_stamp(settings)
     done: dict[str, dict[str, Any]] = {}
-    stale = 0
+    stale = other_predictions = legacy = 0
     with path.open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
@@ -412,10 +442,22 @@ def load_checkpoint(task: str, arch_tier: str, dev: bool,
             if record.get("stamp") != stamp:
                 stale += 1
                 continue
+            recorded = record.get("predictions")
+            if recorded is None:
+                legacy += 1
+            elif predictions is not None and recorded != predictions:
+                other_predictions += 1
+                continue
             done[record["unit"]] = record["row"]
     if stale:
         print(f"  ignoring {stale} checkpointed unit(s) computed under different "
               f"bootstrap settings", file=sys.stderr)
+    if other_predictions:
+        print(f"  ignoring {other_predictions} checkpointed unit(s) computed from "
+              f"different prediction files (a retrained seed)", file=sys.stderr)
+    if legacy:
+        print(f"  {legacy} checkpointed unit(s) in {path.name} carry no predictions "
+              f"fingerprint (written before 2026-11-19); kept", file=sys.stderr)
     return done
 
 
@@ -426,11 +468,14 @@ def checkpoint_stamp(settings: dict[str, Any]) -> str:
 
 
 def append_checkpoint(task: str, arch_tier: str, dev: bool, unit: str,
-                      row: dict[str, Any], stamp: str) -> None:
+                      row: dict[str, Any], stamp: str,
+                      predictions: str | None = None) -> None:
     """Append one finished unit. Written by the parent, so it stays serialised."""
+    record = {"unit": unit, "row": row, "stamp": stamp}
+    if predictions is not None:
+        record["predictions"] = predictions
     with checkpoint_path(task, arch_tier, dev).open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"unit": unit, "row": row, "stamp": stamp},
-                                default=str) + chr(10))
+        handle.write(json.dumps(record, default=str) + chr(10))
         handle.flush()
         os.fsync(handle.fileno())
 
@@ -514,15 +559,17 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
 
     # ---- resume ------------------------------------------------------------
     stamp = checkpoint_stamp(settings)
-    done = load_checkpoint(task, arch_tier, dev, settings)
+    fingerprint = predictions_fingerprint(prediction_paths)
+    done = load_checkpoint(task, arch_tier, dev, settings, predictions=fingerprint)
     # Units another account computed (--shard there) are as good as our own:
     # same predictions, same spec seed, same stamp. Copied into our checkpoint
     # so a later resume or the final write does not depend on that file.
     for extra in extra_checkpoints:
-        theirs = load_checkpoint(task, arch_tier, dev, settings, path=extra)
+        theirs = load_checkpoint(task, arch_tier, dev, settings, path=extra,
+                                 predictions=fingerprint)
         new = {k: v for k, v in theirs.items() if k not in done}
         for key, row in new.items():
-            append_checkpoint(task, arch_tier, dev, key, row, stamp)
+            append_checkpoint(task, arch_tier, dev, key, row, stamp, fingerprint)
         done.update(new)
         log.info("%s/%s: %d units taken from %s", task, arch_tier, len(new), extra)
     rows = [None] * len(units)                       # keep deterministic order
@@ -559,7 +606,7 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
                 head, metric_name, _fn, group_key, group_value = units[index]
                 append_checkpoint(task, arch_tier, dev,
                                   unit_key(head, metric_name, group_key, group_value),
-                                  row, stamp)
+                                  row, stamp, fingerprint)
                 if finished % 10 == 0 or finished == len(todo):
                     log.info("%s/%s: %d/%d units", task, arch_tier, finished, len(todo))
     else:
@@ -568,7 +615,7 @@ def evaluate_arch(task: str, arch_tier: str, dev: bool, seeds: Iterable[int] | N
             head, metric_name, _fn, group_key, group_value = units[index]
             append_checkpoint(task, arch_tier, dev,
                               unit_key(head, metric_name, group_key, group_value),
-                              rows[index], stamp)
+                              rows[index], stamp, fingerprint)
             if finished % 10 == 0 or finished == len(todo):
                 log.info("%s/%s: %d/%d units", task, arch_tier, finished, len(todo))
 
@@ -914,6 +961,48 @@ def write_results(task: str, rows: list[dict[str, Any]], dev: bool,
     return path
 
 
+def merge_extras(previous: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """`previous` with each (section, arch_tier) entry of `new` replacing its own.
+
+    Extras are keyed section -> arch tier -> payload. The campaign evaluates one
+    tier per process, and the file used to be rewritten from that one tier, so
+    every `<task>_extras.json` held only the last tier evaluated: the calibration
+    blocks of all the others were lost (found 2026-11-19, A1/A5/B4 in R2 each
+    held `image_resnet50_12lead_scanlike` only). Same rule as `write_results`:
+    the tiers just evaluated are replaced, every other tier survives.
+    """
+    merged = {section: dict(tiers) if isinstance(tiers, dict) else tiers
+              for section, tiers in previous.items()}
+    for section, tiers in new.items():
+        if isinstance(tiers, dict) and isinstance(merged.get(section), dict):
+            merged[section].update(tiers)
+        else:
+            merged[section] = tiers
+    return merged
+
+
+def write_extras(task: str, extras: dict[str, Any], dev: bool,
+                 log: logging.Logger) -> Path:
+    directory = RESULTS_DIR / "_dev" if dev else RESULTS_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{task}_extras.json"
+    previous: dict[str, Any] = {}
+    if path.exists():
+        try:
+            previous = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            # Refuse rather than silently drop every other tier's block again.
+            raise SystemExit(f"{path} is unreadable ({error}); fix or move it first")
+    merged = merge_extras(previous, extras)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(merged, indent=2, default=str), encoding="utf-8")
+    bc.atomic_replace(tmp, path)
+    log.info("wrote %s (%s)", path.relative_to(bc.PROJECT_ROOT),
+             ", ".join(f"{s}: {len(t) if isinstance(t, dict) else 1}"
+                       for s, t in merged.items()))
+    return path
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--task", required=True)
@@ -932,6 +1021,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--retrieval", action="store_true",
                         help="also run the §7.5 retrieval check (needs checkpoint_best)")
     parser.add_argument("--no-calibration", action="store_true")
+    parser.add_argument("--extras-only", action="store_true",
+                        help="recompute only <task>_extras.json (calibration, "
+                             "event counts, B2 summary) for the given tiers and "
+                             "merge it in; no bootstrap, CSV untouched. Backfills "
+                             "the blocks the old overwrite lost")
     # No commas in the syntax: `sbatch --export=ALL,EVAL_ARGS=...` splits on
     # them, and `--shard 0,1,2,3/9` reached the job as `--shard 0`.
     parser.add_argument("--shard", default=None, metavar="A-B/N",
@@ -1043,10 +1137,11 @@ def main(argv: list[str] | None = None) -> int:
     rows: list[dict[str, Any]] = []
     extras: dict[str, Any] = {}
     for arch_tier in tiers:
-        rows += evaluate_arch(args.task, arch_tier, args.dev, args.seeds, eval_config, log,
-                              bootstrap_override=args.bootstrap_n or None,
-                              jobs=resolve_jobs(args.jobs), shard=args.shard,
-                              extra_checkpoints=args.extra_checkpoint)
+        if not args.extras_only:
+            rows += evaluate_arch(args.task, arch_tier, args.dev, args.seeds, eval_config,
+                                  log, bootstrap_override=args.bootstrap_n or None,
+                                  jobs=resolve_jobs(args.jobs), shard=args.shard,
+                                  extra_checkpoints=args.extra_checkpoint)
         if args.shard:
             # Partial rows must never reach the CSV: the run without --shard
             # (given this file via --extra-checkpoint) writes the results.
@@ -1078,6 +1173,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.shard:
         return 0
+    if args.extras_only:
+        if not extras:
+            log.error("--extras-only: nothing to write for %s", ", ".join(tiers))
+            return 1
+        write_extras(args.task, extras, args.dev, log)
+        return 0
     if not rows:
         log.error("no results produced")
         return 1
@@ -1100,10 +1201,7 @@ def main(argv: list[str] | None = None) -> int:
         clear_checkpoint(args.task, arch_tier, args.dev)
 
     if extras:
-        directory = RESULTS_DIR / "_dev" if args.dev else RESULTS_DIR
-        path = directory / f"{args.task}_extras.json"
-        path.write_text(json.dumps(extras, indent=2, default=str), encoding="utf-8")
-        log.info("wrote %s", path.relative_to(bc.PROJECT_ROOT))
+        write_extras(args.task, extras, args.dev, log)
 
     headline = [r for r in rows if r["group_key"] == "overall"
                 and r["metric"] in ("auprc", "macro_auprc", "r_peak_f1", "mIoU")]

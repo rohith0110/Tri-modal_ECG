@@ -4,7 +4,37 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-11-19 ~15:30 IST (session 27, `campus-laptop`, DGX)
+- **Last updated:** 2026-11-19 ~15:50 IST (session 28, `data-laptop`)
+- **SESSION 28 (2026-11-19, `data-laptop`): campaigns 5, 6 and 9 run on THIS
+  PC (decision 26).** The data-laptop is now an RTX 4080 SUPER 16 GB, Core
+  Ultra 7 270K (24 cores), 32 GB RAM; C: 394 GB, D: 303 GB free.
+  - **Claims in R2:** `claims/campaign_{5,6,9}` = `data-laptop running`, so
+    every DGX chain skips them (`campaign_chain.sbatch:124`). The claims are
+    read live from R2, so no DGX pull is needed for them.
+  - **Runner:** `scripts/dgx_portability/run_campaign_local.py 5 6` (then
+    `9`). It is the Windows twin of `_campaign_body.sh`: same configs and seeds,
+    the same int16 pieces from R2 (`data/processed/signals_12lead`, rclone
+    check 0 differences), and the same block-shuffled windows, with every piece
+    resident (`TRIMODAL_CHUNK_ALL_RESIDENT`, `chunk_cycle.py` self-check case 9).
+    It pushes each run to `r2:trimodal-results/data-laptop/model_runs/` and
+    checks it. Each finished (task, tier) is evaluated here on 12 CPUs and
+    pushed to `data-laptop/results/`. Logs are in `outputs/local_campaigns/`.
+    **Re-running the same command resumes.**
+  - **Started 15:43 IST.** A1 seed 42 runs at ~10 it/s with the GPU at 98 %,
+    ~100 s per epoch on 263k rows (30 epochs max).
+  - **Raw pieces for 9 (29 GB) are downloading** to
+    `data/processed/signals_raw`. Run `run_campaign_local.py --check 9`, then
+    start `9` once 5/6 finish, or in parallel only if the GPU has headroom.
+  - **Found missing on this PC:** `data/processed/modality_manifest.parquet`
+    and `waveform_qc.parquet`. They were restored from `r2:trimodal-data/index`
+    (rclone check, 6/6 match). Who removed them is unknown. The first two runs
+    failed in seconds before the restore.
+  - **The claims were written twice:** `local4080` at 09:27Z by this session,
+    then `data-laptop` at 09:31Z by the campus-laptop session (`368a87d`). The
+    runner uses `.machine` as the owner, so the two agree. It sets the claims
+    to `data-laptop done` itself when every run of a campaign is complete.
+  - **Before 11/14:** also `merge_acct2_results.py --prefix data-laptop
+    --apply` (set `R2_RESULTS_ROOT=r2:trimodal-results` on a laptop).
 - **Last checked:** 2026-11-19 ~14:10 IST (session 27). All four DGX checkouts
   are at `03d000a`.
 - **SESSION 27 (2026-11-19, `campus-laptop`): after the DGX maintenance, and
@@ -942,7 +972,10 @@ encoding moves every metric **0.42× as much as changing the training seed does*
 
 ## 3. Hardware, environments, accounts
 
-### Laptop (development only — trains nothing that reaches the paper)
+### Laptop (development; since 2026-11-19 also campaigns 5, 6, 9 — decision 26)
+
+- **Now (2026-11-19): RTX 4080 SUPER 16 GB, Core Ultra 7 270K (24 cores),
+  32 GB RAM.** The 3060 line below is history.
 
 - i7-12700H, 14C/20T, 32 GB RAM, **RTX 3060 Laptop 6 GB**, NVMe SSD
 - Free space **(re-measured 2026-10-06, after the session 18 cleanup): D:
@@ -1350,6 +1383,14 @@ split inherited and never re-split.
     before 11-19) are kept, so the A3 evals in flight keep their units. Use
     `31_eval.py --extras-only` to backfill the tier blocks the old overwrite
     lost.
+26. **The data-laptop trains paper runs: campaigns 5, 6 and 9 (user,
+    2026-11-19).** This supersedes "trains nothing that reaches the paper" in
+    §3, now that this machine has an RTX 4080 SUPER. It uses the same code,
+    configs, seeds and int16 pieces as the DGX, with the same window order and
+    rows. The only differences are the GPU model, and that pieces are never
+    evicted, so the run metadata records `transport=all-resident`. The paper
+    states which campaigns trained on which GPU. Results go to the
+    `data-laptop/` prefix and are merged like `acct2/`.
 
 ## 5. Open questions
 
@@ -4278,3 +4319,16 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   - Account 2: 39989-39996 and 26 evals 39997-40022.
   - Account 3: 40025-40028.
   - Account 1: 29659 released, 40034-40038; `acct3b` 40039.
+
+### Session 28 — 2026-11-19 — `data-laptop`: campaigns 5, 6, 9 moved to the new 4080 SUPER
+
+- The user asked to use the new GPU in parallel with the DGX. The only
+  campaigns nobody had claimed were 5, 6 and 9 (12-lead signal ResNet18, 60
+  runs), so they were claimed for `data-laptop` (decision 26).
+- Added `TRIMODAL_CHUNK_ALL_RESIDENT` to `chunk_cycle.py`: same windows, no
+  staging. Self-check case 9 proves the windows and rows are identical and
+  that no stage/evict call is made. Added `run_campaign_local.py`.
+- Downloaded and checked the 12-lead int16 pieces (50.9 GiB). Restored the
+  missing `modality_manifest.parquet` and `waveform_qc.parquet` from R2.
+- Campaigns 5 and 6 started at 15:43 IST. The raw pieces for 9 are
+  downloading.

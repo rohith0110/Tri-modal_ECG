@@ -74,6 +74,17 @@ def transport() -> str:
         return "none"
 
 
+def all_resident() -> bool:
+    """True when every piece is already on local disk and nothing is staged.
+
+    Set by `run_campaign_local.py` on a machine with room for the whole cut
+    (decision 26). The window order and the rows each window trains are
+    unchanged -- only the evict/fetch calls are skipped -- so the sampling is
+    the same block-shuffled regime the DGX runs under.
+    """
+    return os.environ.get("TRIMODAL_CHUNK_ALL_RESIDENT", "") not in ("", "0", "false", "False")
+
+
 def _shell(command: list[str], logger=None, dry_run: bool = False) -> None:
     if logger:
         logger.info("staging: %s", " ".join(str(c) for c in command))
@@ -229,7 +240,8 @@ class ChunkCycle:
         self.total = int(total_pieces or chunk_pieces.n_pieces())
         self.log = logger
         self.dry_run = dry_run
-        self.transport = transport()
+        self.all_resident = all_resident()
+        self.transport = "all-resident" if self.all_resident else transport()
         # PAIR MODE (2026-11-03, user-approved): rows whose two chunked reads
         # sit in different pieces (`row_piece_pairs`, lo < hi) train in the
         # window holding exactly that pair, so an epoch walks every pair of
@@ -363,6 +375,9 @@ class ChunkCycle:
         previous window boundary is what a resume picks up.
         """
         want = sorted(int(p) for p in pieces)
+        if self.all_resident:
+            self._ensure_all_resident()
+            return
         # "Already resident" is only a reason to return once THIS process has
         # written the overlay. The pieces on disk and the overlay that points
         # reads at them are separate files, and a run killed between a fetch
@@ -389,9 +404,23 @@ class ChunkCycle:
         the campaigns that need this, so the pieces go first and the next
         epoch's `ensure()` fetches them again.
         """
+        if self.all_resident:
+            return
         for piece in list(self.staged):
             self._evict(piece)
         self.staged = []
+
+    def _ensure_all_resident(self) -> None:
+        """Check every piece is on disk once, then point the reader at them."""
+        if self._overlays_current:
+            return
+        missing = sorted(set(range(self.total)) - set(self.resident_on_disk()))
+        if missing:
+            raise RuntimeError(
+                f"TRIMODAL_CHUNK_ALL_RESIDENT is set but pieces {missing} are not on disk")
+        self.staged = list(range(self.total))
+        chunk_pieces.install_overlays(self.log)
+        self._overlays_current = True
 
     def _run(self, command: list[str]) -> None:
         if self.log:
@@ -578,6 +607,40 @@ def _self_check() -> None:
     finally:
         _cp.install_overlays = real_install
     assert peak <= RESIDENT_PIECES
+
+    # 9. ALL-RESIDENT (decision 26): same windows and rows as a staged run, no
+    #    stage/evict call at all, and a missing piece is refused.
+    os.environ["TRIMODAL_CHUNK_ALL_RESIDENT"] = "1"
+    try:
+        local = ChunkCycle(8, ids, seed=42, total_pieces=8, dry_run=True)
+        staged = ChunkCycle(8, ids, seed=42, total_pieces=8, dry_run=True)
+        staged.all_resident = False
+        assert local.transport == "all-resident"
+        for epoch in range(3):
+            assert local.windows(epoch) == staged.windows(epoch)
+            for window in local.windows(epoch):
+                assert np.array_equal(local.rows_for(window), staged.rows_for(window))
+        calls: list[int] = []
+        local._stage = local._evict = lambda piece: calls.append(int(piece))   # noqa: E731
+        local.resident_on_disk = lambda: list(range(8))                       # noqa: E731
+        _cp.install_overlays = lambda *a, **k: None
+        try:
+            for window in local.windows(0):
+                local.ensure(window)
+            local.release()
+        finally:
+            _cp.install_overlays = real_install
+        assert calls == [], f"all-resident mode staged or evicted pieces {calls}"
+        short = ChunkCycle(8, ids, seed=42, total_pieces=8, dry_run=True)
+        short.resident_on_disk = lambda: [0, 1, 2]                            # noqa: E731
+        try:
+            short.ensure([0, 1])
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("all-resident mode must refuse missing pieces")
+    finally:
+        del os.environ["TRIMODAL_CHUNK_ALL_RESIDENT"]
 
     print("chunk_cycle self-check PASS")
 

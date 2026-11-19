@@ -4,7 +4,79 @@
 starting cold reads this first, works, then updates it before the session ends.
 `AGENTS.md` at the repo root enforces that loop.
 
-- **Last updated:** 2026-11-06 (session 26, `data-laptop`, no DGX)
+- **Last updated:** 2026-11-19 ~15:30 IST (session 27, `campus-laptop`, DGX)
+- **Last checked:** 2026-11-19 ~14:10 IST (session 27). All four DGX checkouts
+  are at `03d000a`.
+- **SESSION 27 (2026-11-19, `campus-laptop`): after the DGX maintenance, and
+  the Q18 cleanup. This supersedes the session 26 CAMPUS-LAPTOP TODO below.**
+  - **What the maintenance did.**
+    - Account 2: everything was cancelled on 11-04 09:27: chain links
+      33744-33747, A3 shard 29655 and its continuation, and 25 evals. It sat
+      idle for 15 days.
+    - Account 3: `/dgxb_home` (shared, 14T) hit ENOSPC on 11-17 21:39Z and
+      11-18 04:48Z, filled by other users. Every later run in both chains
+      failed within seconds, and both links died on 11-18 10:19 IST. **dgxb is
+      still 99 % full (158G free): watch it.**
+    - Account 3's links 33748/33749 were 7-day links, not the 30 days session
+      24 noted.
+    - Account 1 was untouched. Chain 29647 is on campaign 8 (A5
+      `multimodal_fusion_12lead` seed 42, fixed rows), and 33740-33743 follow.
+  - **Q18 on the DGX: verified.** On compute nodes, the staged A5/B4
+    train/val/test give scan-like share 0.500 for y=1 and y=0 and flag AUROC
+    0.500 on account 1, chain 3A and chain 3B. Account 2 still held the OLD copy
+    (0.000 / 0.750, staged 08-28), but nothing has trained there since 11-04,
+    and `fetch` (`rclone copy --checksum`) replaces it at the next stage.
+  - **16 stale runs, not 12.** Every image tier reads the row's own
+    `image_type` (`task_dataset.py:586`), so "clean" tiers were hit too.
+    - Archived (moved, nothing deleted): A5+B4 `image_resnet50_12lead_clean`
+      x6 and `_scanlike` x6 (root); A5 `image_resnet50_lead2_clean` x3
+      (`acct3b`; seed 456 resumed from an old-row checkpoint); A5
+      `multimodal_fusion_lead2` seed 42 (`acct3`, started on old rows 10-31).
+    - They went to `r2-results:trimodal-results/_stale_q18/<prefix>/...` and
+      `outputs/_stale_q18/` on each disk, together with root
+      `results/{A5,B4}*.csv` and `_extras.json`, their figures and their eval
+      checkpoints.
+    - **R2: 168 valid runs out of 312, 0 live A5/B4 image/fusion runs.**
+    - Clean in-flight checkpoints were kept: account 1 campaign 8 A5 fusion
+      seed 42; chain A campaign 13 A5 fusion seed 123 and B4 fusion seed 42;
+      chain B campaign 3 B4 `lead2_clean` seed 42.
+  - **Text/signal A5/B4: relabelled, not retrained** (decision 23). 48
+    prediction files (root text x12, `acct2` signal x12, test+val) now carry
+    the fixed `image_type`. The keys were verified row by row, the originals
+    are in `_stale_q18/`, and R2 is updated.
+  - **Code `03d000a`** (decision 25): eval checkpoints are bound to a content
+    hash of their predictions; `_extras.json` is merged instead of overwritten
+    (R2's A1/A5/B4 extras each held one tier); `--extras-only` backfills them.
+    4 tests PASS on dgxa.
+  - **Jobs submitted (all queued 11-19 ~14:00 IST):**
+    - **Account 2:** chain `CAMPAIGNS=15` **39989 -> 39990 -> 39991**, then
+      Q18 re-runs `campaign_02` **39992 -> 39993** and `campaign_10`
+      **39994 -> 39995** (`TRIMODAL_TASKS` = A5 B4, `--nodelist=dgxa`), then
+      the shared-list link **39996**. Also 26 evals **39997-40022** (the ones
+      cancelled 11-04, A5/B4 signal on the relabelled files).
+    - **The evals are in 6 `afterany` lanes, all at `Nice=1000`.** The
+      first 7 started and filled 28 of 32 CPUs. The chain (8 CPUs) then sat on
+      `AssocGrpCpuLimit`: the 2026-09-08 deadlock again. So 40003 was requeued
+      to a lane's tail; at most 6 evals now run (24 CPUs) and the chain keeps
+      8. At 14:15 IST 39989 waited only on a free `a100_4g.20gb` slice
+      (`Priority`). The account 1 evals 40034-40038 are also at `Nice=1000`,
+      so link 33740 wins the CPUs when 29647 ends.
+    - **Account 3:** chain A **40025 -> 40026** (`a100_4g.20gb`), chain B
+      **40027 -> 40028** (full `a100`); 30 d, dgxb, shared list.
+      `acct3b` extras backfill **40039**. Eval 37352/37356 (A5
+      `lead2_clean`, stale) was cancelled.
+    - **Account 1:** **29659 released** (A3 12-lead clean final, reads account
+      2's 2232-line shard checkpoint); text re-evals **40034-40037** (A5/B4
+      `text_tfidf`/`text_bioclinicalbert`); extras backfill **40038**.
+  - **Next check:**
+    - 39989 claims or resumes 15 (log: `campaign 15` staged with A5/B4 0.500).
+    - 40025/40027 resume 13 / 3.
+    - 40038/40039 logs: one `== task / tier` per lost block.
+    - 29659 writes `results/A3_lab_abnormality.csv`.
+    - dgxb free space.
+    - Then `chmod o-x /dgxa_home/se23ucse034` and `rm -rf ~/a3_shard`
+      (account 2) once 29659 is done.
+  - **B5 fusion val AUPRC 1.000** (session 25) is still unexamined.
 - **SESSION 26 (2026-11-06, `data-laptop`): first real-data pilot + A5/B4
   shortcut CONFIRMED — open question 18.** Pilot = full task parquets capped at
   17,500 rows/split (~5 % of A1 train), seed 42, 5 epochs, val only, RTX 3060.
@@ -19,7 +91,8 @@ starting cold reads this first, works, then updates it before the session ends.
   clean/scan-like 50/50, rebuilt + audited locally, `docs/PILOT_RESULTS.md`
   written. **ON R2 since 2026-11-06 23:55 IST** (user approved; `rclone check`
   0 differences, `check_campaign_data.py` 15/15). **CAMPUS-LAPTOP TODO
-  (Q18 retrain):** (1) any A5/B4 image/fusion/embedding run IN FLIGHT in
+  (Q18 retrain) — DONE in session 27, see above; the list below was short by 4
+  runs:** (1) any A5/B4 image/fusion/embedding run IN FLIGHT in
   campaigns 3, 8, 10, 15 staged the OLD rows at job start — let it finish,
   then treat it as stale; (2) the 12 finished stale runs must be moved out of
   the skip path (archive, do not delete) so their campaigns re-run them:
@@ -39,7 +112,6 @@ starting cold reads this first, works, then updates it before the session ends.
   is a positive (`n_positive == n_rows`), so the image model can win by
   spotting scan-like rendering — likely a shortcut; (2) B5
   `multimodal_fusion_12lead` val AUPRC = 1.000 on all 3 seeds.
-- **Last checked:** 2026-11-03 ~12:50 IST (session 24, `campus-laptop`, read-only)
 - **SESSION 24 LINKS (user: make sure it all runs automatically).** Added
   `afterany` links, same `CAMPAIGNS` list: account 1 **33740 -> 33741 -> 33742
   -> 33743** (after 29647, to ~12-23); account 2 **33744 -> 33745 -> 33746 ->
@@ -1251,6 +1323,25 @@ split inherited and never re-split.
     all 28 piece pairs per epoch; every other run keeps plain cycling.
 22. **Account 3 chain B ceiling 46 -> 50 GiB (user, 2026-11-03)**, to rerun
     campaign 7 beside its 6.5 GB of kept A1 checkpoints. Chain A stays 46.
+23. **Q18 cleanup rules (user, 2026-11-19; spec §12.12 follow-up).**
+    - A run is stale if any training step read the old A5/B4 rows, including a
+      run resumed from an old-row checkpoint.
+    - Stale runs and their eval artefacts are archived to `_stale_q18/`, never
+      deleted, and retrained.
+    - Text and signal A5/B4 prediction files get `image_type` rewritten from
+      the fixed parquet (`q18_relabel_image_type.py`) and are re-evaluated, not
+      retrained.
+24. **Campaigns 2 and 10's A5/B4 image runs are retrained on account 2
+    (user, 2026-11-19).** Order: campaign 15 first (its claim), then
+    `campaign_02`/`campaign_10` with `TRIMODAL_TASKS="A5 B4"` through an
+    `sbatch --wrap` that pushes and evicts first, then the shared list.
+    Results land in `acct2/`, so the merge picks them up. The claims for 2 and
+    10 stay `done` by account 1; the wrap does not read claims.
+25. **Eval checkpoints carry a predictions content hash; `_extras.json` is
+    merged per (section, tier)** (`03d000a`). Records without a hash (written
+    before 11-19) are kept, so the A3 evals in flight keep their units. Use
+    `31_eval.py --extras-only` to backfill the tier blocks the old overwrite
+    lost.
 
 ## 5. Open questions
 
@@ -1281,7 +1372,7 @@ session and touch no laptop work.
 | 15  | **The chunked campaigns (6, 8, 9) could not run on pieces:** nothing read `piece_NNN.h5`, and pieces are cut from TRAIN only, so there was no val split to early-stop on and no test split to evaluate. | Step 7/8 planning | **15b CLOSED 2026-08-29, no chunking needed — the preferred outcome. MEASURED** off the containers: 12-lead int16 **101.6 KiB/study** (val 7.9 GB, test 15.6 GB), clean 12-lead images **11.7 KiB/study** (0.9 / 1.8 GB), raw 12-lead float32 **88.5 KiB/study** (6.8 / 13.6 GB). All of that fits beside two resident pieces, so val and test ship as PLAIN datasets (`signals_12lead_valtest`, `images_clean_12lead_valtest`, `signals_raw_valtest`) and nothing extra is cut. Campaign 6 is 21.0 GB training / 15.5 GB evaluating. **15a IMPLEMENTED 2026-08-29, VALIDATION BLOCKED ON QUESTION 4.** The read side is `_dataset_lib/chunk_pieces.py`: a piece already carries `study_id` per row, so it needs no new reader — an overlay makes `read_modality()` resolve it, and `modality.py` learned that a piece is stored channel-major (it carries the cutter's `piece_salt`) so it is not transposed twice. The cycling is `_train_lib/chunk_cycle.py` **in the training loop, not the Dataset**: staging is a transport call, and `stage_data.sh:51` is explicit that the loop asks for the next piece as it goes. Every piece appears once per epoch in a reshuffled order, two resident, rows shuffled inside the window; the sampling deviation and the transport are stamped into the run metadata. Both self-checks pass. **What is blocked:** fetching piece k+1 mid-epoch needs outbound internet (question 4). Written against `transport()`, so `rclone` (online) and `rclone-offline` + `TRIMODAL_SOURCE` (a mounted drive) are both expressible and the body warns on the offline one — but no mid-epoch fetch has been exercised on a real node. |
 | 16  | **The A5/B4 scan-like train/val images do not fit, and no subset makes them fit.** `image_type_column` (`task_dataset.py:524-528`) makes A5/B4 pick the rendering per row, so their scan-like rows need `image_scanlike_{12lead,lead2}` for TRAIN and VAL. R2 had only `images_scanlike_test`. | was holding campaigns 2, 3, 8, 10, 11, 13, 14 | **✅ CLOSED 2026-09-30 (session 16). CHUNKED, on the user's decision.** The measurement first: there is exactly one scan-like row per anchor and every study in the split is an anchor, so train+val is **599,470 of 749,112 studies (80.0 %)** — **`images_scanlike_12lead` 50.08 GB** (train 43.77 + val 6.31) and **`images_scanlike_lead2` 31.24 GB** (27.30 + 3.94), the first of which exceeds the entire 49 GB ceiling on its own. Scan-like is JPEG RGB at the same pixel size as clean PNG, so it costs **80.8 KiB/study against 10.8**. The method cross-checks: 12.52 + 7.81 GB of test = **18.93 GiB**, which is exactly the `images_scanlike_test` container already in R2. **What was built:** scan-like TRAIN cut at **p8 for both layouts** (`make_chunks.py`, fairness PASS, piece sizes within 0.40 %, and **0 of 523,945 studies disagree** with the `preprocessed_12lead` / `image_clean_12lead` / `raw_12lead` cuts, so one resident window serves every modality); **per-layout** `images_scanlike_<layout>_valtest` for val and test; **`images_clean_lead2` chunked at p8** plus its valtest, for campaigns 13/14 only; and `signals_lead2` split into `_preprocessed` / `_raw` (12/13/14 were staging a 6.08 GB raw file they never read — new remote prefixes, so both files were re-uploaded, 12.6 GB). **Verified by round trip:** two real pieces staged the way `stage_data.sh` stages them, `install_overlays()` run, and `read_modality()` returns **byte-identical** payloads to the base shards, with studies outside the window still resolving to the base container. **Two mechanisms were needed:** `ChunkCycle.ensure()` now **evicts before it fetches** (it used to hold the outgoing and incoming pairs at once — four pieces against a quota sized for two), and campaigns 8 and 11 use **`val_mode=on_demand`**, staging the val split only at the epoch boundary. **All 14 campaigns now pass `require_fit` in both phases**, the thinnest being campaign 12 at 27.7 GB against a 36.8 GB budget. |
 | 17  | **Does campaign 10 TRAIN on scan-like images, or only re-test on them?** `campaign_runs.py 10` emitted 30 training runs and `_campaign_body.sh` trains them, but the campaign staged the test split only and the execution plan called it "the sweeps that only need re-testing… test split only". | Step 23 | **✅ CLOSED 2026-09-30 (session 16) — IT TRAINS.** Settled against the binding documents, not by preference. **§5.3 turns image augmentation on "when *training on* scan-like or mixed clean+scanlike" and off for clean-only training**, and `model_configs.py:145` emits exactly that: `augmentation: true` on every `*_scanlike` config, `false` on every `*_clean` one. `build_image_transform` applies augmentation **only when `split == "train"`**, so the setting is meaningless unless the tier trains. It is the image-side analogue of §7.3's B2 regimes, where regime_1 (clean-trained) and regime_2 (corruption-augmented) are **both** trained arms. And its 30 runs are part of the **104 configs / 312 runs** the spec counts — treating the tier as evaluation-only would silently drop them. The Truth doc agrees on the data side: §6.1 makes the scan-like image **"Positive type 2"** of the verification task, i.e. training data, which is exactly what `image_type_column` implements. **The execution plan was wrong and has been corrected** (its Step 23 and its upload table). **Consequence:** the tier needs scan-like train+val for both layouts, so campaign 10 is **split by lead subset** exactly as 7/8/11 were into 12/13/14 — **10 is the 12-lead half, 15 the Lead-II half**, 5 configs and 15 runs each, and `--table` still reports 104 / 312. Both stage the CLEAN container too, because their A5/B4 rows pick the rendering per row. **No new data was needed** — the scan-like pieces and val/test containers built for question 16 are exactly what it reads. Measured: campaign 10 27.9 GB train / 23.2 eval, campaign 15 31.0 / 28.1. Recorded in spec §12.10. |
-| 18  | **A5/B4 scan-like shortcut.** `image_type == 'scanlike'` rows are positive-only (`y_match = 1`) in every split, so any tier that sees the rendering can score AUROC 0.750 without reading the text. Measured in the session 26 pilot: A5 image model val AUROC 0.751 overall, **0.502 on clean rows**. Options: (a) report A5/B4 on clean rows only; (b) rebuild A5/B4 with scan-like negatives (render each negative's donor scan-like too) and retrain the affected tiers; (c) drop scan-like from the training positives. | before any A5/B4 image/fusion number is used | **FIXED LOCALLY 2026-11-06 (session 26), option (b) without new data** — negatives now rendered clean/scan-like 50/50 by hash (spec §12.12). Only `image_type` on negative rows changed (every pointer, row count and B6 key byte-identical vs backup `data/processed/_backup_pre_q18/`); flag AUROC 0.750 -> 0.500 in every split; audits leakage 88/88, cohort 199/199, split 79/79 PASS. **R2 upload DONE 2026-11-06 23:55 (user approved). Still open: archive + retrain the 12 stale A5/B4 image runs and any in-flight A5/B4 image/fusion run from campaigns 3/8/10/15 (campus-laptop; see header TODO).** |
+| 18  | **A5/B4 scan-like shortcut.** `image_type == 'scanlike'` rows are positive-only (`y_match = 1`) in every split, so any tier that sees the rendering can score AUROC 0.750 without reading the text. Measured in the session 26 pilot: A5 image model val AUROC 0.751 overall, **0.502 on clean rows**. Options: (a) report A5/B4 on clean rows only; (b) rebuild A5/B4 with scan-like negatives (render each negative's donor scan-like too) and retrain the affected tiers; (c) drop scan-like from the training positives. | before any A5/B4 image/fusion number is used | **FIXED LOCALLY 2026-11-06 (session 26), option (b) without new data** — negatives now rendered clean/scan-like 50/50 by hash (spec §12.12). Only `image_type` on negative rows changed (every pointer, row count and B6 key byte-identical vs backup `data/processed/_backup_pre_q18/`); flag AUROC 0.750 -> 0.500 in every split; audits leakage 88/88, cohort 199/199, split 79/79 PASS. **R2 upload DONE 2026-11-06 23:55 (user approved). 2026-11-19 (session 27, campus-laptop): DGX verified on the fixed rows** (accounts 1, 3A, 3B: scan-like 0.500/0.500, flag AUROC 0.500; account 2 still held the old copy, untouched since 11-04, re-staged on its next campaign). **16 stale runs archived to `_stale_q18/`** (R2 + disks, never deleted): A5+B4 `image_resnet50_12lead_clean` x6, A5+B4 `image_resnet50_12lead_scanlike` x6, A5 `image_resnet50_lead2_clean` x3, A5 `multimodal_fusion_lead2` seed 42. A5/B4 results CSVs, extras, figures and eval checkpoints from them were archived too. Text/signal A5/B4 predictions relabelled (48 files; decision 23) and re-evaluated. Retrain queued: campaigns 2+10 on account 2 (decision 24), 3 on chain B, 13 on chain A. **Closes when** the 16 runs have a `run_summary.json` again and A5/B4 evals are rewritten. |
 
 ---
 
@@ -2208,6 +2299,29 @@ the 12-lead halves, 12 and 13 the Lead-II ones. Project total is unchanged —
       intermediate** — campaigns 4 and 12–14 upload that exact file.
     Measure with something that does not cross a junction or it counts C: under
     D:. Run the three checks before and after and diff the output.
+23. **The DGX checkouts cannot `pull --ff-only` across the session 25 history
+    rewrite.** They sat on the old hash `506db80` until 11-19.
+    - What was done (account 1): check that the rewritten twin has the same
+      tree (`git diff <old> <twin>` empty), that `git status
+      --untracked-files=no` is clean, and that there are no own commits; then
+      `git reset --keep origin/main`.
+    - Accounts 2 and 3: the same, against `acct1/main`.
+    - `--keep` refuses rather than overwrite a local change. Never use
+      `--hard`.
+24. **A chain link whose runs fail in seconds burns through its whole list and
+    exits.** On ENOSPC (dgxb, 11-17), every run logged `TRAIN FAILED ...
+    (continuing)` and both account 3 chains died.
+    - The runs are not lost: no `run_summary.json`, so the next link retrains
+      them from the last good checkpoint.
+    - A half-written `checkpoint_last.pt.tmp` (1.5 GB) can be left behind;
+      remove it.
+    - Check `df -h /dgxb_home` before relaunching account 3.
+25. **An eval resumes only from units that match its predictions.** Since
+    `03d000a`, a record whose predictions hash differs is recomputed. Records
+    with no hash (pre-11-19) are still trusted.
+    - So before re-evaluating a tier whose predictions changed in place, move
+      its old `.eval_checkpoints/<task>__<tier>.jsonl` aside.
+    - Q18 did this by hand.
 
 ---
 
@@ -4121,3 +4235,38 @@ its `--pieces-only` path is what pre-flight 27468 exercises.
   went up (159 MiB; B6 identical, skipped). `rclone check` 0 differences,
   `check_campaign_data.py` 15/15. R2 run count **161 / 312** (was 159).
   Finished A5/B4 runs that read images and are now stale: 12 (list in header).
+
+### Session 27 — 2026-11-19 — `campus-laptop`: after the DGX maintenance, and the Q18 cleanup
+
+- `squeue`/`sacct`/claims/logs on all three accounts:
+  - Account 2: wiped by the 11-04 maintenance.
+  - Account 3: both chains died on dgxb ENOSPC on 11-17/18.
+  - Account 1: fine, on campaign 8.
+  - Details in the header.
+- **Q18 step 2 verified on compute nodes:** staged A5/B4 are the fixed rows on
+  accounts 1, 3A and 3B; account 2 holds the old copy but has not trained
+  since 11-04.
+- **The stale set is 16 runs**, judged from `train_log.jsonl`, job staging
+  times and resume points rather than from the 12 in the header.
+  - Every image tier reads the per-row rendering, including the "clean" ones.
+  - A5 `lead2_clean` seed 456 resumed onto the new rows from a checkpoint
+    written on the old ones.
+  - A5 `multimodal_fusion_lead2` seed 42 started on the old rows on 10-31.
+  - All 16 were archived to `_stale_q18/` (R2 and disks), with their results,
+    extras, figures and eval checkpoints. Commands were shown to the user
+    first.
+- Found and fixed (`03d000a`):
+  - Eval checkpoints were not tied to the predictions they scored.
+  - `_extras.json` was rewritten per tier, so it lost the others.
+  - The text/signal prediction files carried the old `image_type`.
+    `q18_relabel_image_type.py` fixed 48 files, after key alignment.
+  - 4 new tests PASS on dgxa.
+- The DGX checkouts were moved across the history rewrite with `reset --keep`
+  (trap 23).
+- User decisions: cancel the stale eval 37352/37356; relabel rather than
+  retrain text/signal; account 2 runs 15, then 2, then 10 (decision 24); do
+  every recovery step.
+- Submitted:
+  - Account 2: 39989-39996 and 26 evals 39997-40022.
+  - Account 3: 40025-40028.
+  - Account 1: 29659 released, 40034-40038; `acct3b` 40039.

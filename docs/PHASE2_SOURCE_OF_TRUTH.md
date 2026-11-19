@@ -3239,6 +3239,26 @@ stages**, and the second corrects a mis-description in the execution plan.
   trained on the old rows and must be retrained. Signal-only and text-only
   tiers never read the rendering; their training rows only changed in a
   column they ignore, so their results stand. **Disclose in the supplementary** (§S4 verification negatives).
+- **Follow-up, locked 2026-11-19 (user):**
+  - **Which runs are stale.** A run is stale if *any* of its training steps
+    read the old rows, including a run resumed onto the new rows from a
+    checkpoint written on the old ones (A5 `image_resnet50_lead2_clean` seed 456
+    resumed at epoch 0 batch 16266). There are 16 such runs. They are moved,
+    never deleted, to `_stale_q18/` in R2 (under the same account prefix path)
+    and to `outputs/_stale_q18/` on the DGX disks, together with every eval
+    artefact built from them, and they are retrained.
+  - **Text and signal tiers.** Their weights stand. But `30_train.py` copied
+    `image_type` into their prediction files, and §7's `image_type` subgroup is
+    read from there. `image_type` (and nothing else) is rewritten from the fixed
+    task parquet by `scripts/dgx_portability/q18_relabel_image_type.py`, and only
+    after a row-by-row check of `study_id`/`subject_id`/`neg_type`/`y_match`.
+    The originals are kept in `_stale_q18/`, and a `q18_relabel.json` beside
+    each run records both hashes. These tiers are re-evaluated; they are not
+    retrained.
+  - **Eval checkpoints are bound to their predictions.** Each `31_eval.py`
+    checkpoint record carries a content hash of the prediction files it scored,
+    and a mismatch is recomputed. Without this, a retrained tier could have
+    adopted a stale checkpoint's numbers.
 
 ### 12.9 Round 10 — locked 2026-08-28 (the Plan A/B compliance audit)
 

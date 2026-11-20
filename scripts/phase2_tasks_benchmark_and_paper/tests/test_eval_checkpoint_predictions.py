@@ -86,6 +86,32 @@ def test_extras_merge_keeps_other_tiers() -> None:
     assert previous["calibration"]["image_clean"] == {"ece": 0.1}, "input mutated"
 
 
+def test_stored_event_matches_equal_rematching() -> None:
+    """A4 metrics read per-row matches stored once; a resample must score the
+    same as re-matching it, including duplicated rows and empty predictions."""
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(0)
+    truth = [np.sort(rng.choice(5000, 8, replace=False)) for _ in range(40)]
+    pred = [np.sort(t + rng.integers(-8, 9, t.size)) for t in truth]
+    pred[3] = np.array([], dtype="int64")
+    frame = pd.DataFrame({"y_true_r_peaks_lead2": truth, "y_pred_r_peaks": pred})
+    stored = ev.add_event_match_columns(frame, "y_true_r_peaks_lead2", "y_pred_r_peaks")
+    rows = rng.integers(0, len(frame), 60)                       # duplicates on purpose
+    head = type("Head", (), {"kind": "peak_seq", "name": "fiducials"})()
+    fns = ev.head_metric_fns(None, head)
+    rematched = ev.M.aggregate_event_matches([
+        ev.M.match_events(np.asarray(t), np.asarray(p))
+        for t, p in zip(frame.take(rows)["y_true_r_peaks_lead2"],
+                        frame.take(rows)["y_pred_r_peaks"])])
+    for metric, key in (("r_peak_f1", "f1"), ("r_peak_precision", "precision"),
+                        ("r_peak_recall", "recall"),
+                        ("r_peak_mean_abs_error_ms", "mean_abs_error_ms")):
+        assert fns[metric](stored.take(rows)) == rematched[key], metric
+        assert fns[metric](frame.take(rows)) == rematched[key], f"{metric} (no stored columns)"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for test in tests:

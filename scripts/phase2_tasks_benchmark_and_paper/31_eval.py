@@ -127,6 +127,31 @@ def load_eval_config(task: str) -> dict[str, Any]:
 # -----------------------------------------------------------------------------
 # metric callables over a prediction frame
 # -----------------------------------------------------------------------------
+MATCH_FIELDS = ("tp", "fp", "fn", "mean_abs_error_ms")
+# (truth, prediction) columns the peak_seq metrics match.
+EVENT_PAIRS = (("y_true_r_peaks_lead2", "y_pred_r_peaks"),
+               ("y_true_qrs_onsets_lead2", "y_pred_qrs_onsets"),
+               ("y_true_qrs_offsets_lead2", "y_pred_qrs_offsets"))
+
+
+def _match_columns(true_col: str) -> dict[str, str]:
+    return {field: f"_match__{true_col}__{field}" for field in MATCH_FIELDS}
+
+
+def add_event_match_columns(frame: pd.DataFrame, true_col: str, pred_col: str) -> pd.DataFrame:
+    """Each row's `match_events` result, stored as columns.
+
+    A study's match depends on that row alone, and a bootstrap resample only
+    picks rows, so aggregating the stored per-row results is the same number
+    as re-matching every resample -- which cost ~6 s per call on A4's 165k
+    pooled rows, i.e. ~17 CPU-hours per 10,000-iteration unit (2026-11-20).
+    """
+    matches = [M.match_events(np.asarray(t), np.asarray(p))
+               for t, p in zip(frame[true_col], frame[pred_col])]
+    return frame.assign(**{column: np.array([m[field] for m in matches], dtype="float64")
+                           for field, column in _match_columns(true_col).items()})
+
+
 def head_metric_fns(spec, head) -> dict[str, Callable[[pd.DataFrame], float]]:
     """The metric functions for one head, keyed by the name that lands in the CSV."""
     name = head.name
@@ -216,9 +241,11 @@ def head_metric_fns(spec, head) -> dict[str, Callable[[pd.DataFrame], float]]:
 
     if head.kind == "peak_seq":
         def _matches(frame: pd.DataFrame, true_col: str, pred_col: str) -> dict[str, float]:
-            return M.aggregate_event_matches([
-                M.match_events(np.asarray(t), np.asarray(p))
-                for t, p in zip(frame[true_col], frame[pred_col])])
+            columns = _match_columns(true_col)
+            if columns["tp"] not in frame:
+                frame = add_event_match_columns(frame, true_col, pred_col)
+            return M.aggregate_event_counts(
+                *(frame[columns[field]].to_numpy(dtype="float64") for field in MATCH_FIELDS))
 
         return {
             "r_peak_f1": lambda f: _matches(f, "y_true_r_peaks_lead2", "y_pred_r_peaks")["f1"],
@@ -501,6 +528,11 @@ def plan_units(task: str, arch_tier: str, dev: bool, seeds: list[int] | None,
     per_seed = {seed: pd.read_parquet(path) for seed, path in prediction_paths.items()}
     if task == "B6_difficulty_stratified":
         per_seed = {s: attach_b6_tiers(f, dev) for s, f in per_seed.items()}
+    if any(head.kind == "peak_seq" for head in spec.heads):
+        for true_col, pred_col in EVENT_PAIRS:
+            per_seed = {s: add_event_match_columns(f, true_col, pred_col)
+                        if true_col in f and pred_col in f else f
+                        for s, f in per_seed.items()}
     pooled = pooled_across_seeds(list(per_seed.values()))
 
     first = next(iter(per_seed.values()))

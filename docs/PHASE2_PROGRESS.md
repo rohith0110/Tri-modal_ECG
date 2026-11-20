@@ -70,6 +70,17 @@ starting cold reads this first, works, then updates it before the session ends.
     a restart had begun recomputing all 300 A1 units. A1 eval results are in
     `data-laptop/results/` (pushed by hand; the runner log's 14:39 "EVAL
     FAILED A1" is that duplicate being stopped, not a failure).
+  - **2026-11-20 17:45: A4 eval ~6 s -> 0.002 s per metric call.** The
+    peak_seq metrics re-ran `match_events` over all 165k pooled rows on every
+    bootstrap iteration (~17 CPU-hours per unit; 0/54 units after 3 h on 12
+    workers). `plan_units` now stores each row's match as `_match__*` columns
+    once and the metrics aggregate those (`M.aggregate_event_counts`, shared
+    with `aggregate_event_matches`). Old vs new on real A4 resamples,
+    a subgroup and the no-columns fallback: 30/30 bit-identical; new test
+    `test_stored_event_matches_equal_rematching`. Units are now ~30 min each
+    (frame copy + jackknife dominate). **Applies to the DGX's A4 evals too.**
+    Smoke test here: 55 PASS, 15 FAIL -- every failure is a clean-image tier
+    hitting the missing `images/clean_lead2_shard_*.tar` (data gap above).
 - **Last checked:** 2026-11-19 ~14:10 IST (session 27). All four DGX checkouts
   are at `03d000a`.
 - **SESSION 27 (2026-11-19, `campus-laptop`): after the DGX maintenance, and

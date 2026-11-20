@@ -188,17 +188,30 @@ def aggregate_event_matches(matches: list[dict[str, float]]) -> dict[str, float]
     """Micro-averaged F1 over studies -- one beat counts the same everywhere."""
     if not matches:
         return {"f1": float("nan"), "mean_abs_error_ms": float("nan")}
-    tp = sum(m["tp"] for m in matches)
-    fp = sum(m["fp"] for m in matches)
-    fn = sum(m["fn"] for m in matches)
-    precision = tp / (tp + fp) if (tp + fp) else 0.0
-    recall = tp / (tp + fn) if (tp + fn) else 0.0
-    errors = [m["mean_abs_error_ms"] for m in matches if np.isfinite(m["mean_abs_error_ms"])]
+    return aggregate_event_counts(
+        np.array([m["tp"] for m in matches]), np.array([m["fp"] for m in matches]),
+        np.array([m["fn"] for m in matches]),
+        np.array([m["mean_abs_error_ms"] for m in matches]))
+
+
+def aggregate_event_counts(tp: np.ndarray, fp: np.ndarray, fn: np.ndarray,
+                           mean_abs_error_ms: np.ndarray) -> dict[str, float]:
+    """`aggregate_event_matches` over per-study arrays (one entry per study).
+
+    The counts are integer-valued, so their float sums are exact in any order;
+    the error mean is taken over the finite entries in study order.
+    """
+    if tp.size == 0:
+        return {"f1": float("nan"), "mean_abs_error_ms": float("nan")}
+    tp_sum, fp_sum, fn_sum = float(tp.sum()), float(fp.sum()), float(fn.sum())
+    precision = tp_sum / (tp_sum + fp_sum) if (tp_sum + fp_sum) else 0.0
+    recall = tp_sum / (tp_sum + fn_sum) if (tp_sum + fn_sum) else 0.0
+    errors = mean_abs_error_ms[np.isfinite(mean_abs_error_ms)]
     return {
         "f1": float(2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0,
         "precision": float(precision), "recall": float(recall),
-        "mean_abs_error_ms": float(np.mean(errors)) if errors else float("nan"),
-        "n_studies": float(len(matches)),
+        "mean_abs_error_ms": float(np.mean(errors)) if errors.size else float("nan"),
+        "n_studies": float(tp.size),
     }
 
 

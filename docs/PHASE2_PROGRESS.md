@@ -81,6 +81,14 @@ starting cold reads this first, works, then updates it before the session ends.
     (frame copy + jackknife dominate). **Applies to the DGX's A4 evals too.**
     Smoke test here: 55 PASS, 15 FAIL -- every failure is a clean-image tier
     hitting the missing `images/clean_lead2_shard_*.tar` (data gap above).
+  - **2026-11-20 21:20: wide prediction frames narrowed per unit.** A3's
+    frame is 362 columns (78 object); each bootstrap `take` copied all of
+    them, ~3 s -> ~8 CPU-hours per unit x 2,940 units. `unit_columns` keeps
+    the head's own columns + `subject_id` + the subgroup column for
+    binary/multiclass/regression heads, and only when the metric and positive
+    count on the narrowed frame equal the full frame's (else full frame).
+    Real units, narrowed vs full: 9/9 rows byte-identical (A3 multiclass, A1
+    binary, A4 fallback). Also helps every other task's evals, on the DGX too.
 - **Last checked:** 2026-11-19 ~14:10 IST (session 27). All four DGX checkouts
   are at `03d000a`.
 - **SESSION 27 (2026-11-19, `campus-laptop`): after the DGX maintenance, and

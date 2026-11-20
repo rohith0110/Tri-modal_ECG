@@ -388,12 +388,44 @@ def resolve_jobs(requested: int) -> int:
 _UNIT_CTX: dict[str, Any] = {}
 
 
+_NAMED_COLUMN_KINDS = ("binary", "multiclass", "regression")
+
+
+def unit_columns(head, metric_fn, frame: pd.DataFrame, group_key: str) -> list[str] | None:
+    """The columns one unit reads, or None to keep the whole frame.
+
+    Every bootstrap iteration copies the frame it resamples; A3's 362-column
+    prediction frame cost ~3 s per copy, ~8 CPU-hours per 10,000-iteration
+    unit across 2,940 units (2026-11-20). Heads whose columns carry the head
+    name keep only those plus `subject_id` and the subgroup column -- and only
+    if the metric and positive count on the narrowed frame equal the full
+    frame's, so a metric reading some other column falls back instead of
+    changing a number.
+    """
+    if head.kind not in _NAMED_COLUMN_KINDS or frame.empty:
+        return None
+    keep = [c for c in frame.columns if head.name in c or c in ("subject_id", group_key)]
+    try:
+        narrow = frame[keep]
+        full_value, narrow_value = metric_fn(frame), metric_fn(narrow)
+    except KeyError:
+        return None
+    same = full_value == narrow_value or (np.isnan(full_value) and np.isnan(narrow_value))
+    if not same or n_positive_for(head, frame) != n_positive_for(head, narrow):
+        return None
+    return keep
+
+
 def _compute_unit(index: int) -> dict[str, Any]:
     ctx = _UNIT_CTX
     head, metric_name, metric_fn, group_key, group_value = ctx["units"][index]
     sliced_seeds = {s: _slice(f, group_key, group_value)
                     for s, f in ctx["per_seed"].items()}
     sliced_pooled = _slice(ctx["pooled"], group_key, group_value)
+    keep = unit_columns(head, metric_fn, sliced_pooled, group_key)
+    if keep is not None:
+        sliced_seeds = {s: f[keep] for s, f in sliced_seeds.items()}
+        sliced_pooled = sliced_pooled[keep]
     return evaluate_group(ctx["spec"], head, metric_name, metric_fn,
                           sliced_seeds, sliced_pooled, group_key, group_value,
                           ctx["settings"], ctx["meta"])

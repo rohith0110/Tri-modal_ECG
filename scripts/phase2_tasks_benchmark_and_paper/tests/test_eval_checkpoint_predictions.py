@@ -112,6 +112,29 @@ def test_stored_event_matches_equal_rematching() -> None:
         assert fns[metric](frame.take(rows)) == rematched[key], f"{metric} (no stored columns)"
 
 
+def test_unit_columns_narrows_only_when_values_match() -> None:
+    """A unit drops columns its head does not name -- unless the metric reads one."""
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(1)
+    frame = pd.DataFrame({"subject_id": np.arange(50), "sqi_tier": ["high"] * 50,
+                          "valid_af": True, "y_true_af": rng.integers(0, 2, 50),
+                          "y_pred_proba_af": rng.random(50), "other_head_col": rng.random(50)})
+    head = type("Head", (), {"kind": "binary", "name": "af"})()
+    def own(f: pd.DataFrame) -> float:
+        return float(f["y_pred_proba_af"].mean())
+
+    def stray(f: pd.DataFrame) -> float:
+        return float(f["other_head_col"].mean())
+
+    keep = ev.unit_columns(head, own, frame, "sqi_tier")
+    assert keep is not None and "other_head_col" not in keep and "subject_id" in keep
+    assert ev.unit_columns(head, stray, frame, "sqi_tier") is None, "missing column must fall back"
+    peak = type("Head", (), {"kind": "peak_seq", "name": "fiducials"})()
+    assert ev.unit_columns(peak, own, frame, "sqi_tier") is None, "unnamed-column kinds keep all"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for test in tests:

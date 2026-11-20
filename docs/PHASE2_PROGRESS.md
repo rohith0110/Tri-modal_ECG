@@ -63,6 +63,13 @@ starting cold reads this first, works, then updates it before the session ends.
     in 8 h). Spawned workers now re-plan the units from disk once
     (`plan_units`); the fork path on the DGX is unchanged. Serial vs 6 spawned
     workers on real A1 predictions: 30/30 rows identical.
+  - **2026-11-20 14:40: runner eval lane fixes.** Evals are now polled every
+    30 s during training (a finished eval used to wait for the 3.5 h A5 run
+    to end), and a restart skips any (task, tier) whose results CSV is newer
+    than its predictions -- 31_eval deletes its checkpoint after writing, so
+    a restart had begun recomputing all 300 A1 units. A1 eval results are in
+    `data-laptop/results/` (pushed by hand; the runner log's 14:39 "EVAL
+    FAILED A1" is that duplicate being stopped, not a failure).
 - **Last checked:** 2026-11-19 ~14:10 IST (session 27). All four DGX checkouts
   are at `03d000a`.
 - **SESSION 27 (2026-11-19, `campus-laptop`): after the DGX maintenance, and

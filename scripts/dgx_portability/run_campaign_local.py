@@ -22,6 +22,7 @@ resumes from its own checkpoint_last.pt (mains power here is unreliable).
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime as dt
 import json
 import os
@@ -47,6 +48,7 @@ R2_RESULTS = os.environ.get("R2_RESULTS", "r2:trimodal-results")
 REMOTE = f"{R2_RESULTS}/{ME}"
 N_PIECES = 8
 EVAL_CPUS = 12          # ponytail: half the 24 cores; training's loader keeps the rest
+EVAL_POLL_SECONDS = 30
 
 # The chunked bases each claimed campaign reads (campaigns.sh, field 6).
 CAMPAIGN_PIECES: dict[int, tuple[str, ...]] = {
@@ -172,6 +174,18 @@ def push_eval(task: str, since: float) -> bool:
     return ok
 
 
+def eval_is_current(task: str, tier: str) -> bool:
+    """The task CSV holds this tier's rows and is newer than every seed's predictions."""
+    table = OUTPUTS / "results" / f"{task}.csv"
+    predictions = list((OUTPUTS / "model_runs" / task / tier).glob("seed_*/test_predictions.parquet"))
+    if not table.is_file() or not predictions:
+        return False
+    if table.stat().st_mtime < max(p.stat().st_mtime for p in predictions):
+        return False
+    with table.open(newline="", encoding="utf-8") as handle:
+        return any(row.get("arch_tier") == tier for row in csv.DictReader(handle))
+
+
 class EvalLane:
     """One background eval at a time, so training keeps its loader cores."""
 
@@ -181,6 +195,11 @@ class EvalLane:
         self.failed = 0
 
     def submit(self, task: str, tier: str) -> None:
+        if eval_is_current(task, tier):
+            # 31_eval deletes its checkpoint once results are written, so a
+            # re-run after a runner restart would recompute every unit (~11 h).
+            log(f"skip eval {task} / {tier} (results newer than predictions)")
+            return
         if (task, tier) not in self.queue:
             self.queue.append((task, tier))
         self.poll()
@@ -233,10 +252,16 @@ def run_campaign(campaign: int, tasks: list[str], evals: EvalLane) -> int:
         else:
             log(f"train {name}")
             handle = (LOG_DIR / f"c{campaign}_{run.task}_{run.tier}_{run.seed}.log").open("ab")
-            code = subprocess.run([PYTHON, str(TRAIN), "--model-config",
-                                   str(CONFIG_DIR / run.config), "--seed", str(run.seed)],
-                                  cwd=PROJECT_ROOT, env=train_env(campaign),
-                                  stdout=handle, stderr=subprocess.STDOUT).returncode
+            training = subprocess.Popen([PYTHON, str(TRAIN), "--model-config",
+                                         str(CONFIG_DIR / run.config), "--seed", str(run.seed)],
+                                        cwd=PROJECT_ROOT, env=train_env(campaign),
+                                        stdout=handle, stderr=subprocess.STDOUT)
+            # Keep the eval lane moving during multi-hour runs: a finished eval
+            # otherwise waited for the run to end before its push and the next start.
+            while training.poll() is None:
+                evals.poll()
+                time.sleep(EVAL_POLL_SECONDS)
+            code = training.returncode
             handle.close()
             if code != 0 or not is_complete(run):
                 log(f"TRAIN FAILED {name} (exit {code}), continuing")

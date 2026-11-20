@@ -124,6 +124,7 @@ def patient_bootstrap(
     counts = np.fromiter((len(g) for g in groups), dtype=np.int64, count=n_subjects)
     flat = np.concatenate(groups) if n_subjects else np.empty(0, dtype=np.int64)
     starts = np.concatenate(([0], np.cumsum(counts)[:-1])) if n_subjects else counts
+    measure = _row_measure(frame, metric_fn)
 
     for i in range(n_iter):
         picked = rng.integers(0, n_subjects, size=n_subjects)
@@ -133,7 +134,7 @@ def patient_bootstrap(
         block_start = np.repeat(np.cumsum(sel_counts) - sel_counts, sel_counts)
         within = np.arange(total, dtype=np.int64) - block_start
         rows = flat[np.repeat(starts[picked], sel_counts) + within]
-        replicates[i] = metric_fn(frame.take(rows))
+        replicates[i] = measure(rows)
 
     finite = replicates[np.isfinite(replicates)]
     if finite.size < 20:
@@ -156,7 +157,7 @@ def patient_bootstrap(
             method = "percentile_z0_degenerate"
         else:
             z0 = stats.norm.ppf(share)
-            jack, used_groups = _jackknife(frame, groups, metric_fn, n_subjects,
+            jack, used_groups = _jackknife(len(frame), groups, measure, n_subjects,
                                            n_jackknife_groups, seed)
             jack = jack[np.isfinite(jack)]
             if jack.size < 3:
@@ -178,8 +179,32 @@ def patient_bootstrap(
                            n_jackknife_groups=int(used_groups))
 
 
-def _jackknife(frame: pd.DataFrame, groups: list[np.ndarray],
-               metric_fn: Callable[[pd.DataFrame], float], n_subjects: int,
+def _row_measure(frame: pd.DataFrame,
+                 metric_fn: Callable[[pd.DataFrame], float]) -> Callable[[np.ndarray], float]:
+    """``rows -> metric_fn(frame.take(rows))``, through ``metric_fn.on_rows`` when it has one.
+
+    ``on_rows`` computes the same number from per-row draw counts without
+    building the resampled frame (31_eval's AUPRC metrics). It is checked
+    against the frame path on the first call and refused loudly if it differs.
+    """
+    on_rows = getattr(metric_fn, "on_rows", None)
+    if on_rows is None:
+        return lambda rows: metric_fn(frame.take(rows))
+    checked: list[bool] = []
+
+    def measure(rows: np.ndarray) -> float:
+        value = float(on_rows(frame, rows))
+        if not checked:
+            reference = float(metric_fn(frame.take(rows)))
+            if not (value == reference or (np.isnan(value) and np.isnan(reference))):
+                raise RuntimeError(f"on_rows gave {value!r}, the resampled frame {reference!r}")
+            checked.append(True)
+        return value
+    return measure
+
+
+def _jackknife(n_rows: int, groups: list[np.ndarray],
+               measure: Callable[[np.ndarray], float], n_subjects: int,
                n_groups: int, seed: int) -> tuple[np.ndarray, int]:
     """Leave-one-out over subjects, or leave-one-group-out when that is too slow."""
     if n_subjects <= MAX_EXACT_JACKKNIFE:
@@ -190,12 +215,14 @@ def _jackknife(frame: pd.DataFrame, groups: list[np.ndarray],
         blocks = [np.flatnonzero(assignment == g) for g in range(max(1, n_groups))]
         blocks = [b for b in blocks if len(b)]
 
-    all_rows = np.arange(len(frame))
     values = np.empty(len(blocks), dtype="float64")
     for i, block in enumerate(blocks):
-        dropped = np.concatenate([groups[j] for j in block])
-        keep = np.setdiff1d(all_rows, dropped, assume_unique=False)
-        values[i] = metric_fn(frame.iloc[keep]) if keep.size else np.nan
+        # Same sorted rows as np.setdiff1d(arange(n_rows), dropped), which
+        # hashed all rows on every block (~0.4 s x 200 blocks per unit).
+        kept = np.ones(n_rows, dtype=bool)
+        kept[np.concatenate([groups[j] for j in block])] = False
+        keep = np.flatnonzero(kept)
+        values[i] = measure(keep) if keep.size else np.nan
     return values, len(blocks)
 
 

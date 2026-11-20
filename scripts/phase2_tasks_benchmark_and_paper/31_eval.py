@@ -152,6 +152,31 @@ def add_event_match_columns(frame: pd.DataFrame, true_col: str, pred_col: str) -
                            for field, column in _match_columns(true_col).items()})
 
 
+def with_counts_path(metric_fn: Callable[[pd.DataFrame], float],
+                     build: Callable[[pd.DataFrame], Callable[[np.ndarray], float] | None]
+                     ) -> Callable[[pd.DataFrame], float]:
+    """Give ``metric_fn`` an ``on_rows(frame, rows)`` that the bootstrap can call.
+
+    ``build(frame)`` prepares a function of per-row draw counts that returns
+    ``metric_fn(frame.take(rows))`` without materialising the resample (or
+    None when the shortcut does not apply, e.g. non-0/1 labels). The bootstrap
+    checks the two against each other on its first replicate.
+    """
+    prepared: dict[str, Any] = {}
+
+    def on_rows(frame: pd.DataFrame, rows: np.ndarray) -> float:
+        if prepared.get("frame") is not frame:
+            prepared.clear()
+            prepared.update(frame=frame, value=build(frame))
+        value = prepared["value"]
+        if value is None:
+            return float(metric_fn(frame.take(rows)))
+        return value(np.bincount(rows, minlength=len(frame)))
+
+    metric_fn.on_rows = on_rows
+    return metric_fn
+
+
 def head_metric_fns(spec, head) -> dict[str, Callable[[pd.DataFrame], float]]:
     """The metric functions for one head, keyed by the name that lands in the CSV."""
     name = head.name
@@ -160,8 +185,19 @@ def head_metric_fns(spec, head) -> dict[str, Callable[[pd.DataFrame], float]]:
         def _valid(frame: pd.DataFrame) -> pd.DataFrame:
             return frame[frame[f"valid_{name}"].to_numpy(dtype=bool)]
 
+        def _auprc(frame: pd.DataFrame) -> float:
+            part = _valid(frame)
+            return M.auprc(part[f"y_true_{name}"], part[f"y_pred_proba_{name}"])
+
+        def _auprc_on_counts(frame: pd.DataFrame) -> Callable[[np.ndarray], float] | None:
+            curve = M.ResampledAveragePrecision(
+                frame[f"y_true_{name}"].to_numpy(),
+                frame[f"y_pred_proba_{name}"].to_numpy(dtype="float64"),
+                frame[f"valid_{name}"].to_numpy(dtype=bool))
+            return curve.value if curve.usable else None
+
         fns = {
-            "auprc": lambda f: M.auprc(_valid(f)[f"y_true_{name}"], _valid(f)[f"y_pred_proba_{name}"]),
+            "auprc": with_counts_path(_auprc, _auprc_on_counts),
             "auroc": lambda f: M.auroc(_valid(f)[f"y_true_{name}"], _valid(f)[f"y_pred_proba_{name}"]),
         }
         def _f1(frame: pd.DataFrame) -> float:
@@ -209,13 +245,48 @@ def head_metric_fns(spec, head) -> dict[str, Callable[[pd.DataFrame], float]]:
             truth, proba = _proba(frame)
             return float((proba.argmax(axis=1) == truth).mean()) if truth.size else float("nan")
 
-        fns = {"macro_auprc": _macro, "accuracy": _accuracy}
+        def _curves(frame: pd.DataFrame) -> list[M.ResampledAveragePrecision] | None:
+            valid = frame[f"valid_{name}"].to_numpy(dtype=bool)
+            truth = frame[f"y_true_index_{name}"].to_numpy()
+            curves = [M.ResampledAveragePrecision(
+                (truth == i).astype("int64"),
+                frame[f"y_pred_proba_{name}__{c}"].to_numpy(dtype="float64"), valid)
+                for i, c in enumerate(classes)]
+            return curves if all(curve.usable for curve in curves) else None
+
+        def _macro_on_counts(frame: pd.DataFrame) -> Callable[[np.ndarray], float] | None:
+            curves = _curves(frame)
+            if curves is None:
+                return None
+
+            def value(counts: np.ndarray) -> float:
+                values = [v for v in (curve.value(counts) for curve in curves) if np.isfinite(v)]
+                return float(np.mean(values)) if values else float("nan")
+            return value
+
+        def _accuracy_on_counts(frame: pd.DataFrame) -> Callable[[np.ndarray], float]:
+            valid = frame[f"valid_{name}"].to_numpy(dtype=bool)
+            proba = np.column_stack([frame[f"y_pred_proba_{name}__{c}"].to_numpy()
+                                     for c in classes])
+            correct = valid & (proba.argmax(axis=1) == frame[f"y_true_index_{name}"].to_numpy())
+
+            def value(counts: np.ndarray) -> float:
+                scored = int(counts[valid].sum())
+                return float(int(counts[correct].sum()) / scored) if scored else float("nan")
+            return value
+
+        fns = {"macro_auprc": with_counts_path(_macro, _macro_on_counts),
+               "accuracy": with_counts_path(_accuracy, _accuracy_on_counts)}
         for index, class_name in enumerate(classes):
             def _class_auprc(frame: pd.DataFrame, i=index) -> float:
                 truth, proba = _proba(frame)
                 return M.auprc((truth == i).astype("int64"), proba[:, i]) if truth.size \
                     else float("nan")
-            fns[f"auprc__{class_name}"] = _class_auprc
+
+            def _class_on_counts(frame: pd.DataFrame, i=index) -> Callable[[np.ndarray], float] | None:
+                curves = _curves(frame)
+                return None if curves is None else curves[i].value
+            fns[f"auprc__{class_name}"] = with_counts_path(_class_auprc, _class_on_counts)
         return fns
 
     if head.kind == "regression":

@@ -89,6 +89,17 @@ starting cold reads this first, works, then updates it before the session ends.
     count on the narrowed frame equal the full frame's (else full frame).
     Real units, narrowed vs full: 9/9 rows byte-identical (A3 multiclass, A1
     binary, A4 fallback). Also helps every other task's evals, on the DGX too.
+  - **2026-11-21 00:50: AUPRC bootstrap without materialised resamples.**
+    A3 was still ~0.5 s per replicate (a 253k-row sort per class) plus a
+    ~210 s jackknife (`np.setdiff1d` x 200). AUPRC/macro-AUPRC/per-class
+    AUPRC/accuracy now carry `on_rows`: the base frame is sorted once and
+    each resample's curve comes from per-row draw counts
+    (`M.ResampledAveragePrecision`, `M.binary_average_precision` = sklearn
+    1.8's AP without its validation, 1,750/1,750 bit-identical). The
+    jackknife uses a boolean mask. `bootstrap._row_measure` checks `on_rows`
+    against the materialised frame on the first replicate of every unit and
+    raises if they differ. Old vs new code on 14 real A3/A1 units (subgroups
+    and overall, 200 iterations): byte-identical rows, 3-15x faster.
 - **Last checked:** 2026-11-19 ~14:10 IST (session 27). All four DGX checkouts
   are at `03d000a`.
 - **SESSION 27 (2026-11-19, `campus-laptop`): after the DGX maintenance, and

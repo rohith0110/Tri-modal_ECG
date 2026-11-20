@@ -41,7 +41,77 @@ def _clean(y_true: np.ndarray, y_score: np.ndarray) -> tuple[np.ndarray, np.ndar
 
 def auprc(y_true, y_score) -> float:
     cleaned = _clean(y_true, y_score)
-    return float("nan") if cleaned is None else float(average_precision_score(*cleaned))
+    if cleaned is None:
+        return float("nan")
+    truth, score = cleaned
+    if truth.min() == 0 and truth.max() == 1:
+        return binary_average_precision(truth, score)
+    return float(average_precision_score(truth, score))
+
+
+def binary_average_precision(truth: np.ndarray, score: np.ndarray) -> float:
+    """sklearn 1.8's `average_precision_score` for 0/1 labels, minus its validation.
+
+    The same steps as `_binary_clf_curve` + `precision_recall_curve` +
+    `_binary_uninterpolated_average_precision`, so the result is the same
+    float (the order inside a run of tied scores does not matter: only the
+    cumulative counts at the end of each run are kept). sklearn's input checks
+    cost ~0.4 s per call on 253k rows -- the whole bootstrap budget of the A3
+    eval (2,940 units x 10,000 resamples, 2026-11-20).
+    """
+    order = np.argsort(-score, kind="stable")
+    ranked_score = score[order]
+    ranked_truth = truth[order].astype("float64")
+    ends = np.concatenate((np.flatnonzero(np.diff(ranked_score)), [ranked_score.size - 1]))
+    tps = np.cumsum(ranked_truth, dtype="float64")[ends]
+    return _average_precision_from_curve(tps, ends)
+
+
+def _average_precision_from_curve(tps: np.ndarray, ends: np.ndarray) -> float:
+    """sklearn's step integral, from cumulative positives at each tie-run end."""
+    fps = 1 + ends.astype("float64") - tps
+    precision = np.concatenate((np.flip(tps / (tps + fps)), [1.0]))
+    recall = np.concatenate((np.flip(tps / tps[-1]), [0.0]))
+    return float(max(0.0, -np.sum(np.diff(recall) * precision[:-1])))
+
+
+class ResampledAveragePrecision:
+    """`auprc` of row-resamples of one fixed (truth, score) pair, without re-sorting.
+
+    A resample only repeats base rows, so its descending-score order is the
+    base order with each row repeated by its draw count. Summing the counts per
+    tie run gives the same integer positives and run ends as sorting the
+    resample, hence the same float -- at O(rows) per resample instead of a sort.
+    ``usable`` is False when a truth value is not 0/1; callers then fall back.
+    """
+
+    def __init__(self, truth: np.ndarray, score: np.ndarray, eligible: np.ndarray) -> None:
+        truth = np.asarray(truth)
+        score = np.asarray(score, dtype="float64")
+        eligible = (np.asarray(eligible, dtype=bool) & np.isfinite(score)
+                    & ~np.isnan(truth.astype("float64")))
+        rows = np.flatnonzero(eligible)
+        order = np.argsort(-score[rows], kind="stable")
+        self.ranked_rows = rows[order]
+        self.ranked_truth = truth[self.ranked_rows].astype("int64")
+        ranked_score = score[self.ranked_rows]
+        self.run_starts = np.concatenate(([0], np.flatnonzero(np.diff(ranked_score)) + 1)) \
+            if ranked_score.size else np.empty(0, dtype=np.int64)
+        self.usable = bool(np.isin(self.ranked_truth, (0, 1)).all())
+
+    def value(self, counts: np.ndarray) -> float:
+        """`auprc` of the resample that draws base row r ``counts[r]`` times."""
+        drawn = counts[self.ranked_rows]
+        if drawn.sum() == 0:
+            return float("nan")
+        per_run = np.add.reduceat(drawn, self.run_starts)
+        positives_per_run = np.add.reduceat(drawn * self.ranked_truth, self.run_starts)
+        present = per_run > 0
+        totals = np.cumsum(per_run[present])
+        tps = np.cumsum(positives_per_run[present]).astype("float64")
+        if tps[-1] == 0 or tps[-1] == totals[-1]:
+            return float("nan")                     # one class only: _clean's None
+        return _average_precision_from_curve(tps, totals - 1)
 
 
 def auroc(y_true, y_score) -> float:

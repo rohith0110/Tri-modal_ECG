@@ -135,6 +135,30 @@ def test_unit_columns_narrows_only_when_values_match() -> None:
     assert ev.unit_columns(peak, own, frame, "sqi_tier") is None, "unnamed-column kinds keep all"
 
 
+def test_resampled_average_precision_equals_auprc_of_resample() -> None:
+    """AP from draw counts == auprc of the materialised resample: ties, invalid
+    rows, NaN scores, duplicates, and the one-class (NaN) case."""
+    import numpy as np
+
+    rng = np.random.default_rng(2)
+    n = 400
+    truth = rng.integers(0, 2, n)
+    score = np.round(rng.random(n), 2)                            # many ties
+    score[:5] = np.nan
+    eligible = rng.random(n) > 0.1
+    curve = ev.M.ResampledAveragePrecision(truth, score, eligible)
+    assert curve.usable
+    for trial in range(30):
+        rows = rng.integers(0, n, n)
+        rows = rows[eligible[rows]]
+        expected = ev.M.auprc(truth[rows], score[rows])
+        got = curve.value(np.bincount(rows, minlength=n))
+        assert got == expected or (np.isnan(got) and np.isnan(expected)), trial
+    only_negatives = np.flatnonzero(eligible & (truth == 0))
+    assert np.isnan(curve.value(np.bincount(only_negatives, minlength=n)))
+    assert not ev.M.ResampledAveragePrecision(np.full(n, 2), score, eligible).usable
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for test in tests:
